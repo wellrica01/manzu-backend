@@ -1,0 +1,77 @@
+generator client {
+       provider = "prisma-client-js"
+     }
+     datasource db {
+       provider = "postgresql"
+       url      = env("DATABASE_URL")
+     }
+     model Medication {
+       id           Int       @id @default(autoincrement())
+       name         String
+       genericName  String
+       nafdacCode   String    @unique
+       imageUrl     String?
+       pharmacyMedications PharmacyMedication[]
+     }
+     model Pharmacy {
+       id           Int       @id @default(autoincrement())
+       name         String
+       location     Unsupported("geometry(Point, 4326)") // PostGIS point
+       address      String
+       phone        String
+       licenseNumber String   @unique
+       pharmacyMedications PharmacyMedication[]
+       orders       Order[]
+       users        PharmacyUser[]
+     }
+     model PharmacyMedication {
+       pharmacyId   Int
+       medicationId Int
+       stock        Int
+       price        Float
+       pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
+       medication   Medication @relation(fields: [medicationId], references: [id])
+       orderItems   OrderItem[]
+       @@id([pharmacyId, medicationId])
+     }
+     model Prescription {
+       id           Int       @id @default(autoincrement())
+       patientIdentifier String
+       fileUrl      String
+       status       String    @default("pending")
+       verified     Boolean   @default(false)
+       orders       Order[]
+     }
+     model Order {
+       id           Int       @id @default(autoincrement())
+       patientIdentifier String
+       pharmacyId   Int
+       prescriptionId Int?
+       status       String    @default("pending")
+       deliveryMethod String
+       address      String
+       totalPrice   Float
+       trackingCode String    @unique
+       pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
+       prescription Prescription? @relation(fields: [prescriptionId], references: [id])
+       items        OrderItem[]
+     }
+     model OrderItem {
+       orderId      Int
+       pharmacyMedicationPharmacyId Int
+       pharmacyMedicationMedicationId Int
+       quantity     Int
+       price        Float
+       order        Order     @relation(fields: [orderId], references: [id])
+       pharmacyMedication PharmacyMedication @relation(fields: [pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId], references: [pharmacyId, medicationId])
+       @@id([orderId, pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId])
+     }
+     model PharmacyUser {
+       id           Int       @id @default(autoincrement())
+       email        String    @unique
+       password     String
+       name         String
+       role         String    // e.g., "manager", "pharmacist"
+       pharmacyId   Int
+       pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
+     }
