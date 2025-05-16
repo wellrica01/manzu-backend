@@ -1,3 +1,6 @@
+-- CreateEnum
+CREATE TYPE "OrderStatus" AS ENUM ('cart', 'pending', 'confirmed', 'shipped', 'delivered', 'cancelled');
+
 -- CreateTable
 CREATE TABLE "Medication" (
     "id" SERIAL NOT NULL,
@@ -48,11 +51,13 @@ CREATE TABLE "Order" (
     "patientIdentifier" TEXT NOT NULL,
     "pharmacyId" INTEGER NOT NULL,
     "prescriptionId" INTEGER,
-    "status" TEXT NOT NULL DEFAULT 'pending',
-    "deliveryMethod" TEXT NOT NULL,
-    "address" TEXT NOT NULL,
-    "totalPrice" DOUBLE PRECISION NOT NULL,
-    "trackingCode" TEXT NOT NULL,
+    "status" "OrderStatus" NOT NULL DEFAULT 'cart',
+    "deliveryMethod" TEXT DEFAULT 'unspecified',
+    "address" TEXT,
+    "totalPrice" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "trackingCode" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Order_pkey" PRIMARY KEY ("id")
 );

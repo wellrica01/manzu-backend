@@ -1,15 +1,17 @@
 const express = require('express');
      const dotenv = require('dotenv');
-     const userRoutes = require('./routes/user');
+     const medicationRoutes = require('./routes/medication');
      const prescriptionRoutes = require('./routes/prescription');
+     const cartRoutes = require('./routes/cart');
      dotenv.config();
      const app = express();
      const cors = require('cors');
 
      app.use(cors());
      app.use(express.json());
-     app.use('/api', userRoutes);
+     app.use('/api', medicationRoutes);
      app.use('/api/prescription', prescriptionRoutes);
+     app.use('/api/cart', cartRoutes);
      app.use('/uploads', express.static('uploads'));
     
 

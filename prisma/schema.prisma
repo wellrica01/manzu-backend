@@ -16,7 +16,7 @@ generator client {
      model Pharmacy {
        id           Int       @id @default(autoincrement())
        name         String
-       location     Unsupported("geometry(Point, 4326)") // PostGIS point
+       location     Unsupported("geometry(Point, 4326)") 
        address      String
        phone        String
        licenseNumber String   @unique
@@ -42,20 +42,25 @@ generator client {
        verified     Boolean   @default(false)
        orders       Order[]
      }
-     model Order {
-       id           Int       @id @default(autoincrement())
-       patientIdentifier String
-       pharmacyId   Int
-       prescriptionId Int?
-       status       String    @default("pending")
-       deliveryMethod String
-       address      String
-       totalPrice   Float
-       trackingCode String    @unique
-       pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
-       prescription Prescription? @relation(fields: [prescriptionId], references: [id])
-       items        OrderItem[]
-     }
+
+
+    model Order {
+      id                 Int       @id @default(autoincrement())
+      patientIdentifier  String
+      pharmacyId         Int
+      prescriptionId     Int?
+      status             OrderStatus @default(cart)
+      deliveryMethod     String?     @default("unspecified")
+      address            String?
+      totalPrice         Float       @default(0)
+      trackingCode       String?     @unique
+      pharmacy           Pharmacy    @relation(fields: [pharmacyId], references: [id])
+      prescription       Prescription? @relation(fields: [prescriptionId], references: [id])
+      items              OrderItem[]
+      createdAt          DateTime    @default(now())
+      updatedAt          DateTime    @updatedAt
+    }
+
      model OrderItem {
        orderId      Int
        pharmacyMedicationPharmacyId Int
@@ -75,3 +80,12 @@ generator client {
        pharmacyId   Int
        pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
      }
+
+     enum OrderStatus {
+  cart
+  pending
+  confirmed
+  shipped
+  delivered
+  cancelled
+}
