@@ -58,19 +58,22 @@ CREATE TABLE "Order" (
     "trackingCode" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "paymentReference" TEXT,
+    "paymentStatus" TEXT DEFAULT 'pending',
 
     CONSTRAINT "Order_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "OrderItem" (
+    "id" SERIAL NOT NULL,
     "orderId" INTEGER NOT NULL,
     "pharmacyMedicationPharmacyId" INTEGER NOT NULL,
     "pharmacyMedicationMedicationId" INTEGER NOT NULL,
     "quantity" INTEGER NOT NULL,
     "price" DOUBLE PRECISION NOT NULL,
 
-    CONSTRAINT "OrderItem_pkey" PRIMARY KEY ("orderId","pharmacyMedicationPharmacyId","pharmacyMedicationMedicationId")
+    CONSTRAINT "OrderItem_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -93,6 +96,12 @@ CREATE UNIQUE INDEX "Pharmacy_licenseNumber_key" ON "Pharmacy"("licenseNumber");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Order_trackingCode_key" ON "Order"("trackingCode");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Order_paymentReference_key" ON "Order"("paymentReference");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrderItem_orderId_pharmacyMedicationPharmacyId_pharmacyMedi_key" ON "OrderItem"("orderId", "pharmacyMedicationPharmacyId", "pharmacyMedicationMedicationId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "PharmacyUser_email_key" ON "PharmacyUser"("email");

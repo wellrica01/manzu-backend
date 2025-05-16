@@ -3,7 +3,24 @@ const express = require('express');
      const { v4: uuidv4 } = require('uuid');
      const router = express.Router();
      const prisma = new PrismaClient();
-  router.post('/add', async (req, res) => {
+  
+  async function recalculateOrderTotal(orderId) {
+  const items = await prisma.orderItem.findMany({
+    where: { orderId },
+    select: { price: true, quantity: true },
+  });
+
+  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { totalPrice: total },
+  });
+
+  return total;
+}
+  
+     router.post('/add', async (req, res) => {
   try {
     const { medicationId, pharmacyId, quantity } = req.body;
     
@@ -62,18 +79,12 @@ const express = require('express');
         price: pharmacyMedication.price,
       },
     });
+   
+   console.log('Created/Updated OrderItem:', orderItem);
+  
+   // Recalculate the total price of the order
+   await recalculateOrderTotal(order.id);
 
-    // Recalculate the total price of the order
-    const total = await prisma.orderItem.aggregate({
-      _sum: { price: true },
-      where: { orderId: order.id },
-    });
-
-    // Update the total price of the order
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { totalPrice: total._sum.price || 0 },
-    });
 
     // Send the response
     res.status(201).json({ message: 'Added to cart', orderItem, userId });
@@ -100,16 +111,29 @@ const express = require('express');
            },
          });
          if (!order) {
-           return res.status(200).json({ items: [], total: 0 });
+           return res.status(200).json({ items: [], totalPrice: 0 });
          }
-         const items = order.items.map(item => ({
-           id: item.id,
-           medication: { name: item.pharmacyMedication.medication.name },
-           pharmacy: { name: item.pharmacyMedication.pharmacy.name },
-           quantity: item.quantity,
-           price: item.price,
-         }));
-         res.status(200).json({ items, total: order.total });
+          const items = order.items.map(item => {
+            console.log('Mapping OrderItem:', { 
+             id: item.id, 
+             orderId: item.orderId, 
+             medicationId: item.pharmacyMedicationMedicationId,
+             pharmacyId: item.pharmacyMedicationPharmacyId,
+             quantity: item.quantity,
+             price: item.price
+           });  
+            return {
+             id: item.id,
+             medication: { name: item.pharmacyMedication.medication.name },
+             pharmacy: { name: item.pharmacyMedication.pharmacy.name, address: item.pharmacyMedication.pharmacy.address },
+             quantity: item.quantity,
+             price: item.price,
+             pharmacyMedicationMedicationId: item.pharmacyMedicationMedicationId,
+             pharmacyMedicationPharmacyId: item.pharmacyMedicationPharmacyId,
+           };
+         });
+        console.log('GET /api/cart response:', { items, totalPrice: order.totalPrice });
+         res.status(200).json({ items, totalPrice: order.totalPrice });
        } catch (error) {
          console.error('Cart get error:', error);
          res.status(500).json({ message: 'Server error', error: error.message });
@@ -119,6 +143,7 @@ const express = require('express');
        try {
          const { orderItemId, quantity } = req.body;
          const userId = req.headers['x-guest-id'];
+         console.log('Update payload:', { orderItemId, quantity, userId });
          if (!userId || !orderItemId || !quantity || quantity < 1) {
            return res.status(400).json({ message: 'Invalid input' });
          }
@@ -149,14 +174,10 @@ const express = require('express');
            where: { id: orderItemId },
            data: { quantity, price: pharmacyMedication.price },
          });
-         const total = await prisma.orderItem.aggregate({
-           _sum: { price: true },
-           where: { orderId: order.id },
-         });
-         await prisma.order.update({
-           where: { id: order.id },
-           data: { total: total._sum.price || 0 },
-         });
+
+            // Recalculate the total price of the order
+              await recalculateOrderTotal(order.id);
+
          res.status(200).json({ message: 'Cart updated', orderItem: updatedItem });
        } catch (error) {
          console.error('Cart update error:', error);
@@ -179,15 +200,10 @@ const express = require('express');
          await prisma.orderItem.delete({
            where: { id: orderItemId, orderId: order.id },
          });
-         const total = await prisma.orderItem.aggregate({
-           _sum: { price: true },
-           where: { orderId: order.id },
-         });
-         await prisma.order.update({
-           where: { id: order.id },
-           data: { total: total._sum.price || 0 },
-         });
-         res.status(200).json({ message: 'Item removed' });
+
+          // Recalculate the total price of the order
+          await recalculateOrderTotal(order.id);     
+       res.status(200).json({ message: 'Item removed' });
        } catch (error) {
          console.error('Cart remove error:', error);
          res.status(500).json({ message: 'Server error', error: error.message });

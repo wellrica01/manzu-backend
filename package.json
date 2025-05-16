@@ -14,8 +14,10 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@prisma/client": "^6.7.0",
+    "@paystack/inline-js": "^2.22.4",
+    "@prisma/client": "^6.8.1",
     "aws-sdk": "^2.1692.0",
+    "axios": "^1.9.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
@@ -28,6 +30,6 @@
   "devDependencies": {
     "eslint": "^9.26.0",
     "nodemon": "^3.1.10",
-    "prisma": "^6.7.0"
+    "prisma": "^6.8.1"
   }
 }

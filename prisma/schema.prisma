@@ -59,9 +59,12 @@ generator client {
       items              OrderItem[]
       createdAt          DateTime    @default(now())
       updatedAt          DateTime    @updatedAt
+      paymentReference  String?   @unique
+      paymentStatus     String?   @default("pending")
     }
 
      model OrderItem {
+       id           Int       @id @default(autoincrement())
        orderId      Int
        pharmacyMedicationPharmacyId Int
        pharmacyMedicationMedicationId Int
@@ -69,7 +72,7 @@ generator client {
        price        Float
        order        Order     @relation(fields: [orderId], references: [id])
        pharmacyMedication PharmacyMedication @relation(fields: [pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId], references: [pharmacyId, medicationId])
-       @@id([orderId, pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId])
+       @@unique([orderId, pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId])
      }
      model PharmacyUser {
        id           Int       @id @default(autoincrement())
