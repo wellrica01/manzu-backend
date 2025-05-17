@@ -6,6 +6,7 @@ const express = require('express');
      const checkoutRoutes = require('./routes/checkout');
      const confirmationRoutes = require('./routes/confirmation');
      const trackRoutes = require('./routes/track');
+     const pharmacyRoutes = require('./routes/pharmacy');
      dotenv.config();
      const app = express();
      const cors = require('cors');
@@ -19,6 +20,7 @@ const express = require('express');
      app.use('/api/confirmation', confirmationRoutes);
      app.use('/api/track', trackRoutes);
      app.use('/uploads', express.static('uploads'));
+     app.use('/api/pharmacy', pharmacyRoutes);
     
 
      const PORT = process.env.PORT || 5000;
