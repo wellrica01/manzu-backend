@@ -1,16 +1,38 @@
 const express = require('express');
+   const jwt = require('jsonwebtoken');
    const { PrismaClient } = require('@prisma/client');
    const router = express.Router();
    const prisma = new PrismaClient();
-   
-   // Fetch orders for pharmacy
-   router.get('/orders', async (req, res) => {
+   // Middleware to verify JWT
+   const authenticate = (req, res, next) => {
+     const authHeader = req.headers.authorization;
+     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+       console.error('No token provided');
+       return res.status(401).json({ message: 'No token provided' });
+     }
+     const token = authHeader.split(' ')[1];
      try {
-       const pharmacyId = parseInt(req.query.pharmacyId); // Temporary: use query param
-       if (!pharmacyId) {
-         console.error('Missing pharmacy ID');
-         return res.status(400).json({ message: 'Pharmacy ID required' });
-       }
+       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+       req.user = decoded; // { userId, pharmacyId, role }
+       console.log('Token verified:', { userId: decoded.userId, pharmacyId: decoded.pharmacyId });
+       next();
+     } catch (error) {
+       console.error('Invalid token:', { message: error.message });
+       return res.status(401).json({ message: 'Invalid token' });
+     }
+   };
+      // Middleware to verify manager role
+   const authenticateManager = (req, res, next) => {
+     if (req.user.role !== 'manager') {
+       console.error('Unauthorized: Not a manager', { userId: req.user.userId });
+       return res.status(403).json({ message: 'Only managers can perform this action' });
+     }
+     next();
+   };
+   // Fetch orders for pharmacy
+   router.get('/orders', authenticate, async (req, res) => {
+     try {
+       const pharmacyId = req.user.pharmacyId;
        console.log('Fetching orders for pharmacy:', { pharmacyId });
        const orders = await prisma.order.findMany({
          where: {
@@ -66,14 +88,15 @@ const express = require('express');
        res.status(500).json({ message: 'Server error', error: error.message });
      }
    });
-   router.patch('/orders/:orderId', async (req, res) => {
+   // Update order status
+   router.patch('/orders/:orderId', authenticate, async (req, res) => {
      try {
        const { orderId } = req.params;
        const { status } = req.body;
-       const pharmacyId = parseInt(req.query.pharmacyId);
-       if (!orderId || !status || !pharmacyId) {
-         console.error('Missing fields:', { orderId, status, pharmacyId });
-         return res.status(400).json({ message: 'Order ID, status, and pharmacy ID required' });
+       const pharmacyId = req.user.pharmacyId;
+       if (!orderId || !status) {
+         console.error('Missing fields:', { orderId, status });
+         return res.status(400).json({ message: 'Order ID and status required' });
        }
        if (!['processing', 'shipped', 'delivered', 'ready_for_pickup'].includes(status)) {
          console.error('Invalid status:', { status });
@@ -108,13 +131,9 @@ const express = require('express');
      }
    });
    // Fetch pharmacy medications
-   router.get('/medications', async (req, res) => {
+   router.get('/medications', authenticate, async (req, res) => {
      try {
-       const pharmacyId = parseInt(req.query.pharmacyId);
-       if (!pharmacyId) {
-         console.error('Missing pharmacy ID');
-         return res.status(400).json({ message: 'Pharmacy ID required' });
-       }
+       const pharmacyId = req.user.pharmacyId;
        console.log('Fetching medications for pharmacy:', { pharmacyId });
        const medications = await prisma.pharmacyMedication.findMany({
          where: { pharmacyId },
@@ -142,14 +161,14 @@ const express = require('express');
      }
    });
    // Add new pharmacy medication
-   router.post('/medications', async (req, res) => {
+   router.post('/medications', authenticate, async (req, res) => {
      try {
-       const { pharmacyId, medicationId, stock, price } = req.body;
-       if (!pharmacyId || !medicationId || stock == null || price == null) {
+       const { medicationId, stock, price } = req.body;
+       const pharmacyId = req.user.pharmacyId;
+       if (!medicationId || stock == null || price == null) {
          console.error('Missing fields:', { pharmacyId, medicationId, stock, price });
-         return res.status(400).json({ message: 'Pharmacy ID, medication ID, stock, and price required' });
+         return res.status(400).json({ message: 'Medication ID, stock, and price required' });
        }
-       const parsedPharmacyId = parseInt(pharmacyId);
        const parsedMedicationId = parseInt(medicationId);
        const parsedStock = parseInt(stock);
        const parsedPrice = parseFloat(price);
@@ -158,7 +177,7 @@ const express = require('express');
          return res.status(400).json({ message: 'Stock and price must be non-negative' });
        }
        const existing = await prisma.pharmacyMedication.findUnique({
-         where: { pharmacyId_medicationId: { pharmacyId: parsedPharmacyId, medicationId: parsedMedicationId } },
+         where: { pharmacyId_medicationId: { pharmacyId, medicationId: parsedMedicationId } },
        });
        if (existing) {
          console.error('Medication already exists:', { pharmacyId, medicationId });
@@ -167,7 +186,7 @@ const express = require('express');
        console.log('Adding medication:', { pharmacyId, medicationId, stock, price });
        const medication = await prisma.pharmacyMedication.create({
          data: {
-           pharmacyId: parsedPharmacyId,
+           pharmacyId,
            medicationId: parsedMedicationId,
            stock: parsedStock,
            price: parsedPrice,
@@ -191,14 +210,14 @@ const express = require('express');
      }
    });
    // Update pharmacy medication
-   router.patch('/medications', async (req, res) => {
+   router.patch('/medications', authenticate, async (req, res) => {
      try {
-       const { pharmacyId, medicationId, stock, price } = req.body;
-       if (!pharmacyId || !medicationId || stock == null || price == null) {
+       const { medicationId, stock, price } = req.body;
+       const pharmacyId = req.user.pharmacyId;
+       if (!medicationId || stock == null || price == null) {
          console.error('Missing fields:', { pharmacyId, medicationId, stock, price });
-         return res.status(400).json({ message: 'Pharmacy ID, medication ID, stock, and price required' });
+         return res.status(400).json({ message: 'Medication ID, stock, and price required' });
        }
-       const parsedPharmacyId = parseInt(pharmacyId);
        const parsedMedicationId = parseInt(medicationId);
        const parsedStock = parseInt(stock);
        const parsedPrice = parseFloat(price);
@@ -207,7 +226,7 @@ const express = require('express');
          return res.status(400).json({ message: 'Stock and price must be non-negative' });
        }
        const medication = await prisma.pharmacyMedication.findUnique({
-         where: { pharmacyId_medicationId: { pharmacyId: parsedPharmacyId, medicationId: parsedMedicationId } },
+         where: { pharmacyId_medicationId: { pharmacyId, medicationId: parsedMedicationId } },
          include: { medication: true },
        });
        if (!medication) {
@@ -216,7 +235,7 @@ const express = require('express');
        }
        console.log('Updating medication:', { pharmacyId, medicationId, stock, price });
        const updatedMedication = await prisma.pharmacyMedication.update({
-         where: { pharmacyId_medicationId: { pharmacyId: parsedPharmacyId, medicationId: parsedMedicationId } },
+         where: { pharmacyId_medicationId: { pharmacyId, medicationId: parsedMedicationId } },
          data: { stock: parsedStock, price: parsedPrice },
          include: { medication: true },
        });
@@ -237,17 +256,17 @@ const express = require('express');
      }
    });
    // Delete pharmacy medication
-   router.delete('/medications', async (req, res) => {
+   router.delete('/medications', authenticate, async (req, res) => {
      try {
-       const { pharmacyId, medicationId } = req.query;
-       if (!pharmacyId || !medicationId) {
+       const { medicationId } = req.query;
+       const pharmacyId = req.user.pharmacyId;
+       if (!medicationId) {
          console.error('Missing fields:', { pharmacyId, medicationId });
-         return res.status(400).json({ message: 'Pharmacy ID and medication ID required' });
+         return res.status(400).json({ message: 'Medication ID required' });
        }
-       const parsedPharmacyId = parseInt(pharmacyId);
        const parsedMedicationId = parseInt(medicationId);
        const medication = await prisma.pharmacyMedication.findUnique({
-         where: { pharmacyId_medicationId: { pharmacyId: parsedPharmacyId, medicationId: parsedMedicationId } },
+         where: { pharmacyId_medicationId: { pharmacyId, medicationId: parsedMedicationId } },
        });
        if (!medication) {
          console.error('Medication not found:', { pharmacyId, medicationId });
@@ -255,12 +274,31 @@ const express = require('express');
        }
        console.log('Deleting medication:', { pharmacyId, medicationId });
        await prisma.pharmacyMedication.delete({
-         where: { pharmacyId_medicationId: { pharmacyId: parsedPharmacyId, medicationId: parsedMedicationId } },
+         where: { pharmacyId_medicationId: { pharmacyId, medicationId: parsedMedicationId } },
        });
        console.log('Medication deleted:', { pharmacyId, medicationId });
        res.status(200).json({ message: 'Medication deleted' });
      } catch (error) {
        console.error('Delete medication error:', { message: error.message, stack: error.stack });
+       res.status(500).json({ message: 'Server error', error: error.message });
+     }
+   });
+      // Fetch pharmacy users (manager only)
+   router.get('/users', authenticate, authenticateManager, async (req, res) => {
+     try {
+       const pharmacyId = req.user.pharmacyId;
+       console.log('Fetching users for pharmacy:', { pharmacyId });
+       const users = await prisma.pharmacyUser.findMany({
+         where: { pharmacyId },
+         select: { id: true, name: true, email: true, role: true },
+       });
+       console.log('Users fetched:', { pharmacyId, userCount: users.length });
+       res.status(200).json({
+         message: 'Users fetched',
+         users,
+       });
+     } catch (error) {
+       console.error('Fetch users error:', { message: error.message, stack: error.stack });
        res.status(500).json({ message: 'Server error', error: error.message });
      }
    });

@@ -18,6 +18,8 @@ CREATE TABLE "Pharmacy" (
     "name" TEXT NOT NULL,
     "location" geometry(Point, 4326) NOT NULL,
     "address" TEXT NOT NULL,
+    "lga" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
     "phone" TEXT NOT NULL,
     "licenseNumber" TEXT NOT NULL,
 

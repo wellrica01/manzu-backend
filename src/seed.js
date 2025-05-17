@@ -10,10 +10,10 @@ const { PrismaClient } = require('@prisma/client');
          skipDuplicates: true,
        });
        await prisma.$executeRaw`
-         INSERT INTO "Pharmacy" (name, location, address, phone, "licenseNumber")
+         INSERT INTO "Pharmacy" (name, location, address, lga, state, phone, "licenseNumber")
          VALUES
-           ('HealthPlus', ST_SetSRID(ST_MakePoint(3.3792, 6.5244), 4326), '123 Lagos St, Lagos', '08012345678', 'PH123'),
-           ('MedCare', ST_SetSRID(ST_MakePoint(3.3892, 6.5344), 4326), '456 Ikeja Rd, Lagos', '08087654321', 'PH456')
+           ('HealthPlus', ST_SetSRID(ST_MakePoint(3.3792, 6.5244), 4326), '123 Lagos St, Lagos', 'Ikeja', 'Lagos', '08012345678', 'PH123'),
+           ('MedCare', ST_SetSRID(ST_MakePoint(3.3892, 6.5344), 4326), '456 Ikeja Rd, Lagos', 'Ife', 'Lagos', '08087654321', 'PH456')
          ON CONFLICT ("licenseNumber") DO NOTHING;
        `;
        const pharmacyMedications = await prisma.pharmacyMedication.createMany({

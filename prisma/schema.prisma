@@ -18,6 +18,8 @@ generator client {
        name         String
        location     Unsupported("geometry(Point, 4326)") 
        address      String
+       lga          String
+       state        String
        phone        String
        licenseNumber String   @unique
        pharmacyMedications PharmacyMedication[]
