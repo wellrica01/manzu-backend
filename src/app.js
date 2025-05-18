@@ -8,6 +8,8 @@ const express = require('express');
      const trackRoutes = require('./routes/track');
      const pharmacyRoutes = require('./routes/pharmacy');
      const authRoutes = require('./routes/auth');
+     const adminRoutes = require('./routes/admin')
+     require('./jobs/cron');
      require('dotenv').config();
      const app = express();
      const cors = require('cors');
@@ -23,6 +25,7 @@ const express = require('express');
      app.use('/uploads', express.static('uploads'));
      app.use('/api/pharmacy', pharmacyRoutes);
      app.use('/api/auth', authRoutes);
+     app.use('/api/admin', adminRoutes)
 
      const PORT = process.env.PORT || 5000;
      

@@ -9,7 +9,14 @@ generator client {
        id           Int       @id @default(autoincrement())
        name         String
        genericName  String
+       category String?
+       description String?
+       manufacturer String?
+       form String?
+       dosage String?
        nafdacCode   String    @unique
+       prescriptionRequired Boolean @default(false)
+       createdAt          DateTime    @default(now())
        imageUrl     String?
        pharmacyMedications PharmacyMedication[]
      }
@@ -22,27 +29,37 @@ generator client {
        state        String
        phone        String
        licenseNumber String   @unique
+       status       PharmacyStatus   @default(pending) 
+       createdAt          DateTime    @default(now())
+       verifiedAt DateTime?
+       logoUrl String?
+       isActive Boolean @default(true)
        pharmacyMedications PharmacyMedication[]
        orders       Order[]
        users        PharmacyUser[]
      }
+
      model PharmacyMedication {
        pharmacyId   Int
        medicationId Int
        stock        Int
        price        Float
+       receivedDate DateTime?
+       expiryDate   DateTime?
        pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
        medication   Medication @relation(fields: [medicationId], references: [id])
        orderItems   OrderItem[]
        @@id([pharmacyId, medicationId])
      }
+
      model Prescription {
        id           Int       @id @default(autoincrement())
        patientIdentifier String
        fileUrl      String
-       status       String    @default("pending")
+       status       PrescriptionStatus    @default(pending)
        verified     Boolean   @default(false)
        orders       Order[]
+       createdAt    DateTime    @default(now())
      }
 
 
@@ -54,6 +71,8 @@ generator client {
       status             OrderStatus @default(cart)
       deliveryMethod     String?     @default("unspecified")
       address            String?
+      email              String?
+      phone              String?
       totalPrice         Float       @default(0)
       trackingCode       String?     @unique
       pharmacy           Pharmacy    @relation(fields: [pharmacyId], references: [id])
@@ -61,8 +80,11 @@ generator client {
       items              OrderItem[]
       createdAt          DateTime    @default(now())
       updatedAt          DateTime    @updatedAt
+      filledAt DateTime?
+      cancelledAt DateTime?
+      cancelReason String?
       paymentReference  String?   @unique
-      paymentStatus     String?   @default("pending")
+      paymentStatus     PaymentStatus   @default(pending)
     }
 
      model OrderItem {
@@ -76,22 +98,64 @@ generator client {
        pharmacyMedication PharmacyMedication @relation(fields: [pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId], references: [pharmacyId, medicationId])
        @@unique([orderId, pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId])
      }
+
      model PharmacyUser {
        id           Int       @id @default(autoincrement())
        email        String    @unique
        password     String
        name         String
-       role         String    // e.g., "manager", "pharmacist"
+       role         PharmacyUserRole @default(manager)    // e.g., "manager", "pharmacist"
        pharmacyId   Int
+       lastLogin	DateTime?
        pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
+       createdAt DateTime @default(now())
      }
 
-     enum OrderStatus {
+      model AdminUser {
+        id        Int      @id @default(autoincrement())
+        email     String   @unique
+        password  String
+        name      String
+        role      AdminRole @default(admin)   // e.g., "admin", "support"
+        createdAt DateTime @default(now())
+      }
+
+ enum OrderStatus {
   cart
   pending
+  pending_prescription
   confirmed
   processing
   shipped
   delivered
   ready_for_pickup
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  cancelled
+}
+
+enum PharmacyStatus {
+  pending
+  verified
+  rejected
+}
+
+enum PrescriptionStatus {
+  pending
+  verified
+  rejected
+}
+
+enum AdminRole {
+  admin
+  support
+}
+
+enum PharmacyUserRole {
+  manager
+  pharmacist
 }
