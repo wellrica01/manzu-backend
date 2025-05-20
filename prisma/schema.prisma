@@ -129,6 +129,7 @@ generator client {
   shipped
   delivered
   ready_for_pickup
+  cancelled 
 }
 
 enum PaymentStatus {

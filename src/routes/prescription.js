@@ -8,51 +8,25 @@ const twilio = require('twilio');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+console.log('Loading prescription.js routes');
+
 // Configure SendGrid
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Configure Twilio
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-// Middleware to verify JWT and admin role
-   const authenticate = (req, res, next) => {
-     const authHeader = req.headers.authorization;
-     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-       console.error('No token provided');
-       return res.status(401).json({ message: 'No token provided' });
-     }
-     const token = authHeader.split(' ')[1];
-     try {
-       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-       req.user = decoded;
-       console.log('Token verified:', { adminId: decoded.adminId, role: decoded.role });
-       next();
-     } catch (error) {
-       console.error('Invalid token:', { message: error.message });
-       return res.status(401).json({ message: 'Invalid token' });
-     }
-   };
-   const authenticateAdmin = (req, res, next) => {
-     if (req.user.role !== 'admin') {
-       console.error('Unauthorized: Not an admin', { adminId: req.user.adminId });
-       return res.status(403).json({ message: 'Only admins can perform this action' });
-     }
-     next();
-   };
-
-// Configure multer for file uploads
+// Multer setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, 'Uploads/');
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `prescription-${uniqueSuffix}${path.extname(file.originalname)}`);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   },
 });
-
 const upload = multer({
   storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // Limit to 10MB
   fileFilter: (req, file, cb) => {
     const filetypes = /pdf|jpg|jpeg|png/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
@@ -60,173 +34,219 @@ const upload = multer({
     if (extname && mimetype) {
       return cb(null, true);
     }
-    cb(new Error('Only PDF, JPG, JPEG, and PNG files are allowed'));
+    cb(new Error('Invalid file type. Only PDF, JPG, JPEG, and PNG are allowed.'));
   },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
 });
 
-// Send multi-channel notification
-const sendVerificationNotification = async (email, phone, orderId, status) => {
-  const resumeUrl = `http://localhost:3000/checkout/resume/${orderId}`;
-  const message = status === 'verified'
-    ? `Your prescription is verified. Complete payment: ${resumeUrl}`
-    : 'Your prescription was rejected. Your order is cancelled. Contact support.';
 
-  const results = [];
-
-  // Email via SendGrid
-  if (email && /\S+@\S+\.\S+/.test(email)) {
-    try {
-      await sgMail.send({
-        to: email,
-        from: process.env.SENDGRID_FROM_EMAIL || 'no-reply@yourapp.com',
-        subject: status === 'verified' ? 'Prescription Verified' : 'Prescription Rejected',
-        html: `<p>${message}</p>`,
-      });
-      results.push({ channel: 'email', status: 'success', email });
-    } catch (error) {
-      console.error('SendGrid error:', { message: error.message, stack: error.stack });
-      results.push({ channel: 'email', status: 'failed', error: error.message });
-    }
+// Middleware
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    console.error('No token provided');
+    return res.status(401).json({ message: 'No token provided' });
   }
+  const token = authHeader.replace('Bearer ', '');
+try {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  console.log('Token verified:', { adminId: decoded.adminId, role: decoded.role });
+  req.user = decoded;
+  next();
+} catch (error) {
+  if (error.name === 'TokenExpiredError') {
+    return res.status(401).json({ message: 'Token expired' });
+  }
+  console.error('Invalid token:', { message: error.message });
+  return res.status(401).json({ message: 'Invalid token' });
+}
 
-  // SMS via Twilio
-  if (phone && /^\+\d{10,15}$/.test(phone)) {
-    try {
+};
+
+const authenticateAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    console.error('Unauthorized: Not an admin', { adminId: req.user?.adminId });
+    return res.status(403).json({ message: 'Only admins can perform this action' });
+  }
+  next();
+};
+
+const sendVerificationNotification = async (prescription, status, order) => {
+  try {
+    const email = order?.email;
+    const phone = order?.phone;
+    if (!email && !phone) {
+      console.warn('No contact details for order:', { orderId: order.id });
+      return;
+    }
+    let msg = {};
+    if (status === 'verified') {
+      const paymentLink = `${process.env.PAYMENT_URL}/${order?.id}`;
+      msg = {
+        to: email,
+        from: process.env.SENDGRID_FROM_EMAIL,
+        subject: 'Prescription Verified',
+        text: `Your prescription #${prescription.id} has been verified for order #${order.id}. Complete your payment here: ${paymentLink}`,
+      };
+    } else {
+      msg = {
+        to: email,
+        from: process.env.SENDGRID_FROM_EMAIL,
+        subject: 'Prescription Rejected',
+        text: `Your prescription #${prescription.id} for order #${order.id} has been rejected. Please contact support.`,
+      };
+    }
+    if (email) {
+      await sgMail.send(msg);
+      console.log('Email sent:', { email, status, orderId: order.id });
+    }
+
+    if (phone) {
+      const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
       await twilioClient.messages.create({
-        body: message,
+        body: status === 'verified'
+          ? `Prescription #${prescription.id} verified for order #${order.id}. Pay here: ${process.env.PAYMENT_URL}/${order.id}`
+          : `Prescription #${prescription.id} rejected for order #${order.id}. Contact support.`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: phone,
       });
-      results.push({ channel: 'sms', status: 'success', phone });
-    } catch (error) {
-      console.error('Twilio SMS error:', { message: error.message, stack: error.stack });
-      results.push({ channel: 'sms', status: 'failed', error: error.message });
+      console.log('SMS sent:', { phone, status, orderId: order.id });
     }
+  } catch (error) {
+    console.error('Notification error:', { message: error.message, orderId: order.id });
   }
-
-  console.log('Notification results:', results);
-
-  // Throw if all channels failed
-  if (results.length > 0 && results.every(result => result.status === 'failed')) {
-    throw new Error('All notification channels failed');
-  }
-
-  return results;
 };
 
 // Upload prescription
 router.post('/upload', upload.single('prescriptionFile'), async (req, res) => {
   try {
+    console.log('Received request for /api/prescriptions/upload');
     if (!req.file) {
-      console.error('No file uploaded');
       return res.status(400).json({ message: 'No file uploaded' });
     }
-
     const { patientIdentifier } = req.body;
-    if (!patientIdentifier || typeof patientIdentifier !== 'string' || patientIdentifier.trim().length === 0) {
-      console.error('Invalid patient identifier:', { patientIdentifier });
-      return res.status(400).json({ message: 'Valid patient identifier is required' });
+    if (!patientIdentifier) {
+      return res.status(400).json({ message: 'Patient identifier is required' });
     }
-
     const prescription = await prisma.prescription.create({
       data: {
-        patientIdentifier: patientIdentifier.trim(),
-        fileUrl: `/uploads/${req.file.filename}`,
+        patientIdentifier,
+        fileUrl: `/Uploads/${req.file.filename}`,
         status: 'pending',
         verified: false,
       },
     });
-
-    console.log('Prescription uploaded:', { id: prescription.id, patientIdentifier });
-
+    console.log('Prescription uploaded:', { prescriptionId: prescription.id });
     res.status(201).json({ message: 'Prescription uploaded successfully', prescription });
   } catch (error) {
-    console.error('Upload error:', { message: error.message, stack: error.stack });
+    console.error('Upload error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// Verify prescription (admin-only)
-router.patch('/:id/verify', authenticateAdmin, authenticate, async (req, res) => {
+// Verify prescription
+router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) => {
+  console.log('Reached PATCH /prescriptions/:id/verify', { id: req.params.id });
   try {
-    const { id } = req.params;
     const { status } = req.body;
-
-    // Validate input
-    if (!id || isNaN(parseInt(id))) {
-      console.error('Invalid prescription ID:', { id });
-      return res.status(400).json({ message: 'Valid prescription ID is required' });
-    }
-
     if (!['verified', 'rejected'].includes(status)) {
-      console.error('Invalid status:', { status });
-      return res.status(400).json({ message: 'Status must be "verified" or "rejected"' });
+      return res.status(400).json({ message: 'Invalid status. Use verified or rejected' });
     }
 
-    // Find prescription and associated order
+    // Find prescription and associated orders
     const prescription = await prisma.prescription.findUnique({
-      where: { id: parseInt(id) },
-      include: { order: true },
+      where: { id: Number(req.params.id) },
+      include: {
+        orders: {
+          include: {
+            pharmacy: true, // Include pharmacy details
+            items: {
+              include: {
+                pharmacyMedication: {
+                  include: { medication: true }, // Include medication details
+                },
+              },
+            },
+          },
+        },
+      },
     });
-
     if (!prescription) {
-      console.error('Prescription not found:', { id });
+      console.error('Prescription not found:', { id: req.params.id });
       return res.status(404).json({ message: 'Prescription not found' });
     }
 
-    if (!prescription.order) {
-      console.error('No order associated with prescription:', { id });
-      return res.status(400).json({ message: 'No order associated with this prescription' });
+    if (prescription.status !== 'pending') {
+      return res.status(400).json({ message: 'Prescription is already processed' });
     }
 
-    // Update prescription and order in a transaction
     const updatedPrescription = await prisma.$transaction(async (tx) => {
-      const prescription = await tx.prescription.update({
-        where: { id: parseInt(id) },
+      // Update prescription
+      const prescriptionUpdate = await tx.prescription.update({
+        where: { id: Number(req.params.id) },
         data: {
           status,
           verified: status === 'verified',
-          updatedAt: new Date(),
         },
       });
 
-      if (status === 'rejected') {
-        await tx.order.update({
-          where: { id: prescription.order.id },
-          data: {
-            status: 'cancelled',
-            cancelReason: 'Prescription rejected',
-            cancelledAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-        // Release stock
-        for (const item of prescription.order.items) {
-          await tx.pharmacyMedication.update({
-            where: {
-              pharmacyId_medicationId: {
-                pharmacyId: item.pharmacyMedicationPharmacyId,
-                medicationId: item.pharmacyMedicationMedicationId,
+      // Handle orders
+      if (prescription.orders && prescription.orders.length > 0) {
+        if (status === 'rejected') {
+          // Cancel all orders
+          for (const order of prescription.orders) {
+            await tx.order.update({
+              where: { id: order.id },
+              data: {
+                status: 'cancelled',
+                cancelReason: 'Prescription rejected',
+                cancelledAt: new Date(),
               },
-            },
-            data: { stock: { increment: item.quantity } },
-          });
+            });
+
+            // Restore stock for each order's items
+            if (order.items && order.items.length > 0) {
+              for (const item of order.items) {
+                await tx.pharmacyMedication.update({
+                  where: {
+                    pharmacyId_medicationId: {
+                      pharmacyId: item.pharmacyMedicationPharmacyId,
+                      medicationId: item.pharmacyMedicationMedicationId,
+                    },
+                  },
+                  data: {
+                    stock: { increment: item.quantity },
+                  },
+                });
+              }
+            }
+          }
+        } else if (status === 'verified') {
+          // Optionally update order status (e.g., to 'confirmed')
+          for (const order of prescription.orders) {
+            await tx.order.update({
+              where: { id: order.id },
+              data: {
+                status: 'confirmed', // Adjust status as needed
+              },
+            });
+          }
         }
       }
 
-      return prescription;
+      return prescriptionUpdate;
     });
 
-     // Send notifications
-    const { email, phone } = prescription.order;
-    await sendVerificationNotification(email, phone, prescription.order.id, status);
+    // Send notifications for each order
+    if (prescription.orders && prescription.orders.length > 0) {
+      for (const order of prescription.orders) {
+        await sendVerificationNotification(updatedPrescription, status, order);
+      }
+    }
 
-    console.log('Prescription updated:', { id, status, orderId: prescription.order.id });
-
+    console.log('Prescription updated:', { prescriptionId: updatedPrescription.id, status, orderCount: prescription.orders.length });
     res.status(200).json({ message: 'Prescription updated', prescription: updatedPrescription });
   } catch (error) {
-    console.error('Verification error:', { message: error.message, stack: error.stack });
+    console.error('Verification error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
