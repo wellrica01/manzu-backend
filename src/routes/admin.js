@@ -20,7 +20,7 @@ const editPharmacySchema = z.object({
   phone: z.string().regex(/^\+?\d{10,15}$/, 'Invalid phone number'),
   licenseNumber: z.string().min(1, 'License number required'),
   status: z.enum(['pending', 'verified', 'rejected']),
-  logoUrl: z.string().url('Invalid URL').optional(),
+  logoUrl: z.string().url('Invalid URL').optional().or(z.literal('')).transform((val) => (val === '' ? undefined : val)),  
   isActive: z.boolean(),
 });
 
