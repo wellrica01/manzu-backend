@@ -7,17 +7,25 @@ const prisma = new PrismaClient();
 async function recalculateOrderTotal(prisma, orderId) {
   const items = await prisma.orderItem.findMany({
     where: { orderId },
-    select: { price: true, quantity: true },
+    select: { price: true, quantity: true, pharmacyMedicationPharmacyId: true },
   });
 
+  // Calculate total for the entire order
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  // Calculate per-pharmacy subtotals (optional for frontend)
+  const subtotals = items.reduce((acc, item) => {
+    const pharmacyId = item.pharmacyMedicationPharmacyId;
+    acc[pharmacyId] = (acc[pharmacyId] || 0) + item.price * item.quantity;
+    return acc;
+  }, {});
 
   const updatedOrder = await prisma.order.update({
     where: { id: orderId },
     data: { totalPrice: total, updatedAt: new Date() },
   });
 
-  return updatedOrder;
+  return { updatedOrder, subtotals };
 }
 
 router.post('/add', async (req, res) => {
@@ -42,7 +50,7 @@ router.post('/add', async (req, res) => {
       where: { patientIdentifier: userId, status: 'cart' },
     });
 
-    // If no order exists, create a new one
+    // If no order exists, create a new one without pharmacyId
     if (!order) {
       order = await prisma.order.create({
         data: {
@@ -50,7 +58,6 @@ router.post('/add', async (req, res) => {
           status: 'cart',
           totalPrice: 0,
           deliveryMethod: 'unspecified',
-          pharmacyId: pharmacyId,
           paymentStatus: 'pending',
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -90,15 +97,14 @@ router.post('/add', async (req, res) => {
         },
       });
 
-      await recalculateOrderTotal(tx, order.id);
+      const { updatedOrder } = await recalculateOrderTotal(tx, order.id);
 
-      return orderItem;
+      return { orderItem, order: updatedOrder };
     });
 
-    console.log('Created/Updated OrderItem:', result);
+    console.log('Created/Updated OrderItem:', result.orderItem);
 
-    // Send the response
-    res.status(201).json({ message: 'Added to cart', orderItem: result, userId });
+    res.status(201).json({ message: 'Added to cart', orderItem: result.orderItem, userId });
   } catch (error) {
     console.error('Cart add error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -122,37 +128,41 @@ router.get('/', async (req, res) => {
       },
     });
     if (!order) {
-      return res.status(200).json({ items: [], totalPrice: 0 });
+      return res.status(200).json({ items: [], totalPrice: 0, pharmacies: [] });
     }
-    const items = order.items.map(item => {
-      console.log('Mapping OrderItem:', {
+    // Group items by pharmacy
+    const pharmacyGroups = order.items.reduce((acc, item) => {
+      const pharmacyId = item.pharmacyMedicationPharmacyId;
+      if (!acc[pharmacyId]) {
+        acc[pharmacyId] = {
+          pharmacy: {
+            id: pharmacyId,
+            name: item.pharmacyMedication.pharmacy.name,
+            address: item.pharmacyMedication.pharmacy.address,
+          },
+          items: [],
+          subtotal: 0,
+        };
+      }
+      acc[pharmacyId].items.push({
         id: item.id,
-        orderId: item.orderId,
-        medicationId: item.pharmacyMedicationMedicationId,
-        pharmacyId: item.pharmacyMedicationPharmacyId,
-        quantity: item.quantity,
-        price: item.price,
-      });
-      return {
-        id: item.id,
-        medication: { 
+        medication: {
           name: item.pharmacyMedication.medication.name,
           displayName: `${item.pharmacyMedication.medication.name}${item.pharmacyMedication.medication.dosage ? ` ${item.pharmacyMedication.medication.dosage}` : ''}${item.pharmacyMedication.medication.form ? ` (${item.pharmacyMedication.medication.form})` : ''}`,
           category: item.pharmacyMedication.medication.category,
           prescriptionRequired: item.pharmacyMedication.medication.prescriptionRequired,
         },
-        pharmacy: { 
-          name: item.pharmacyMedication.pharmacy.name, 
-          address: item.pharmacyMedication.pharmacy.address 
-        },
         quantity: item.quantity,
         price: item.price,
         pharmacyMedicationMedicationId: item.pharmacyMedicationMedicationId,
         pharmacyMedicationPharmacyId: item.pharmacyMedicationPharmacyId,
-      };
-    });
-    console.log('GET /api/cart response:', { items, totalPrice: order.totalPrice });
-    res.status(200).json({ items, totalPrice: order.totalPrice });
+      });
+      acc[pharmacyId].subtotal += item.quantity * item.price;
+      return acc;
+    }, {});
+    const pharmacies = Object.values(pharmacyGroups);
+    console.log('GET /api/cart response:', { pharmacies, totalPrice: order.totalPrice });
+    res.status(200).json({ pharmacies, totalPrice: order.totalPrice });
   } catch (error) {
     console.error('Cart get error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });

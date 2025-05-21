@@ -1,126 +1,145 @@
 generator client {
-       provider = "prisma-client-js"
-     }
-     datasource db {
-       provider = "postgresql"
-       url      = env("DATABASE_URL")
-     }
-     model Medication {
-       id           Int       @id @default(autoincrement())
-       name         String
-       genericName  String
-       category String?
-       description String?
-       manufacturer String?
-       form String?
-       dosage String?
-       nafdacCode   String    @unique
-       prescriptionRequired Boolean @default(false)
-       createdAt          DateTime    @default(now())
-       imageUrl     String?
-       pharmacyMedications PharmacyMedication[]
-     }
-     model Pharmacy {
-       id           Int       @id @default(autoincrement())
-       name         String
-       location     Unsupported("geometry(Point, 4326)") 
-       address      String
-       lga          String
-       state        String
-       phone        String
-       licenseNumber String   @unique
-       status       PharmacyStatus   @default(pending) 
-       createdAt          DateTime    @default(now())
-       verifiedAt DateTime?
-       logoUrl String?
-       isActive Boolean @default(true)
-       pharmacyMedications PharmacyMedication[]
-       orders       Order[]
-       users        PharmacyUser[]
-     }
+  provider = "prisma-client-js"
+}
 
-     model PharmacyMedication {
-       pharmacyId   Int
-       medicationId Int
-       stock        Int
-       price        Float
-       receivedDate DateTime?
-       expiryDate   DateTime?
-       pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
-       medication   Medication @relation(fields: [medicationId], references: [id])
-       orderItems   OrderItem[]
-       @@id([pharmacyId, medicationId])
-     }
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
-     model Prescription {
-       id           Int       @id @default(autoincrement())
-       patientIdentifier String
-       fileUrl      String
-       status       PrescriptionStatus    @default(pending)
-       verified     Boolean   @default(false)
-       orders       Order[]
-       createdAt    DateTime    @default(now())
-     }
+model Medication {
+  id                   Int                  @id @default(autoincrement())
+  name                 String
+  genericName          String
+  category             String?
+  description          String?
+  manufacturer         String?
+  form                 String?
+  dosage               String?
+  nafdacCode           String               @unique
+  prescriptionRequired Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  imageUrl             String?
+  pharmacyMedications  PharmacyMedication[]
 
+  @@index([genericName], map: "idx_medication_genericname")
+  @@index([name], map: "idx_medication_name")
+}
 
-    model Order {
-      id                 Int       @id @default(autoincrement())
-      patientIdentifier  String
-      pharmacyId         Int
-      prescriptionId     Int?
-      status             OrderStatus @default(cart)
-      deliveryMethod     String?     @default("unspecified")
-      address            String?
-      email              String?
-      phone              String?
-      totalPrice         Float       @default(0)
-      trackingCode       String?     @unique
-      pharmacy           Pharmacy    @relation(fields: [pharmacyId], references: [id])
-      prescription       Prescription? @relation(fields: [prescriptionId], references: [id])
-      items              OrderItem[]
-      createdAt          DateTime    @default(now())
-      updatedAt          DateTime    @updatedAt
-      filledAt DateTime?
-      cancelledAt DateTime?
-      cancelReason String?
-      paymentReference  String?   @unique
-      paymentStatus     PaymentStatus   @default(pending)
-    }
+model Pharmacy {
+  id                  Int                     @id @default(autoincrement())
+  name                String
+  location            Unsupported("geometry")
+  address             String
+  lga                 String
+  state               String
+  phone               String
+  licenseNumber       String                  @unique
+  status              PharmacyStatus          @default(pending)
+  createdAt           DateTime                @default(now())
+  verifiedAt          DateTime?
+  logoUrl             String?
+  isActive            Boolean                 @default(true)
+  orders              Order[]
+  pharmacyMedications PharmacyMedication[]
+  users               PharmacyUser[]
 
-     model OrderItem {
-       id           Int       @id @default(autoincrement())
-       orderId      Int
-       pharmacyMedicationPharmacyId Int
-       pharmacyMedicationMedicationId Int
-       quantity     Int
-       price        Float
-       order        Order     @relation(fields: [orderId], references: [id])
-       pharmacyMedication PharmacyMedication @relation(fields: [pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId], references: [pharmacyId, medicationId])
-       @@unique([orderId, pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId])
-     }
+  @@index([location], map: "idx_pharmacy_location", type: Gist)
+}
 
-     model PharmacyUser {
-       id           Int       @id @default(autoincrement())
-       email        String    @unique
-       password     String
-       name         String
-       role         PharmacyUserRole @default(manager)    // e.g., "manager", "pharmacist"
-       pharmacyId   Int
-       lastLogin	DateTime?
-       pharmacy     Pharmacy  @relation(fields: [pharmacyId], references: [id])
-       createdAt DateTime @default(now())
-     }
+model PharmacyMedication {
+  pharmacyId   Int
+  medicationId Int
+  stock        Int
+  price        Float
+  receivedDate DateTime?
+  expiryDate   DateTime?
+  orderItems   OrderItem[]
+  medication   Medication  @relation(fields: [medicationId], references: [id])
+  pharmacy     Pharmacy    @relation(fields: [pharmacyId], references: [id])
 
-      model AdminUser {
-        id        Int      @id @default(autoincrement())
-        email     String   @unique
-        password  String
-        name      String
-        role      AdminRole @default(admin)   // e.g., "admin", "support"
-        createdAt DateTime @default(now())
-      }
+  @@id([pharmacyId, medicationId])
+}
 
- enum OrderStatus {
+model Prescription {
+  id                Int                @id @default(autoincrement())
+  patientIdentifier String
+  fileUrl           String
+  status            PrescriptionStatus @default(pending)
+  verified          Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  orders            Order[]
+}
+
+model Order {
+  id                Int           @id @default(autoincrement())
+  patientIdentifier String
+  pharmacyId        Int?
+  prescriptionId    Int?
+  status            OrderStatus   @default(cart)
+  deliveryMethod    String?       @default("unspecified")
+  address           String?
+  email             String?
+  phone             String?
+  totalPrice        Float         @default(0)
+  trackingCode      String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  filledAt          DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  paymentReference  String?       @unique
+  paymentStatus     PaymentStatus @default(pending)
+  checkoutSessionId String?       @db.VarChar
+  pharmacy          Pharmacy?     @relation(fields: [pharmacyId], references: [id], onDelete: Restrict)
+  prescription      Prescription? @relation(fields: [prescriptionId], references: [id])
+  items             OrderItem[]
+}
+
+model OrderItem {
+  id                             Int                @id @default(autoincrement())
+  orderId                        Int
+  pharmacyMedicationPharmacyId   Int
+  pharmacyMedicationMedicationId Int
+  quantity                       Int
+  price                          Float
+  order                          Order              @relation(fields: [orderId], references: [id])
+  pharmacyMedication             PharmacyMedication @relation(fields: [pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId], references: [pharmacyId, medicationId])
+
+  @@unique([orderId, pharmacyMedicationPharmacyId, pharmacyMedicationMedicationId])
+}
+
+model PharmacyUser {
+  id         Int              @id @default(autoincrement())
+  email      String           @unique
+  password   String
+  name       String
+  role       PharmacyUserRole @default(manager)
+  pharmacyId Int
+  lastLogin  DateTime?
+  createdAt  DateTime         @default(now())
+  pharmacy   Pharmacy         @relation(fields: [pharmacyId], references: [id])
+}
+
+model AdminUser {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  name      String
+  role      AdminRole @default(admin)
+  createdAt DateTime  @default(now())
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model spatial_ref_sys {
+  srid      Int     @id
+  auth_name String? @db.VarChar(256)
+  auth_srid Int?
+  srtext    String? @db.VarChar(2048)
+  proj4text String? @db.VarChar(2048)
+}
+
+enum OrderStatus {
   cart
   pending
   pending_prescription
@@ -129,7 +148,7 @@ generator client {
   shipped
   delivered
   ready_for_pickup
-  cancelled 
+  cancelled
 }
 
 enum PaymentStatus {
