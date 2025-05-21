@@ -137,6 +137,7 @@ router.get('/', async (req, res) => {
         id: item.id,
         medication: { 
           name: item.pharmacyMedication.medication.name,
+          displayName: `${item.pharmacyMedication.medication.name}${item.pharmacyMedication.medication.dosage ? ` ${item.pharmacyMedication.medication.dosage}` : ''}${item.pharmacyMedication.medication.form ? ` (${item.pharmacyMedication.medication.form})` : ''}`,
           category: item.pharmacyMedication.medication.category,
           prescriptionRequired: item.pharmacyMedication.medication.prescriptionRequired,
         },
