@@ -45,25 +45,37 @@ router.post('/add', async (req, res) => {
 
     let userId = req.headers['x-guest-id'] || uuidv4();
 
-    // Check if an order already exists for this user
-    let order = await prisma.order.findFirst({
-      where: { patientIdentifier: userId, status: 'cart' },
-    });
+// Check if an order already exists for this user
+let order = await prisma.order.findFirst({
+  where: {
+    patientIdentifier: userId,
+    status: { in: ['pending_prescription', 'pending', 'cart'] },
+  },
+});
 
-    // If no order exists, create a new one without pharmacyId
-    if (!order) {
-      order = await prisma.order.create({
-        data: {
-          patientIdentifier: userId,
-          status: 'cart',
-          totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
-    }
+// If order exists and isn't in 'cart' status, update it
+if (order) {
+  if (order.status !== 'cart') {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { status: 'cart' },
+    });
+  }
+} else {
+  // If no order exists, create a new one
+  order = await prisma.order.create({
+    data: {
+      patientIdentifier: userId,
+      status: 'cart',
+      totalPrice: 0,
+      deliveryMethod: 'unspecified',
+      paymentStatus: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+}
+
 
     // Check if the medication is available at the selected pharmacy with sufficient stock
     const pharmacyMedication = await prisma.pharmacyMedication.findFirst({
@@ -125,6 +137,7 @@ router.get('/', async (req, res) => {
             pharmacyMedication: { include: { pharmacy: true, medication: true } },
           },
         },
+        prescription: true,
       },
     });
     if (!order) {
@@ -162,7 +175,11 @@ router.get('/', async (req, res) => {
     }, {});
     const pharmacies = Object.values(pharmacyGroups);
     console.log('GET /api/cart response:', { pharmacies, totalPrice: order.totalPrice });
-    res.status(200).json({ pharmacies, totalPrice: order.totalPrice });
+    res.status(200).json({ 
+      pharmacies, 
+      totalPrice: order.totalPrice,
+      prescriptionId: order.prescriptionId ?? order.prescription?.id ?? null,
+     });
   } catch (error) {
     console.error('Cart get error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });

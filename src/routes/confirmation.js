@@ -35,7 +35,9 @@ router.get('/', async (req, res) => {
             },
           },
         },
-        prescription: true,
+        prescription: {
+          include: { PrescriptionMedication: true },
+        },
         pharmacy: true,
       },
     });
@@ -49,7 +51,7 @@ router.get('/', async (req, res) => {
     const trackingCode = orders[0].trackingCode || `TRK-SESSION-${session || orders[0].id}-${Date.now()}`;
     let status = 'completed';
 
-    // Verify Paystack transaction if reference is provided (OTC orders)
+    // Verify Paystack transaction if reference is provided
     if (reference) {
       if (!isValidReference(reference)) {
         console.error('Invalid reference format:', { reference });
@@ -83,43 +85,78 @@ router.get('/', async (req, res) => {
       }
     }
 
-// Update orders in a transaction
-const updatedOrders = await prisma.$transaction(async (tx) => {
-  const updated = [];
-  const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
-  const trackingCode = existingTrackingCode || `TRK-SESSION-${session || orders[0].id}-${Date.now()}`;
-  for (const order of orders) {
-    // Update orders linked to the Paystack reference or any OTC order in the session
-    const isOtcOrder = !order.prescriptionId && reference && order.checkoutSessionId === session;
-    const newStatus = isOtcOrder ? 'confirmed' : order.status;
-    const newPaymentStatus = isOtcOrder ? 'paid' : order.paymentStatus;
-    if (order.status === 'pending_prescription') {
-      status = 'pending_prescription';
-    }
-    const updatedOrder = await tx.order.update({
-      where: { id: order.id },
-      data: {
-        paymentStatus: newPaymentStatus,
-        status: newStatus,
-        trackingCode,
-        updatedAt: new Date(),
+    // Check for verified prescriptions to cover pending orders
+    const verifiedPrescription = await prisma.prescription.findFirst({
+      where: {
+        patientIdentifier: userId,
+        status: 'verified',
       },
-      include: {
-        items: {
-          include: {
-            pharmacyMedication: {
-              include: { medication: true, pharmacy: true },
-            },
-          },
-        },
-        prescription: true,
-        pharmacy: true,
-      },
+      include: { PrescriptionMedication: true },
+      orderBy: [{ createdAt: 'desc' }],
     });
-    updated.push(updatedOrder);
-  }
-  return updated;
-});
+
+    // Update orders in a transaction
+    const updatedOrders = await prisma.$transaction(async (tx) => {
+      const updated = [];
+      const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
+      const trackingCode = existingTrackingCode || `TRK-SESSION-${session || orders[0].id}-${Date.now()}`;
+      for (const order of orders) {
+        let newStatus = order.status;
+        let newPaymentStatus = order.paymentStatus;
+        let newPrescriptionId = order.prescriptionId;
+
+        // Check if order requires prescription
+        const requiresPrescription = order.items.some(
+          item => item.pharmacyMedication.medication.prescriptionRequired
+        );
+
+        if (requiresPrescription && verifiedPrescription) {
+          const orderMedicationIds = order.items
+            .filter(item => item.pharmacyMedication.medication.prescriptionRequired)
+            .map(item => item.pharmacyMedication.medicationId);
+          const prescriptionMedicationIds = verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId);
+          const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
+
+          if (isPrescriptionValid && reference && order.checkoutSessionId === session) {
+            newStatus = 'confirmed';
+            newPaymentStatus = 'paid';
+            newPrescriptionId = verifiedPrescription.id;
+          } else if (order.status === 'pending_prescription') {
+            status = 'pending_prescription';
+          }
+        } else if (!requiresPrescription && reference && order.checkoutSessionId === session) {
+          // OTC order
+          newStatus = 'confirmed';
+          newPaymentStatus = 'paid';
+        } else if (order.status === 'pending_prescription') {
+          status = 'pending_prescription';
+        }
+
+        const updatedOrder = await tx.order.update({
+          where: { id: order.id },
+          data: {
+            paymentStatus: newPaymentStatus,
+            status: newStatus,
+            trackingCode,
+            prescriptionId: newPrescriptionId,
+            updatedAt: new Date(),
+          },
+          include: {
+            items: {
+              include: {
+                pharmacyMedication: {
+                  include: { medication: true, pharmacy: true },
+                },
+              },
+            },
+            prescription: true,
+            pharmacy: true,
+          },
+        });
+        updated.push(updatedOrder);
+      }
+      return updated;
+    });
 
     console.log('Payment verified or session retrieved:', { reference, session, trackingCode, orderCount: updatedOrders.length });
 

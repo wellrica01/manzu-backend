@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 router.get('/medications', async (req, res) => {
   try {
     const medication = await prisma.medication.findFirst({
-      select: { id: true, name: true, genericName: true, nafdacCode: true, imageUrl: true },
+      select: { id: true, name: true, genericName: true, form: true, dosage: true, nafdacCode: true, imageUrl: true },
     });
     res.status(200).json({
       status: 'ok',
