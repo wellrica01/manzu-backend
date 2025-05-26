@@ -77,33 +77,7 @@ router.post('/', upload.single('prescription'), async (req, res) => {
 
     const normalizedPhone = normalizePhone(phone);
 
-    // Check for existing patientIdentifier by email or phone, prioritizing current patientIdentifier
-    const existingSession = await prisma.order.findFirst({
-      where: {
-        patientIdentifier: userId,
-        OR: [{ email }, { phone }],
-      },
-      select: { patientIdentifier: true },
-    }) || await prisma.prescription.findFirst({
-      where: {
-        patientIdentifier: userId,
-        OR: [{ email }, { phone }],
-      },
-      select: { patientIdentifier: true },
-    }) || await prisma.order.findFirst({
-      where: {
-        OR: [{ email }, { phone }],
-        patientIdentifier: { not: null },
-      },
-      select: { patientIdentifier: true },
-    }) || await prisma.prescription.findFirst({
-      where: {
-        OR: [{ email }, { phone }],
-        patientIdentifier: { not: null },
-      },
-      select: { patientIdentifier: true },
-    });
-    const patientIdentifier = existingSession ? existingSession.patientIdentifier : userId;
+    const patientIdentifier = userId;
 
     // Find the cart order
     const cartOrder = await prisma.order.findFirst({
