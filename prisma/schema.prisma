@@ -41,6 +41,7 @@ model Pharmacy {
   verifiedAt          DateTime?
   logoUrl             String?
   isActive            Boolean                 @default(true)
+  ward                String?                 @db.VarChar(100)
   orders              Order[]
   pharmacyMedications PharmacyMedication[]
   users               PharmacyUser[]

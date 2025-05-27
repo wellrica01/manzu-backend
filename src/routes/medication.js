@@ -50,10 +50,10 @@ router.get('/medication-suggestions', async (req, res) => {
   }
 });
 
-// Search endpoint with weighted scoring
+// Search endpoint with filtering and sorting
 router.get('/search', async (req, res) => {
   try {
-    const { q, medicationId, page = '1', limit = '10', lat, lng, radius = '10' } = req.query;
+    const { q, medicationId, page = '1', limit = '10', lat, lng, radius = '10', state, lga, ward, sortBy = 'cheapest' } = req.query;
     if (!q && !medicationId) {
       return res.status(400).json({ message: 'Search query or medication ID is required' });
     }
@@ -63,6 +63,7 @@ router.get('/search', async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const radiusKm = parseFloat(radius);
 
+    // Build pharmacy filter
     let pharmacyFilter = {
       pharmacy: {
         status: 'verified',
@@ -70,6 +71,18 @@ router.get('/search', async (req, res) => {
       },
       stock: { gt: 0 },
     };
+
+    // Add location filters if provided
+    if (state) {
+      pharmacyFilter.pharmacy.state = { equals: state, mode: 'insensitive' };
+    }
+    if (lga) {
+      pharmacyFilter.pharmacy.lga = { equals: lga, mode: 'insensitive' };
+    }
+    if (ward) {
+      pharmacyFilter.pharmacy.ward = { equals: ward, mode: 'insensitive' };
+    }
+
     let pharmacyIdsWithDistance = [];
     if (lat && lng) {
       const latitude = parseFloat(lat);
@@ -99,14 +112,12 @@ router.get('/search', async (req, res) => {
       pharmacyFilter.pharmacy.id = { in: nearbyPharmacyIds.length > 0 ? nearbyPharmacyIds : [-1] };
     }
 
+    // Build medication where clause
     let whereClause = {};
     if (medicationId) {
-      // Precise query by ID for dropdown selections
       whereClause = { id: parseInt(medicationId, 10) };
     } else if (q) {
-      // Text query for manual searches
       const query = q.trim();
-      // Extract name, dosage, and form (if present)
       const nameMatch = query.match(/^([^0-9(]+)/)?.[1]?.trim() || query;
       const dosageMatch = query.match(/(\d+\w*)\s*\(/)?.[1]?.trim();
       const formMatch = query.match(/\((\w+)\)/)?.[1]?.trim();
@@ -145,7 +156,7 @@ router.get('/search', async (req, res) => {
             pharmacyId: true,
             receivedDate: true,
             expiryDate: true,
-            pharmacy: { select: { name: true } },
+            pharmacy: { select: { name: true, address: true } },
           },
         },
       },
@@ -153,59 +164,41 @@ router.get('/search', async (req, res) => {
       skip,
     });
 
-const distanceMap = new Map(
-  pharmacyIdsWithDistance.map((entry) => [entry.id, entry.distance_km])
-);
+    const distanceMap = new Map(
+      pharmacyIdsWithDistance.map((entry) => [entry.id, entry.distance_km])
+    );
 
-const result = medications.map((med) => {
-  const prices = med.pharmacyMedications.map((pm) => pm.price);
-  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
-  const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
-  const priceRange = maxPrice - minPrice || 1;
-
-  const distances = med.pharmacyMedications.map((pm) => {
-    const d = distanceMap.get(pm.pharmacyId) ?? radiusKm;
-    return d;
-  });
-  const minDistance = Math.min(...distances);
-  const maxDistance = Math.max(...distances);
-  const distanceRange = maxDistance - minDistance || 1;
-
-  const availability = med.pharmacyMedications
-    .map((pm) => {
-      const distance_km = distanceMap.get(pm.pharmacyId) ?? radiusKm;
-
-      const normalizedPrice = (pm.price - minPrice) / priceRange;
-      const normalizedDistance = (distance_km - minDistance) / distanceRange;
-
-      const score = (0.6 * normalizedPrice) + (0.4 * normalizedDistance);
-
-      return {
+    const result = medications.map((med) => {
+      let availability = med.pharmacyMedications.map((pm) => ({
         pharmacyId: pm.pharmacyId,
         pharmacyName: pm.pharmacy.name,
         address: pm.pharmacy.address,
         stock: pm.stock,
         price: pm.price,
         expiryDate: pm.expiryDate,
-        distance_km: parseFloat(distance_km.toFixed(2)),
-        score: parseFloat(score.toFixed(3)),
-      };
-    })
-    .sort((a, b) => a.score - b.score);
+        distance_km: distanceMap.get(pm.pharmacyId) ? parseFloat(distanceMap.get(pm.pharmacyId).toFixed(2)) : null,
+      }));
 
-  return {
-    id: med.id,
-    displayName: `${med.name}${med.dosage ? ` ${med.dosage}` : ''}${med.form ? ` (${med.form})` : ''}`,
-    genericName: med.genericName,
-    description: med.description,
-    manufacturer: med.manufacturer,
-    form: med.form,
-    dosage: med.dosage,
-    nafdacCode: med.nafdacCode,
-    imageUrl: med.imageUrl,
-    availability,
-  };
-});
+      // Sort availability based on sortBy
+      if (sortBy === 'closest' && lat && lng) {
+        availability = availability.sort((a, b) => (a.distance_km || Infinity) - (b.distance_km || Infinity));
+      } else {
+        availability = availability.sort((a, b) => a.price - b.price);
+      }
+
+      return {
+        id: med.id,
+        displayName: `${med.name}${med.dosage ? ` ${med.dosage}` : ''}${med.form ? ` (${med.form})` : ''}`,
+        genericName: med.genericName,
+        description: med.description,
+        manufacturer: med.manufacturer,
+        form: med.form,
+        dosage: med.dosage,
+        nafdacCode: med.nafdacCode,
+        imageUrl: med.imageUrl,
+        availability,
+      };
+    });
 
     res.status(200).json(result);
   } catch (error) {
