@@ -49,7 +49,10 @@ const updateMedicationSchema = z.object({
   dosage: z.string().optional(),
   nafdacCode: z.string().optional(),
   prescriptionRequired: z.boolean(),
-  imageUrl: z.preprocess((val) => (val === '' ? undefined : val),  z.string().url('Invalid URL').optional()),
+  imageUrl: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.string().url('Must be a valid URL').optional()
+  ),
 });
 
 // Pagination schema

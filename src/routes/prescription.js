@@ -8,6 +8,7 @@ const sgMail = require('@sendgrid/mail');
 const twilio = require('twilio');
 const router = express.Router();
 const prisma = new PrismaClient();
+const requireConsent = require('../middleware/requireConsent');
 
 console.log('Loading prescription.js routes');
 
@@ -115,7 +116,7 @@ const sendVerificationNotification = async (prescription, status, order) => {
 };
 
 // Upload prescription
-router.post('/upload', upload.single('prescriptionFile'), async (req, res) => {
+router.post('/upload', upload.single('prescriptionFile'), requireConsent, async (req, res) => {
   try {
     console.log('Received request for /api/prescription/upload');
     if (!req.file) {
@@ -313,7 +314,7 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
   }
 });
 
-router.get('/guest-order/:patientIdentifier', async (req, res) => {
+router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) => {
   try {
     const { patientIdentifier } = req.params;
     const { lat, lng, radius = 10 } = req.query;

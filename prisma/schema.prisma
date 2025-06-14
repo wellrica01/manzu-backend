@@ -123,6 +123,7 @@ model PharmacyUser {
   pharmacyId Int
   lastLogin  DateTime?
   createdAt  DateTime         @default(now())
+  Consent    Consent[]
   pharmacy   Pharmacy         @relation(fields: [pharmacyId], references: [id])
 }
 
@@ -151,6 +152,18 @@ model PrescriptionMedication {
   quantity       Int
   Medication     Medication   @relation(fields: [medicationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model Consent {
+  id                Int           @id @default(autoincrement())
+  patientidentifier String?       @db.VarChar(255)
+  userid            Int?
+  consenttype       String        @db.VarChar(255)
+  granted           Boolean?      @default(true)
+  createdat         DateTime?     @default(now()) @db.Timestamp(6)
+  PharmacyUser      PharmacyUser? @relation(fields: [userid], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user")
+
+  @@unique([patientidentifier, consenttype])
 }
 
 enum OrderStatus {

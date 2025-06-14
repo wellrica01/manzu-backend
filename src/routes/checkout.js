@@ -5,6 +5,8 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 const prisma = new PrismaClient();
+const requireConsent = require('../middleware/requireConsent');
+
 
 // Configure multer
 const storage = multer.diskStorage({
@@ -48,7 +50,7 @@ const isValidPhone = (phone) => {
   return /^\+234[0-9]{10}$/.test(normalized);
 };
 
-router.post('/', upload.single('prescription'), async (req, res) => {
+router.post('/', requireConsent, upload.single('prescription'), async (req, res) => {
   try {
     const { name, email, phone, address, deliveryMethod } = req.body;
     const userId = req.headers['x-guest-id'];
@@ -438,7 +440,7 @@ router.post('/', upload.single('prescription'), async (req, res) => {
 });
 
 // Add session retrieval endpoint
-router.post('/session/retrieve', async (req, res) => {
+router.post('/session/retrieve', requireConsent, async (req, res) => {
   try {
     const { email, phone, checkoutSessionId } = req.body;
     const userId = req.headers['x-guest-id'];
