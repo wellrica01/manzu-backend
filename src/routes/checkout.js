@@ -50,7 +50,7 @@ const isValidPhone = (phone) => {
   return /^\+234[0-9]{10}$/.test(normalized);
 };
 
-router.post('/', requireConsent, upload.single('prescription'), async (req, res) => {
+router.post('/', upload.single('prescription'), requireConsent, async (req, res) => {
   try {
     const { name, email, phone, address, deliveryMethod } = req.body;
     const userId = req.headers['x-guest-id'];

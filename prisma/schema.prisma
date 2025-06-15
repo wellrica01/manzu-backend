@@ -42,6 +42,7 @@ model Pharmacy {
   logoUrl             String?
   isActive            Boolean                 @default(true)
   ward                String?                 @db.VarChar(100)
+  devicetoken         String?                 @db.VarChar(255)
   orders              Order[]
   pharmacyMedications PharmacyMedication[]
   users               PharmacyUser[]

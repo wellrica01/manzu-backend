@@ -3,6 +3,7 @@ const express = require('express');
    const { PrismaClient } = require('@prisma/client');
    const router = express.Router();
    const prisma = new PrismaClient();
+
    // Middleware to verify JWT
    const authenticate = (req, res, next) => {
      const authHeader = req.headers.authorization;
@@ -21,6 +22,7 @@ const express = require('express');
        return res.status(401).json({ message: 'Invalid token' });
      }
    };
+
       // Middleware to verify manager role
    const authenticateManager = (req, res, next) => {
      if (req.user.role !== 'manager') {
@@ -29,6 +31,7 @@ const express = require('express');
      }
      next();
    };
+
    // Fetch orders for pharmacy
    router.get('/orders', authenticate, async (req, res) => {
      try {
@@ -88,6 +91,7 @@ const express = require('express');
        res.status(500).json({ message: 'Server error', error: error.message });
      }
    });
+
    // Update order status
    router.patch('/orders/:orderId', authenticate, async (req, res) => {
      try {
@@ -134,6 +138,7 @@ const express = require('express');
     res.status(500).json({ message: 'Server error', error: error.message });
   }
    });
+
    // Fetch pharmacy medications
    router.get('/medications', authenticate, async (req, res) => {
      try {
@@ -352,6 +357,21 @@ router.get('/users', authenticate, authenticateManager, async (req, res) => {
     console.error('Fetch users error:', { message: error.message, stack: error.stack });
     res.status(500).json({ message: 'Server error', error: error.message });
     }
+});
+
+// Device registration for notifications
+router.post('/notifications/register', authenticate, async (req, res) => {
+  try {
+    const { deviceToken } = req.body;
+    const pharmacyId = req.user.pharmacyId;
+    await prisma.pharmacy.update({
+      where: { id: pharmacyId },
+      data: { deviceToken },
+    });
+    res.status(200).json({ message: 'Device registered for notifications' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
 });
 
    module.exports = router;

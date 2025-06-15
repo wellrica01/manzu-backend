@@ -10,15 +10,32 @@ const router = express.Router();
 const prisma = new PrismaClient();
 const requireConsent = require('../middleware/requireConsent');
 
-console.log('Loading prescription.js routes');
-
 // Configure SendGrid
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+// Phone Normalization
+const normalizePhone = (phone) => {
+  let cleaned = phone.replace(/[^+\d]/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '+234' + cleaned.slice(1);
+  } else if (cleaned.startsWith('234')) {
+    cleaned = '+' + cleaned;
+  }
+  return cleaned;
+};
+
+const isValidPhone = (phone) => {
+  const basicFormat = /^(?:\+?234[0-9]{10}|0[0-9]{10})$/;
+  if (!basicFormat.test(phone)) return false;
+  const normalized = normalizePhone(phone);
+  return /^\+234[0-9]{10}$/.test(normalized);
+};
+
 
 // Multer setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'Uploads/');
+    cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -122,16 +139,21 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
-    const { patientIdentifier, email, phone } = req.body;
+    const patientIdentifier = req.headers['x-guest-id'];
+    const { email, phone } = req.body;
     if (!patientIdentifier) {
       return res.status(400).json({ message: 'Patient identifier is required' });
     }
+    if (phone && !isValidPhone(phone)) {
+      return res.status(400).json({ message: 'Invalid phone number format (e.g., 09031615501 or +2349031615501)' });
+    }
+    const normalizedPhone = phone ? normalizePhone(phone) : phone;
     const prescription = await prisma.prescription.create({
       data: {
         patientIdentifier,
         email,
-        phone,
-        fileUrl: `/Uploads/${req.file.filename}`,
+        phone: normalizedPhone,
+        fileUrl: `/uploads/${req.file.filename}`,
         status: 'pending',
         verified: false,
       },

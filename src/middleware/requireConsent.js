@@ -3,7 +3,7 @@ const prisma = new PrismaClient();
 
 const requireConsent = async (req, res, next) => {
   try {
-    const { patientIdentifier } = req.body || {};
+    const patientIdentifier = req.headers['x-guest-id'];
 
     if (!patientIdentifier) {
       return res.status(400).json({ message: 'patientIdentifier is required for consent check' });
