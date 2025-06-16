@@ -33,64 +33,77 @@ const express = require('express');
    };
 
    // Fetch orders for pharmacy
-   router.get('/orders', authenticate, async (req, res) => {
-     try {
-       const pharmacyId = req.user.pharmacyId;
-       console.log('Fetching orders for pharmacy:', { pharmacyId });
-       const orders = await prisma.order.findMany({
-         where: {
-           items: {
-             some: {
-               pharmacyMedication: {
-                 pharmacyId,
-               },
-             },
-           },
-           status: { not: 'cart' },
-         },
-         include: {
-           items: {
-             include: {
-               pharmacyMedication: {
-                 include: {
-                   medication: true,
-                   pharmacy: true,
-                 },
-               },
-             },
-           },
-         },
-       });
-       console.log('Orders fetched:', { pharmacyId, orderCount: orders.length });
-       res.status(200).json({
-         message: 'Orders fetched',
-         orders: orders.map(order => ({
-           id: order.id,
-           trackingCode: order.trackingCode,
-           patientIdentifier: order.patientIdentifier,
-           deliveryMethod: order.deliveryMethod,
-           address: order.address,
-           status: order.status,
-           totalPrice: order.totalPrice,
-           items: order.items
-             .filter(item => item.pharmacyMedication.pharmacyId === pharmacyId)
-             .map(item => ({
-               id: item.id,
-               medication: { name: item.pharmacyMedication.medication.name },
-               pharmacy: {
-                 name: item.pharmacyMedication.pharmacy.name,
-                 address: item.pharmacyMedication.pharmacy.address,
-               },
-               quantity: item.quantity,
-               price: item.price,
-             })),
-         })),
-       });
-     } catch (error) {
-       console.error('Pharmacy orders error:', { message: error.message, stack: error.stack });
-       res.status(500).json({ message: 'Server error', error: error.message });
-     }
-   });
+router.get('/orders', authenticate, async (req, res) => {
+  try {
+    const pharmacyId = req.user.pharmacyId;
+    console.log('Fetching orders for pharmacy:', { pharmacyId });
+    const orders = await prisma.order.findMany({
+      where: {
+        items: {
+          some: {
+            pharmacyMedication: {
+              pharmacyId,
+            },
+          },
+        },
+        status: { not: 'cart' },
+      },
+      select: {
+        id: true,
+        createdAt: true, // Add createdAt
+        trackingCode: true,
+        patientIdentifier: true,
+        deliveryMethod: true,
+        address: true,
+        status: true,
+        totalPrice: true,
+        items: {
+          select: {
+            id: true,
+            quantity: true,
+            price: true,
+            pharmacyMedication: {
+              select: {
+                medication: { select: { name: true } },
+                pharmacy: { select: { name: true, address: true } },
+                pharmacyId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    console.log('Orders fetched:', { pharmacyId, orderCount: orders.length });
+    res.status(200).json({
+      message: 'Orders fetched',
+      orders: orders.map(order => ({
+        id: order.id,
+        createdAt: order.createdAt, // Include in response
+        trackingCode: order.trackingCode,
+        patientIdentifier: order.patientIdentifier,
+        deliveryMethod: order.deliveryMethod,
+        address: order.address,
+        status: order.status,
+        totalPrice: order.totalPrice,
+        items: order.items
+          .filter(item => item.pharmacyMedication.pharmacyId === pharmacyId)
+          .map(item => ({
+            id: item.id,
+            medication: { name: item.pharmacyMedication.medication.name },
+            pharmacy: {
+              name: item.pharmacyMedication.pharmacy.name,
+              address: item.pharmacyMedication.pharmacy.address,
+            },
+            quantity: item.quantity,
+            price: item.price,
+          })),
+      })),
+    });
+  } catch (error) {
+    console.error('Pharmacy orders error:', { message: error.message, stack: error.stack });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
 
    // Update order status
    router.patch('/orders/:orderId', authenticate, async (req, res) => {

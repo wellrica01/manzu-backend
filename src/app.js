@@ -10,6 +10,7 @@ const express = require('express');
      const authRoutes = require('./routes/auth');
      const adminRoutes = require('./routes/admin');
      const consentRoutes = require('./routes/consent');
+     const notificationRoutes = require('./routes/notifications');
      require('./jobs/cron');
      require('dotenv').config();
      const app = express();
@@ -29,6 +30,7 @@ const express = require('express');
      app.use('/api/auth', authRoutes);
      app.use('/api/admin', adminRoutes);
      app.use('/api/consent', consentRoutes);
+     app.use('/api', notificationRoutes);
 
      const PORT = process.env.PORT || 5000;
      
