@@ -11,15 +11,19 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ message: 'Tracking code required' });
     }
 
-    // Validate trackingCode format (e.g., TRK-SESSION-<orderId>-<timestamp>)
-    if (!/^TRK-SESSION-.+-\d+$/.test(trackingCode)) {
+    if (!/^TRK-SESSION-\d+-\d+$/.test(trackingCode)) {
       console.error('Invalid tracking code format:', { trackingCode });
       return res.status(400).json({ message: 'Invalid tracking code format' });
     }
 
     console.log('Searching for orders by tracking code:', { trackingCode });
     const orders = await prisma.order.findMany({
-      where: { trackingCode },
+      where: {
+        trackingCode,
+        status: {
+          in: ['confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled'],
+        },
+      },
       select: {
         id: true,
         patientIdentifier: true,
@@ -80,7 +84,7 @@ router.get('/', async (req, res) => {
 
     if (orders.length === 0) {
       console.error('Orders not found for tracking code:', { trackingCode });
-      return res.status(404).json({ message: 'Orders not found' });
+      return res.status(404).json({ message: 'Orders not found or not ready for tracking' });
     }
 
     console.log('Orders found:', { orderIds: orders.map(o => o.id), trackingCode, status: orders.map(o => o.status) });

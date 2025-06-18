@@ -7,6 +7,13 @@ const prisma = new PrismaClient();
 // Validate reference format
 const isValidReference = (reference) => typeof reference === 'string' && (reference.startsWith('order_') || reference.startsWith('session_')) && reference.length > 10;
 
+function generateTrackingCode(session, fallbackId) {
+  const id = Number.isFinite(Number(session)) ? Number(session) :
+             Number.isFinite(Number(fallbackId)) ? Number(fallbackId) : 0;
+  const timestamp = Date.now();
+  return `TRK-SESSION-${id}-${timestamp}`;
+}
+
 router.get('/', async (req, res) => {
   try {
     const { reference, session } = req.query;
@@ -48,7 +55,8 @@ router.get('/', async (req, res) => {
     }
 
     // Generate or reuse a tracking code for the session
-    const trackingCode = orders[0].trackingCode || `TRK-SESSION-${session || orders[0].id}-${Date.now()}`;
+    const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
+    const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
     let status = 'completed';
 
     // Verify Paystack transaction if reference is provided
@@ -98,8 +106,7 @@ router.get('/', async (req, res) => {
     // Update orders in a transaction
     const updatedOrders = await prisma.$transaction(async (tx) => {
       const updated = [];
-      const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
-      const trackingCode = existingTrackingCode || `TRK-SESSION-${session || orders[0].id}-${Date.now()}`;
+      const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
       for (const order of orders) {
         let newStatus = order.status;
         let newPaymentStatus = order.paymentStatus;

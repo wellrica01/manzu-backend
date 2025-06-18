@@ -94,14 +94,17 @@ const sendVerificationNotification = async (prescription, status, order) => {
       console.warn('No contact details for prescription:', { prescriptionId: prescription.id });
       return;
     }
+    let guestLink = `${process.env.FRONTEND_URL}/status-check?patientIdentifier=${prescription.patientIdentifier}`;
+    if (order && order.totalPrice > 0) {
+      guestLink += `&orderId=${order.id}`;
+    }
     let msg = {};
     if (status === 'verified') {
-      const guestLink = `${process.env.FRONTEND_URL}/guest-order/${prescription.patientIdentifier}`;
       msg = {
         to: email,
         from: process.env.SENDGRID_FROM_EMAIL,
         subject: 'Your Prescription is Ready',
-        text: `Your prescription #${prescription.id} has been verified. View your medications and buy them here: ${guestLink}`,
+        text: `Your prescription #${prescription.id} has been verified. ${order && order.totalPrice > 0 ? 'Complete your order payment' : 'View your medications and select pharmacies'}: ${guestLink}`,
       };
     } else {
       msg = {
@@ -120,8 +123,8 @@ const sendVerificationNotification = async (prescription, status, order) => {
       const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
       await twilioClient.messages.create({
         body: status === 'verified'
-          ? `Your prescription #${prescription.id} is ready. View and buy: ${guestLink}`
-          : `Prescription #${prescription.id} rejected. Please upload again or contact support.`,
+          ? `Prescription #${prescription.id} verified. ${order && order.totalPrice > 0 ? 'Pay for your order' : 'Select pharmacies'}: ${guestLink}`
+          : `Prescription #${prescription.id} rejected. Upload again or contact support.`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: phone,
       });
@@ -185,21 +188,6 @@ router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // Create order
-      const order = await tx.order.create({
-        data: {
-          patientIdentifier: prescription.patientIdentifier,
-          prescriptionId: Number(id),
-          status: 'pending_prescription',
-          totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
-          email: prescription.email,
-          phone: prescription.phone,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
 
       // Create prescription medications
       const prescriptionMedications = [];
@@ -224,11 +212,11 @@ router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res
         prescriptionMedications.push(prescriptionMedication);
       }
 
-      return { order, prescriptionMedications };
+      return { prescriptionMedications };
     });
 
-    console.log('Order created with medications:', { prescriptionId: id, orderId: result.order.id });
-    res.status(201).json({ message: 'Medications added and order created', order: result.order, prescriptionMedications: result.prescriptionMedications });
+    console.log('Medications added:', { prescriptionId: id });
+    res.status(201).json({ message: 'Medications added',  prescriptionMedications: result.prescriptionMedications });
   } catch (error) {
     console.error('Add medications error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -339,22 +327,77 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
 router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) => {
   try {
     const { patientIdentifier } = req.params;
-    const { lat, lng, radius = 10 } = req.query;
+    const { lat, lng, radius = '10' } = req.query;
 
-    const prescription = await prisma.prescription.findFirst({
-      where: { patientIdentifier, status: { in: ['pending', 'verified'] } },
+    const userLat = parseFloat(lat);
+    const userLng = parseFloat(lng);
+    const radiusKm = parseFloat(radius);
+    const hasValidCoordinates = !isNaN(userLat) && !isNaN(userLng) && !isNaN(radiusKm);
+
+    if (hasValidCoordinates && (userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180)) {
+      return res.status(400).json({ message: 'Invalid latitude or longitude' });
+    }
+
+  const prescription = await prisma.prescription.findFirst({
+  where: { patientIdentifier, status: { in: ['pending', 'verified'] } },
+  orderBy: { createdAt: 'desc' }, // 🆕 sort from newest to oldest
+  include: {
+    PrescriptionMedication: {
       include: {
-        PrescriptionMedication: {
-          include: {
-            Medication: true,
+        Medication: {
+          select: {
+            id: true,
+            name: true,
+            dosage: true,
+            form: true,
+            genericName: true,
+            prescriptionRequired: true,
+            nafdacCode: true,
+            imageUrl: true,
           },
         },
       },
-    });
+    },
+  },
+});
+
 
     if (!prescription) {
-      return res.status(404).json({ message: 'Prescription not found' });
+      return res.status(404).json({ message: 'Prescription not found or not verified' });
     }
+
+    if (prescription.status === 'pending') {
+      return res.status(400).json({ message: 'Prescription is still under review. You’ll be notified when it’s ready.' });
+    }
+
+    let pharmacyIdsWithDistance = [];
+    if (hasValidCoordinates) {
+      pharmacyIdsWithDistance = await prisma.$queryRaw`
+        SELECT 
+          id,
+          ST_DistanceSphere(
+            location,
+            ST_SetSRID(ST_MakePoint(${userLng}, ${userLat}), 4326)
+          ) / 1000 AS distance_km
+        FROM "Pharmacy"
+        WHERE ST_DWithin(
+          location,
+          ST_SetSRID(ST_MakePoint(${userLng}, ${userLat}), 4326),
+          ${radiusKm} * 1000
+        )
+        AND status = 'verified'
+        AND "isActive" = true
+      `.then((results) =>
+        results.map((r) => ({
+          id: Number(r.id),
+          distance_km: parseFloat(r.distance_km.toFixed(1)),
+        }))
+      );
+    }
+
+    const distanceMap = new Map(
+      pharmacyIdsWithDistance.map((entry) => [entry.id, entry.distance_km])
+    );
 
     const medications = await Promise.all(
       prescription.PrescriptionMedication.map(async (prescriptionMed) => {
@@ -363,6 +406,17 @@ router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) =
           where: {
             medicationId: medication.id,
             stock: { gte: prescriptionMed.quantity },
+            pharmacy: {
+              status: 'verified',
+              isActive: true,
+              ...(hasValidCoordinates && {
+                id: {
+                  in: pharmacyIdsWithDistance.length > 0
+                    ? pharmacyIdsWithDistance.map((p) => p.id)
+                    : [-1],
+                },
+              }),
+            },
           },
           include: {
             pharmacy: {
@@ -375,21 +429,41 @@ router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) =
           id: medication.id,
           displayName: `${medication.name}${medication.dosage ? ` ${medication.dosage}` : ''}${medication.form ? ` (${medication.form})` : ''}`,
           quantity: prescriptionMed.quantity,
+          genericName: medication.genericName,
+          prescriptionRequired: medication.prescriptionRequired,
+          nafdacCode: medication.nafdacCode,
+          imageUrl: medication.imageUrl,
           availability: availability.map((avail) => ({
             pharmacyId: avail.pharmacy.id,
             pharmacyName: avail.pharmacy.name,
             address: avail.pharmacy.address,
             price: avail.price,
+            distance_km: distanceMap.has(avail.pharmacy.id)
+              ? distanceMap.get(avail.pharmacy.id)
+              : null,
           })),
         };
       })
     );
 
     const order = await prisma.order.findFirst({
-      where: { patientIdentifier, status: { in: ['pending', 'pending_prescription'] } },
+      where: { patientIdentifier, status: { in: [
+        'pending', 'confirmed', 'processing',  
+        'shipped', 'delivered',  'ready_for_pickup',  'cancelled'] } },
     });
 
-    res.status(200).json({ medications, prescriptionId: prescription.id, orderId: order?.id });
+    res.status(200).json({
+      medications,
+      prescriptionId: prescription.id,
+      orderId: order?.id,
+      orderStatus: order?.status,
+      prescriptionMetadata: {
+        id: prescription.id,
+        uploadedAt: prescription.createdAt,
+        status: prescription.status,
+        imageUrl: prescription.imageUrl,
+      },
+    });
   } catch (error) {
     console.error('Guest order retrieval error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
