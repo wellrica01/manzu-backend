@@ -5,7 +5,7 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Validate reference format
-const isValidReference = (reference) => typeof reference === 'string' && (reference.startsWith('order_') || reference.startsWith('session_')) && reference.length > 10;
+const isValidReference = (reference) => typeof reference === 'string' && reference.startsWith('order_') && reference.length > 10;
 
 function generateTrackingCode(session, fallbackId) {
   const id = Number.isFinite(Number(session)) ? Number(session) :
@@ -20,55 +20,98 @@ router.get('/', async (req, res) => {
     const userId = req.headers['x-guest-id'];
 
     // Validate input
-    if (!userId || (!reference && !session)) {
-      console.error('Missing reference, session, or userId:', { reference, session, userId });
-      return res.status(400).json({ message: 'Reference or session ID and guest ID required' });
+    if (!userId || !session) {
+      console.error('Missing session or userId:', { reference, session, userId });
+      return res.status(400).json({ message: 'Session ID and guest ID required' });
     }
 
-    // Fetch orders by paymentReference or checkoutSessionId
-    const orders = await prisma.order.findMany({
-      where: {
-        patientIdentifier: userId,
-        OR: [
-          reference ? { paymentReference: reference } : {},
-          session ? { checkoutSessionId: session } : {},
-        ].filter(Boolean),
-      },
-      include: {
-        items: {
-          include: {
-            pharmacyMedication: {
-              include: { medication: true, pharmacy: true },
-            },
-          },
-        },
-        prescription: {
-          include: { PrescriptionMedication: true },
-        },
-        pharmacy: true,
-      },
-    });
+    // Initialize transactionRef as null
+    let transactionRef = null;
 
-    if (orders.length === 0) {
-      console.error('Orders not found:', { reference, session, userId });
-      return res.status(404).json({ message: 'Orders not found' });
-    }
-
-    // Generate or reuse a tracking code for the session
-    const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
-    const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
-    let status = 'completed';
-
-    // Verify Paystack transaction if reference is provided
+    // Find transaction reference if reference is provided
     if (reference) {
       if (!isValidReference(reference)) {
         console.error('Invalid reference format:', { reference });
         return res.status(400).json({ message: 'Invalid payment reference format' });
       }
 
-      console.log('Verifying Paystack transaction:', { reference });
+      transactionRef = await prisma.transactionReference.findFirst({
+        where: { orderReferences: { has: reference } },
+      });
+
+      if (!transactionRef) {
+        console.error('Transaction reference not found for:', { reference });
+        return res.status(400).json({ message: 'Transaction reference not found' });
+      }
+    }
+
+    // Fetch orders: prioritize transactionRef.orderReferences if available, else fallback to checkoutSessionId
+    let orders = [];
+    if (transactionRef) {
+      orders = await prisma.order.findMany({
+        where: {
+          patientIdentifier: userId,
+          paymentReference: { in: transactionRef.orderReferences },
+        },
+        include: {
+          items: {
+            include: {
+              pharmacyMedication: {
+                include: { medication: true, pharmacy: true },
+              },
+            },
+          },
+          prescription: {
+            include: { PrescriptionMedication: true },
+          },
+          pharmacy: true,
+        },
+      });
+    } else {
+      orders = await prisma.order.findMany({
+        where: {
+          patientIdentifier: userId,
+          checkoutSessionId: session,
+          status: { in: ['pending', 'confirmed', 'paid'] }, // Exclude pending_prescription unless paid
+        },
+        include: {
+          items: {
+            include: {
+              pharmacyMedication: {
+                include: { medication: true, pharmacy: true },
+              },
+            },
+          },
+          prescription: {
+            include: { PrescriptionMedication: true },
+          },
+          pharmacy: true,
+        },
+      });
+    }
+
+    if (orders.length === 0) {
+      console.error('Orders not found:', { reference, session, userId });
+      return res.status(404).json({ message: 'Orders not found' });
+    }
+
+    console.log('Fetched orders:', {
+      orderCount: orders.length,
+      orderIds: orders.map(o => o.id),
+      paymentReferences: orders.map(o => o.paymentReference),
+      checkoutSessionId: session,
+    });
+
+    // Generate or reuse a tracking code for the session
+    const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
+    const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
+    let status = 'completed';
+
+    // Verify Paystack transaction if transactionRef is found
+    if (transactionRef) {
+      console.log('Verifying Paystack transaction:', { transactionReference: transactionRef.transactionReference });
       const paystackResponse = await axios.get(
-        `https://api.paystack.co/transaction/verify/${reference}`,
+        `https://api.paystack.co/transaction/verify/${transactionRef.transactionReference}`,
         {
           headers: {
             Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
@@ -81,7 +124,7 @@ router.get('/', async (req, res) => {
         console.error('Payment verification failed:', paystackResponse.data);
         await prisma.$transaction(async (tx) => {
           for (const order of orders) {
-            if (order.paymentReference === reference) {
+            if (transactionRef.orderReferences.includes(order.paymentReference)) {
               await tx.order.update({
                 where: { id: order.id },
                 data: { paymentStatus: 'failed', updatedAt: new Date() },
@@ -106,7 +149,6 @@ router.get('/', async (req, res) => {
     // Update orders in a transaction
     const updatedOrders = await prisma.$transaction(async (tx) => {
       const updated = [];
-      const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
       for (const order of orders) {
         let newStatus = order.status;
         let newPaymentStatus = order.paymentStatus;
@@ -124,15 +166,14 @@ router.get('/', async (req, res) => {
           const prescriptionMedicationIds = verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId);
           const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
 
-          if (isPrescriptionValid && reference && order.checkoutSessionId === session) {
+          if (isPrescriptionValid && transactionRef?.orderReferences.includes(order.paymentReference)) {
             newStatus = 'confirmed';
             newPaymentStatus = 'paid';
             newPrescriptionId = verifiedPrescription.id;
           } else if (order.status === 'pending_prescription') {
             status = 'pending_prescription';
           }
-        } else if (!requiresPrescription && reference && order.checkoutSessionId === session) {
-          // OTC order
+        } else if (!requiresPrescription && transactionRef?.orderReferences.includes(order.paymentReference)) {
           newStatus = 'confirmed';
           newPaymentStatus = 'paid';
         } else if (order.status === 'pending_prescription') {
@@ -165,7 +206,13 @@ router.get('/', async (req, res) => {
       return updated;
     });
 
-    console.log('Payment verified or session retrieved:', { reference, session, trackingCode, orderCount: updatedOrders.length });
+    console.log('Payment verified or session retrieved:', {
+      reference,
+      session,
+      trackingCode,
+      orderCount: updatedOrders.length,
+      orderIds: updatedOrders.map(o => o.id),
+    });
 
     // Format response with orders grouped by pharmacy
     const ordersByPharmacy = updatedOrders.reduce((acc, order) => {
@@ -187,6 +234,7 @@ router.get('/', async (req, res) => {
         status: order.status,
         deliveryMethod: order.deliveryMethod,
         address: order.address,
+        paymentReference: order.paymentReference,
         prescription: order.prescription
           ? {
               id: order.prescription.id,
@@ -208,11 +256,10 @@ router.get('/', async (req, res) => {
       return acc;
     }, {});
 
-
     res.status(200).json({
       message: status === 'completed' ? 'Payment verified' : 'Orders retrieved, some awaiting verification',
       status,
-      checkoutSessionId: session || orders[0].checkoutSessionId,
+      checkoutSessionId: session,
       trackingCode,
       pharmacies: Object.values(ordersByPharmacy),
     });

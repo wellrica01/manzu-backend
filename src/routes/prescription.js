@@ -338,29 +338,19 @@ router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) =
       return res.status(400).json({ message: 'Invalid latitude or longitude' });
     }
 
-  const prescription = await prisma.prescription.findFirst({
-  where: { patientIdentifier, status: { in: ['pending', 'verified'] } },
-  orderBy: { createdAt: 'desc' }, // 🆕 sort from newest to oldest
-  include: {
-    PrescriptionMedication: {
+    const prescription = await prisma.prescription.findFirst({
+      where: { patientIdentifier, status: { in: ['pending', 'verified'] } },
+      orderBy: { createdAt: 'desc' },
       include: {
-        Medication: {
-          select: {
-            id: true,
-            name: true,
-            dosage: true,
-            form: true,
-            genericName: true,
-            prescriptionRequired: true,
-            nafdacCode: true,
-            imageUrl: true,
+        PrescriptionMedication: {
+          include: {
+            Medication: {
+              select: { id: true, name: true, dosage: true, form: true, genericName: true, prescriptionRequired: true, nafdacCode: true, imageUrl: true },
+            },
           },
         },
       },
-    },
-  },
-});
-
+    });
 
     if (!prescription) {
       return res.status(404).json({ message: 'Prescription not found or not verified' });
@@ -419,9 +409,7 @@ router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) =
             },
           },
           include: {
-            pharmacy: {
-              select: { id: true, name: true, address: true },
-            },
+            pharmacy: { select: { id: true, name: true, address: true } },
           },
         });
 
@@ -447,9 +435,12 @@ router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) =
     );
 
     const order = await prisma.order.findFirst({
-      where: { patientIdentifier, status: { in: [
-        'pending', 'confirmed', 'processing',  
-        'shipped', 'delivered',  'ready_for_pickup',  'cancelled'] } },
+      where: {
+        patientIdentifier,
+        prescriptionId: prescription.id, // Link order to this prescription
+        status: { in: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled'] },
+      },
+      orderBy: { createdAt: 'desc' }, // Prefer newest order
     });
 
     res.status(200).json({
@@ -461,7 +452,7 @@ router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) =
         id: prescription.id,
         uploadedAt: prescription.createdAt,
         status: prescription.status,
-        imageUrl: prescription.imageUrl,
+        fileUrl: prescription.fileUrl,
       },
     });
   } catch (error) {

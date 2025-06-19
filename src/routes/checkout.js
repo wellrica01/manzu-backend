@@ -133,7 +133,6 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
     let newPrescription = null;
 
     if (requiresPrescription) {
-      // Check for existing verified prescription
       verifiedPrescription = await prisma.prescription.findFirst({
         where: {
           patientIdentifier,
@@ -155,7 +154,6 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
 
       if (!isValidPrescription) {
         if (req.file) {
-          // Create new prescription for uncovered medications
           const fileUrl = `uploads/${req.file.filename}`;
           newPrescription = await prisma.prescription.create({
             data: {
@@ -168,7 +166,6 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
               createdAt: new Date(),
             },
           });
-          // Link uncovered medications to new prescription
           const uncoveredMedicationIds = verifiedPrescription
             ? orderMedicationIds.filter(id => !verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId).includes(id))
             : orderMedicationIds;
@@ -193,8 +190,8 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
     }
 
     const orders = [];
+    const paymentReferences = [];
 
-    // Create orders per pharmacy, splitting by prescription coverage
     for (const pharmacyId of pharmacyIds) {
       const { items, pharmacy } = itemsByPharmacy[pharmacyId];
       const coveredItems = verifiedPrescription
@@ -207,10 +204,10 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
         : [];
       const otcItems = items.filter(item => !item.pharmacyMedication.medication.prescriptionRequired);
 
-      // Create order for covered items (verified prescription)
       if (coveredItems.length > 0) {
         const totalPrice = coveredItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-        const orderStatus = 'pending'; // Payable since prescription is verified
+        const orderStatus = 'pending';
+        const paymentReference = `order_${Date.now()}_${pharmacyId}_verified`;
         const order = await prisma.$transaction(async (tx) => {
           const newOrder = await tx.order.create({
             data: {
@@ -222,7 +219,7 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
               email,
               phone: normalizedPhone,
               totalPrice,
-              paymentReference: `order_${Date.now()}_${pharmacyId}_verified`,
+              paymentReference,
               paymentStatus: 'pending',
               checkoutSessionId,
               createdAt: new Date(),
@@ -258,12 +255,13 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
           return newOrder;
         });
         orders.push({ order, pharmacy, requiresPrescription: true });
+        paymentReferences.push(paymentReference);
       }
 
-      // Create order for uncovered items (new prescription)
       if (uncoveredItems.length > 0) {
         const totalPrice = uncoveredItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
         const orderStatus = 'pending_prescription';
+        const paymentReference = `order_${Date.now()}_${pharmacyId}_new`;
         const order = await prisma.$transaction(async (tx) => {
           const newOrder = await tx.order.create({
             data: {
@@ -275,7 +273,7 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
               email,
               phone: normalizedPhone,
               totalPrice,
-              paymentReference: `order_${Date.now()}_${pharmacyId}_new`,
+              paymentReference,
               paymentStatus: 'pending',
               checkoutSessionId,
               createdAt: new Date(),
@@ -313,10 +311,10 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
         orders.push({ order, pharmacy, requiresPrescription: true });
       }
 
-      // Create order for OTC items
       if (otcItems.length > 0) {
         const totalPrice = otcItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
         const orderStatus = 'pending';
+        const paymentReference = `order_${Date.now()}_${pharmacyId}_otc`;
         const order = await prisma.$transaction(async (tx) => {
           const newOrder = await tx.order.create({
             data: {
@@ -328,7 +326,7 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
               email,
               phone: normalizedPhone,
               totalPrice,
-              paymentReference: `order_${Date.now()}_${pharmacyId}_otc`,
+              paymentReference,
               paymentStatus: 'pending',
               checkoutSessionId,
               createdAt: new Date(),
@@ -364,30 +362,29 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
           return newOrder;
         });
         orders.push({ order, pharmacy, requiresPrescription: false });
+        paymentReferences.push(paymentReference);
       }
     }
 
-    // Delete original cart order and its items
     await prisma.$transaction(async (tx) => {
       await tx.orderItem.deleteMany({ where: { orderId: cartOrder.id } });
       await tx.order.delete({ where: { id: cartOrder.id } });
     });
 
-    // Handle payable orders (OTC and verified prescription orders)
     const payableOrders = orders.filter(o => o.order.status === 'pending');
     console.log('Payable orders:', payableOrders.map(o => ({ orderId: o.order.id, pharmacy: o.pharmacy.name, totalPrice: o.order.totalPrice })));
     if (payableOrders.length > 0) {
       const totalPayableAmount = payableOrders.reduce((sum, o) => sum + o.order.totalPrice, 0) * 100;
-      const primaryReference = `session_${checkoutSessionId}_${Date.now()}`;
+      const transactionReference = `session_${checkoutSessionId}_${Date.now()}`;
 
-      console.log('Initiating Paystack for payable orders:', { totalPayableAmount, primaryReference });
+      console.log('Initiating Paystack for payable orders:', { totalPayableAmount, transactionReference });
 
       const paystackResponse = await axios.post(
         'https://api.paystack.co/transaction/initialize',
         {
           email,
           amount: totalPayableAmount,
-          reference: primaryReference,
+          reference: transactionReference,
           callback_url: `${process.env.PAYSTACK_CALLBACK_URL}?session=${checkoutSessionId}`,
         },
         {
@@ -403,12 +400,22 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
         return res.status(500).json({ message: 'Failed to initialize payment', error: paystackResponse.data });
       }
 
-      console.log('Returning payment response:', { checkoutSessionId, paymentReference: primaryReference });
+      await prisma.transactionReference.create({
+        data: {
+          transactionReference,
+          orderReferences: paymentReferences,
+          checkoutSessionId,
+          createdAt: new Date(),
+        },
+      });
+
+      console.log('Returning payment response:', { checkoutSessionId, transactionReference, paymentReferences });
 
       return res.status(200).json({
         message: 'Checkout initiated for payable items',
         checkoutSessionId,
-        paymentReference: primaryReference,
+        transactionReference,
+        paymentReferences,
         paymentUrl: paystackResponse.data.data.authorization_url,
         orders: orders.map(o => ({
           orderId: o.order.id,
@@ -421,7 +428,6 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
       });
     }
 
-    // Handle prescription-only orders
     console.log('Returning prescription-only response:', { checkoutSessionId });
     return res.status(200).json({
       message: 'Prescription submitted, awaiting verification',
@@ -563,26 +569,42 @@ router.get('/resume/:orderId', async (req, res) => {
       return res.status(400).json({ message: 'Order ID and guest ID are required' });
     }
 
-    // Fetch the order to get checkoutSessionId
+    // Fetch the order to get checkoutSessionId and ensure it has a prescription
     const order = await prisma.order.findUnique({
       where: { id: parseInt(orderId) },
       select: {
         checkoutSessionId: true,
         patientIdentifier: true,
         email: true,
+        prescriptionId: true,
       },
     });
 
-    if (!order || order.patientIdentifier !== userId) {
-      console.warn('Order not found or unauthorized:', { orderId, userId });
-      return res.status(404).json({ message: 'Order not found or unauthorized' });
+    if (!order || order.patientIdentifier !== userId || !order.prescriptionId) {
+      console.warn('Order not found, unauthorized, or has no prescription:', { orderId, userId, prescriptionId: order?.prescriptionId });
+      return res.status(404).json({ message: 'Order not found, unauthorized, or not linked to a prescription' });
     }
 
-    // Fetch all orders in the session
+    // Verify the prescription's patientIdentifier
+    const prescription = await prisma.prescription.findUnique({
+      where: { id: order.prescriptionId },
+      select: { patientIdentifier: true },
+    });
+
+    if (!prescription || prescription.patientIdentifier !== userId) {
+      console.warn('Prescription not found or mismatched patientIdentifier:', { prescriptionId: order.prescriptionId, userId });
+      return res.status(404).json({ message: 'Prescription not found or not linked to the same patient' });
+    }
+
+    // Fetch all orders in the session with a valid prescription
     const sessionOrders = await prisma.order.findMany({
       where: {
         checkoutSessionId: order.checkoutSessionId,
         patientIdentifier: userId,
+        prescriptionId: { not: null }, // Ensure prescriptionId is not null
+        prescription: {
+          patientIdentifier: userId, // Ensure the linked prescription has the same patientIdentifier
+        },
       },
       select: {
         id: true,
@@ -593,8 +615,8 @@ router.get('/resume/:orderId', async (req, res) => {
     });
 
     if (sessionOrders.length === 0) {
-      console.warn('No orders in session:', { checkoutSessionId: order.checkoutSessionId, userId });
-      return res.status(404).json({ message: 'No orders found in this session' });
+      console.warn('No orders in session with valid prescription:', { checkoutSessionId: order.checkoutSessionId, userId });
+      return res.status(404).json({ message: 'No orders found in this session with a valid prescription' });
     }
 
     // Calculate total amount for pending orders
@@ -639,7 +661,6 @@ router.post('/resume/:orderId', async (req, res) => {
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    // Fetch the order to get checkoutSessionId
     const order = await prisma.order.findUnique({
       where: { id: parseInt(orderId) },
       include: {
@@ -659,7 +680,6 @@ router.post('/resume/:orderId', async (req, res) => {
       return res.status(404).json({ message: 'Order not found or unauthorized' });
     }
 
-    // Fetch all orders in the session
     const sessionOrders = await prisma.order.findMany({
       where: {
         checkoutSessionId: order.checkoutSessionId,
@@ -683,7 +703,6 @@ router.post('/resume/:orderId', async (req, res) => {
       return res.status(400).json({ message: 'No orders awaiting payment in this session' });
     }
 
-    // Validate prescriptions
     for (const sessionOrder of sessionOrders) {
       const requiresPrescription = sessionOrder.items.some(
         item => item.pharmacyMedication.medication.prescriptionRequired
@@ -694,21 +713,21 @@ router.post('/resume/:orderId', async (req, res) => {
       }
     }
 
-    // Calculate total amount for the session
     const totalAmount = sessionOrders.reduce((sum, o) => sum + o.totalPrice, 0) * 100;
     if (totalAmount <= 0) {
       console.error('Invalid total amount:', { totalAmount, checkoutSessionId: order.checkoutSessionId });
       return res.status(400).json({ message: 'Invalid order amount' });
     }
 
-    // Initialize Paystack transaction
-    const primaryReference = `session_${order.checkoutSessionId}_${Date.now()}`;
+    const transactionReference = `session_${order.checkoutSessionId}_${Date.now()}`;
+    const paymentReferences = [];
+
     const paystackResponse = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       {
         email,
         amount: totalAmount,
-        reference: primaryReference,
+        reference: transactionReference,
         callback_url: `${process.env.PAYSTACK_CALLBACK_URL}?session=${order.checkoutSessionId}`,
       },
       {
@@ -724,7 +743,6 @@ router.post('/resume/:orderId', async (req, res) => {
       return res.status(500).json({ message: 'Failed to initialize payment', error: paystackResponse.data });
     }
 
-    // Update all orders in the session with unique paymentReferences
     await prisma.$transaction(async (tx) => {
       for (const sessionOrder of sessionOrders) {
         const orderSpecificReference = `order_${sessionOrder.id}_${order.checkoutSessionId}_${Date.now()}`;
@@ -736,16 +754,33 @@ router.post('/resume/:orderId', async (req, res) => {
             updatedAt: new Date(),
           },
         });
+        paymentReferences.push(orderSpecificReference);
       }
+      await tx.transactionReference.create({
+        data: {
+          transactionReference,
+          orderReferences: paymentReferences,
+          checkoutSessionId: order.checkoutSessionId,
+          createdAt: new Date(),
+        },
+      });
     });
 
-    console.log('Checkout resumed for session:', { orderId, userId, checkoutSessionId: order.checkoutSessionId, totalAmount });
+    console.log('Checkout resumed for session:', { orderId, userId, checkoutSessionId: order.checkoutSessionId, totalAmount, transactionReference, paymentReferences });
+
     res.status(200).json({
       message: 'Checkout resumed for session',
       checkoutSessionId: order.checkoutSessionId,
-      paymentReference: primaryReference,
+      transactionReference,
+      paymentReferences,
       paymentUrl: paystackResponse.data.data.authorization_url,
       totalAmount: totalAmount / 100,
+      orders: sessionOrders.map(o => ({
+        orderId: o.id,
+        totalPrice: o.totalPrice,
+        status: o.status,
+        paymentReference: o.paymentReference,
+      })),
     });
   } catch (error) {
     console.error('Checkout resume error:', { message: error.message, stack: error.stack });
@@ -753,6 +788,87 @@ router.post('/resume/:orderId', async (req, res) => {
   }
 });
 
+router.get('/resume-orders/:orderId', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.headers['x-guest-id'];
 
+    if (!orderId || !userId) {
+      return res.status(400).json({ message: 'Order ID and guest ID are required' });
+    }
+
+    // Validate the initial order
+    const initialOrder = await prisma.order.findUnique({
+      where: { id: parseInt(orderId) },
+      select: { checkoutSessionId: true, patientIdentifier: true, prescriptionId: true, status: true },
+    });
+
+    if (!initialOrder || initialOrder.patientIdentifier !== userId || !initialOrder.prescriptionId || initialOrder.status !== 'pending') {
+      return res.status(404).json({ message: 'Order not found, unauthorized, not linked to a prescription, or not pending' });
+    }
+
+    // Fetch pending orders with the same checkoutSessionId and prescriptionId
+    const orders = await prisma.order.findMany({
+      where: {
+        checkoutSessionId: initialOrder.checkoutSessionId,
+        patientIdentifier: userId,
+        prescriptionId: initialOrder.prescriptionId,
+        status: 'pending',
+      },
+      include: {
+        items: {
+          include: {
+            pharmacyMedication: { include: { medication: true, pharmacy: true } },
+          },
+        },
+        prescription: true,
+        pharmacy: true,
+      },
+    });
+
+    if (!orders.length) {
+      return res.status(404).json({ message: 'No pending orders found for this session' });
+    }
+
+    // Format response to match the structure expected by the frontend
+    const pharmacies = orders.reduce((acc, order) => {
+      const pharmacyId = order.pharmacyId;
+      const existing = acc.find(p => p.pharmacy.id === pharmacyId);
+      const orderData = {
+        id: order.id,
+        totalPrice: order.totalPrice,
+        status: order.status,
+        email: order.email || null,
+        prescription: order.prescription
+          ? { id: order.prescription.id, status: order.prescription.status, uploadedAt: order.prescription.uploadedAt }
+          : null,
+        items: order.items.map(item => ({
+          id: item.id,
+          quantity: item.quantity,
+          price: item.price,
+          medication: { id: item.pharmacyMedication.medication.id, name: item.pharmacyMedication.medication.name },
+        })),
+      };
+
+      if (existing) {
+        existing.orders.push(orderData);
+      } else {
+        acc.push({
+          pharmacy: { id: order.pharmacy.id, name: order.pharmacy.name, address: order.pharmacy.address },
+          orders: [orderData],
+        });
+      }
+      return acc;
+    }, []);
+
+    res.status(200).json({
+      pharmacies,
+      trackingCode: orders[0].trackingCode || 'Pending',
+    });
+  } catch (error) {
+    console.error('Resume orders fetch error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
 
 module.exports = router;

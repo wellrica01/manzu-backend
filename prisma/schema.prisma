@@ -167,6 +167,14 @@ model Consent {
   @@unique([patientidentifier, consenttype])
 }
 
+model TransactionReference {
+  id                   Int      @id(map: "transactionreference_pkey") @default(autoincrement())
+  transactionReference String   @unique(map: "transactionreference_transactionreference_key")
+  orderReferences      String[]
+  checkoutSessionId    String
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+}
+
 enum OrderStatus {
   cart
   pending
