@@ -56,6 +56,32 @@ function validateRemoveFromCart(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+function validateAddToBooking(data) {
+  const schema = Joi.object({
+    testId: Joi.number().integer().required(),
+    labId: Joi.number().integer().required(),
+    userId: Joi.string().optional(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateUpdateBooking(data) {
+  const schema = Joi.object({
+    bookingItemId: Joi.number().integer().required(),
+    quantity: Joi.number().integer().min(1).required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateRemoveFromBooking(data) {
+  const schema = Joi.object({
+    bookingItemId: Joi.number().integer().required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
 function validateCheckout(data) {
   const schema = Joi.object({
     name: Joi.string().required(),
@@ -115,6 +141,66 @@ function validateResume(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+// Booking checkout validations
+function validateBookingCheckout(data) {
+  const schema = Joi.object({
+    name: Joi.string().required(),
+    email: Joi.string().custom((value, helpers) => {
+      if (!isValidEmail(value)) {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    }, 'email validation').required(),
+    phone: Joi.string().custom((value, helpers) => {
+      if (!isValidPhone(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid phone number format (e.g., 09031615501 or +2349031615501)' });
+      }
+      return value;
+    }, 'phone validation').required(),
+    address: Joi.string().when('deliveryMethod', {
+      is: 'home',
+      then: Joi.string().required(),
+      otherwise: Joi.string().allow(null, ''),
+    }),
+    deliveryMethod: Joi.string().valid('in-person', 'home').required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateBookingSessionRetrieve(data) {
+  const schema = Joi.object({
+    email: Joi.string().custom((value, helpers) => {
+      if (value && !isValidEmail(value)) {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    }, 'email validation').optional(),
+    phone: Joi.string().custom((value, helpers) => {
+      if (value && !isValidPhone(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid phone number format' });
+      }
+      return value;
+    }, 'phone validation').optional(),
+    checkoutSessionId: Joi.string().optional(),
+  }).or('email', 'phone', 'checkoutSessionId');
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateBookingResume(data) {
+  const schema = Joi.object({
+    bookingId: Joi.number().integer().required(),
+    email: Joi.string().custom((value, helpers) => {
+      if (!isValidEmail(value)) {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    }, 'email validation').required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
 function validateConfirmation(data) {
   const schema = Joi.object({
     reference: Joi.string().custom((value, helpers) => {
@@ -129,7 +215,35 @@ function validateConfirmation(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+// Booking confirmation validation
+function validateBookingConfirmation(data) {
+  const schema = Joi.object({
+    reference: Joi.string().custom((value, helpers) => {
+      if (value && !isValidReference(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid payment reference format' });
+      }
+      return value;
+    }, 'reference validation').optional(),
+    session: Joi.string().required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
 function validateTracking(data) {
+  const schema = Joi.object({
+    trackingCode: Joi.string().custom((value, helpers) => {
+      if (!isValidTrackingCode(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid tracking code format' });
+      }
+      return value;
+    }, 'tracking code validation').required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+// Booking tracking validation
+function validateBookingTracking(data) {
   const schema = Joi.object({
     trackingCode: Joi.string().custom((value, helpers) => {
       if (!isValidTrackingCode(value)) {
@@ -180,6 +294,35 @@ function validateMedicationSearch(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+function validateTests(data) {
+  const schema = Joi.object({});
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateTestSuggestions(data) {
+  const schema = Joi.object({
+    q: Joi.string().trim().optional(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateTestSearch(data) {
+  const schema = Joi.object({
+    q: Joi.string().trim().optional(),
+    testId: Joi.number().integer().optional(),
+    page: Joi.string().pattern(/^\d+$/).default('1'),
+    limit: Joi.string().pattern(/^\d+$/).default('10'),
+    lat: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
+    lng: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
+    radius: Joi.string().pattern(/^\d+(\.\d+)?$/).default('10'),
+    state: Joi.string().optional(),
+    lga: Joi.string().optional(),
+    ward: Joi.string().optional(),
+    sortBy: Joi.string().valid('cheapest', 'closest').default('cheapest'),
+  }).or('q', 'testId');
+  return schema.validate(data, { abortEarly: false });
+}
+
 function validatePrescriptionUpload(data) {
   const schema = Joi.object({
     patientIdentifier: Joi.string().required(),
@@ -220,6 +363,45 @@ function validateGuestOrder(data) {
     lat: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
     lng: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
     radius: Joi.string().pattern(/^\d+(\.\d+)?$/).default('10'),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateTestOrderUpload(data) {
+  const schema = Joi.object({
+    patientIdentifier: Joi.string().required(),
+    contact: Joi.string().required().min(1),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateAddTest(data) {
+  const schema = Joi.object({
+    id: Joi.string().pattern(/^\d+$/).required(),
+    tests: Joi.array().items(
+      Joi.object({
+        testId: Joi.number().integer().required(),
+        quantity: Joi.number().integer().min(1).required(),
+      })
+    ).required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateVerifyTestOrder(data) {
+  const schema = Joi.object({
+    id: Joi.number().integer().required(),
+    status: Joi.string().valid('pending', 'verified', 'rejected').required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateGuestTestOrder(data) {
+  const schema = Joi.object({
+    patientIdentifier: Joi.string().required(),
+    lat: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
+    lng: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
+    radius: Joi.string().pattern(/^\d+(\.\d+)?$/).optional(),
   });
   return schema.validate(data, { abortEarly: false });
 }
@@ -293,19 +475,34 @@ module.exports = {
   validateAddToCart,
   validateUpdateCart,
   validateRemoveFromCart,
+  validateAddToBooking,
+  validateUpdateBooking,
+  validateRemoveFromBooking,
   validateCheckout,
   validateSessionRetrieve,
   validateResume,
+  validateBookingCheckout,
+  validateBookingSessionRetrieve,
+  validateBookingResume,
   validateConfirmation,
+  validateBookingConfirmation,
   validateTracking,
+  validateBookingTracking,
   validateConsent,
   validateMedications,
   validateMedicationSuggestions,
   validateMedicationSearch,
+  validateTests,
+  validateTestSuggestions,
+  validateTestSearch,
   validatePrescriptionUpload,
   validateAddMedications,
   validateVerifyPrescription,
   validateGuestOrder,
+  validateTestOrderUpload,
+  validateAddTest,
+  validateVerifyTestOrder,
+  validateGuestTestOrder,
   validateFetchOrders,
   validateUpdateOrder,
   validateFetchMedications,

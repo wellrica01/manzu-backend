@@ -1,8 +1,10 @@
 const express = require('express');
-     const dotenv = require('dotenv');
      const medicationRoutes = require('./routes/medication');
+     const testRoutes = require('./routes/test')
      const prescriptionRoutes = require('./routes/prescription');
+     const testOrderRoutes = require('./routes/testorder')
      const cartRoutes = require('./routes/cart');
+     const bookingRoutes = require('./routes/booking')
      const checkoutRoutes = require('./routes/checkout');
      const confirmationRoutes = require('./routes/confirmation');
      const trackRoutes = require('./routes/track');
@@ -20,6 +22,9 @@ const express = require('express');
      app.use(express.json());
      app.use('/uploads', express.static('uploads'));
      app.use('/api', medicationRoutes);
+     app.use('/api/tests', testRoutes);
+     app.use('/api/booking', bookingRoutes);
+     app.use('/api/testorder', testOrderRoutes);
      app.use('/api/prescription', prescriptionRoutes);
      app.use('/api/cart', cartRoutes);
      app.use('/api/checkout', checkoutRoutes);
