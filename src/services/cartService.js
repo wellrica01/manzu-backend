@@ -91,7 +91,12 @@ async function getCart(userId) {
     include: {
       items: {
         include: {
-          pharmacyMedication: { include: { pharmacy: true, medication: true } },
+          pharmacyMedication: {
+            include: {
+              pharmacy: true,
+              medication: true,
+            },
+          },
         },
       },
       prescription: true,
@@ -102,46 +107,52 @@ async function getCart(userId) {
     return { items: [], totalPrice: 0, pharmacies: [] };
   }
 
-  // Group items by pharmacy
   const pharmacyGroups = order.items.reduce((acc, item) => {
-    const pharmacyId = item.pharmacyMedicationPharmacyId;
+    const pharmacyId = item.pharmacyMedication?.pharmacy?.id;
+    if (!pharmacyId) return acc; // Skip if data is incomplete
+
     if (!acc[pharmacyId]) {
       acc[pharmacyId] = {
         pharmacy: {
           id: pharmacyId,
-          name: item.pharmacyMedication.pharmacy.name,
-          address: item.pharmacyMedication.pharmacy.address,
+          name: item.pharmacyMedication?.pharmacy?.name ?? "Unknown Pharmacy",
+          address: item.pharmacyMedication?.pharmacy?.address ?? "No address",
         },
         items: [],
         subtotal: 0,
       };
     }
+
     acc[pharmacyId].items.push({
       id: item.id,
       medication: {
-        name: item.pharmacyMedication.medication.name,
-        displayName: `${item.pharmacyMedication.medication.name}${item.pharmacyMedication.medication.dosage ? ` ${item.pharmacyMedication.medication.dosage}` : ''}${item.pharmacyMedication.medication.form ? ` (${item.pharmacyMedication.medication.form})` : ''}`,
-        category: item.pharmacyMedication.medication.category,
-        prescriptionRequired: item.pharmacyMedication.medication.prescriptionRequired,
+        name: item.pharmacyMedication?.medication?.name ?? "Unknown",
+        displayName: `${item.pharmacyMedication?.medication?.name ?? ""}${item.pharmacyMedication?.medication?.dosage ? ` ${item.pharmacyMedication.medication.dosage}` : ''}${item.pharmacyMedication?.medication?.form ? ` (${item.pharmacyMedication.medication.form})` : ''}`,
+        category: item.pharmacyMedication?.medication?.category,
+        prescriptionRequired: item.pharmacyMedication?.medication?.prescriptionRequired ?? false,
       },
       quantity: item.quantity,
       price: item.price,
       pharmacyMedicationMedicationId: item.pharmacyMedicationMedicationId,
       pharmacyMedicationPharmacyId: item.pharmacyMedicationPharmacyId,
     });
+
     acc[pharmacyId].subtotal += item.quantity * item.price;
     return acc;
   }, {});
 
   const pharmacies = Object.values(pharmacyGroups);
-  console.log('GET /api/cart response:', { pharmacies, totalPrice: order.totalPrice });
+  const totalPrice = pharmacies.reduce((sum, p) => sum + p.subtotal, 0);
+
+  console.log('GET /api/cart response:', { pharmacies, totalPrice });
 
   return {
     pharmacies,
-    totalPrice: order.totalPrice,
+    totalPrice,
     prescriptionId: order.prescriptionId ?? order.prescription?.id ?? null,
   };
 }
+
 
 async function updateCartItem({ orderItemId, quantity, userId }) {
   const order = await prisma.order.findFirst({

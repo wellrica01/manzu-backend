@@ -421,22 +421,23 @@ async function validatePrescription({ patientIdentifier, medicationIds }) {
     throw new Error('patientIdentifier required');
   }
   if (!medicationIds) {
-    return true;
+    return false; // No medication IDs means no prescription required
   }
   const ids = medicationIds.split(',').map(Number).filter(id => !isNaN(id));
   if (ids.length === 0) {
-    return true;
+    return false; // Invalid or empty IDs means no prescription required
   }
-  const prescription = await prisma.prescription.findFirst({
+  const prescriptions = await prisma.prescription.findMany({
     where: { patientIdentifier, status: 'verified' },
     include: { PrescriptionMedication: true },
   });
-  if (!prescription) {
-    return true;
+  if (!prescriptions.length) {
+    return true; // No verified prescriptions means upload is required
   }
-  const prescriptionMedicationIds = prescription.PrescriptionMedication.map(pm => pm.medicationId);
+  const prescriptionMedicationIds = prescriptions
+    .flatMap(prescription => prescription.PrescriptionMedication.map(pm => pm.medicationId));
   console.log('Prescription medication IDs:', prescriptionMedicationIds);
-  return !ids.every(id => prescriptionMedicationIds.includes(id));
+  return !ids.every(id => prescriptionMedicationIds.includes(id)); // Upload required if any ID is not covered
 }
 
 async function getSessionDetails({ orderId, userId }) {

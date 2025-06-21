@@ -20,6 +20,7 @@ async function uploadPrescription({ patientIdentifier, email, phone, fileUrl }) 
   return prescription;
 }
 
+
 async function addMedications(prescriptionId, medications) {
   const prescription = await prisma.prescription.findUnique({
     where: { id: prescriptionId },

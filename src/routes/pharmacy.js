@@ -69,7 +69,7 @@ router.post('/medications', authenticate, async (req, res) => {
     const { medicationId, stock, price, receivedDate, expiryDate } = req.body;
 
     // Validate input
-    const { error } = validateAddMedication({ medicationId, stock, price, receivedDate, expiryDate });
+    const { error } = validateAddMedication({ medicationId, stock, price });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });

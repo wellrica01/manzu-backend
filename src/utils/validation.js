@@ -183,18 +183,12 @@ function validateMedicationSearch(data) {
 function validatePrescriptionUpload(data) {
   const schema = Joi.object({
     patientIdentifier: Joi.string().required(),
-    email: Joi.string().custom((value, helpers) => {
-      if (value && !isValidEmail(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid email format' });
+    contact: Joi.string().required().custom((value, helpers) => {
+      if (!isValidEmail(value) && !isValidPhone(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid email or phone number format (e.g., example@domain.com or +2349031615501)' });
       }
       return value;
-    }, 'email validation').optional(),
-    phone: Joi.string().custom((value, helpers) => {
-      if (value && !isValidPhone(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid phone number format (e.g., 09031615501 or +2349031615501)' });
-      }
-      return value;
-    }, 'phone validation').optional(),
+    }, 'contact validation'),
   });
   return schema.validate(data, { abortEarly: false });
 }
@@ -250,18 +244,14 @@ function validateFetchMedications(data) {
 
 function validateAddMedication(data) {
   const schema = Joi.object({
-    id: Joi.number().integer().required(),
-    medications: Joi.array().items(
-      Joi.object({
-        medicationId: Joi.number().integer().required(),
-        quantity: Joi.number().integer().positive().required(),
-        pharmacyId: Joi.number().integer().allow(null).optional(), 
-      })
-    ).min(1).required(),
+    medicationId: Joi.number().integer().required(),
+    stock: Joi.number().integer().positive().required(),
+    price: Joi.number().precision(2).positive().required(),
   });
 
   return schema.validate(data, { abortEarly: false });
 }
+
 
 
 function validateUpdateMedication(data) {

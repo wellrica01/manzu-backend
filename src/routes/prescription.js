@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const prescriptionService = require('../services/prescriptionService');
-const { validatePrescriptionUpload, validateAddMedication, validateVerifyPrescription, validateGuestOrder } = require('../utils/validation');
+const { isValidEmail, validatePrescriptionUpload, validateAddMedication, validateVerifyPrescription, validateGuestOrder } = require('../utils/validation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
@@ -40,14 +40,19 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
       return res.status(400).json({ message: 'No file uploaded' });
     }
     const patientIdentifier = req.headers['x-guest-id'];
-    const { email, phone } = req.body;
+    const { contact } = req.body;
 
     // Validate input
-    const { error } = validatePrescriptionUpload({ patientIdentifier, email, phone });
+    const { error } = validatePrescriptionUpload({ patientIdentifier, contact });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
+
+    // Determine if contact is email or phone
+    const isEmail = isValidEmail(contact);
+    const email = isEmail ? contact : null;
+    const phone = !isEmail && contact ? contact : null;
 
     const prescription = await prescriptionService.uploadPrescription({
       patientIdentifier,
