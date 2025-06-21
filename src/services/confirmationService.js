@@ -189,7 +189,9 @@ async function confirmOrder({ reference, session, userId }) {
   });
 
   // Format response with orders grouped by pharmacy
-  const ordersByPharmacy = updatedOrders.reduce((acc, order) => {
+  const ordersByPharmacy = updatedOrders
+  .filter(order => order.status === 'confirmed' && order.paymentStatus === 'paid')
+  .reduce((acc, order) => {
     const pharmacyId = order.pharmacyId;
     if (!acc[pharmacyId]) {
       acc[pharmacyId] = {

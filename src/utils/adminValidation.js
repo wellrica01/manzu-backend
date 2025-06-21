@@ -1,9 +1,17 @@
 const z = require('zod');
 
 const paginationSchema = z.object({
-  page: z.string().regex(/^\d+$/).optional().default('1').transform(Number),
-  limit: z.string().regex(/^\d+$/).optional().default('10').transform(Number),
+  page: z.preprocess(
+    (val) => parseInt(val ?? '1', 10), // fallback to '1' if undefined/null
+    z.number().int().positive()
+  ),
+  limit: z.preprocess(
+    (val) => parseInt(val ?? '10', 10),
+    z.number().int().positive().max(100)
+  ),
 });
+
+
 
 const editPharmacySchema = z.object({
   name: z.string().min(1, 'Pharmacy name required'),
@@ -156,4 +164,5 @@ module.exports = {
   editProfileSchema,
   adminRegisterSchema,
   adminLoginSchema,
+  paginationSchema,
 };

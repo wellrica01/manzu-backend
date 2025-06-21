@@ -33,8 +33,9 @@ async function getDashboardOverview() {
   return summary;
 }
 
-async function getPharmacies({ page, limit }) {
+async function getPharmacies({ page = 1, limit = 10 }) {
   const skip = (page - 1) * limit;
+
   const [pharmacies, total] = await prisma.$transaction([
     prisma.pharmacy.findMany({
       select: {
@@ -56,12 +57,18 @@ async function getPharmacies({ page, limit }) {
     }),
     prisma.pharmacy.count(),
   ]);
-  console.log('Pharmacies fetched:', { count: pharmacies.length, total });
+
   return {
     pharmacies,
-    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    pagination: {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+    },
   };
 }
+
 
 async function getSimplePharmacies() {
   const simplePharmacies = await prisma.pharmacy.findMany({

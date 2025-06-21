@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const prescriptionService = require('../services/prescriptionService');
-const { validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validateGuestOrder } = require('../utils/validation');
+const { validatePrescriptionUpload, validateAddMedication, validateVerifyPrescription, validateGuestOrder } = require('../utils/validation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
@@ -31,7 +31,7 @@ const upload = multer({
   },
 });
 
-console.log('Loaded prescription.js version: 2025-06-19-v1');
+console.log('Loaded prescription.js version: 2025-06-19-v2');
 
 // POST /prescription/upload - Upload a prescription
 router.post('/upload', upload.single('prescriptionFile'), requireConsent, async (req, res) => {
@@ -69,7 +69,7 @@ router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res
     const { medications } = req.body;
 
     // Validate input
-    const { error } = validateAddMedications({ id, medications });
+    const { error } = validateAddMedication({ id, medications });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
@@ -121,6 +121,37 @@ router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) =
     res.status(200).json(result);
   } catch (error) {
     console.error('Guest order retrieval error:', { message: error.message });
+    const statusCode = error.message.includes('Prescription not found') || 
+                      error.message.includes('Invalid latitude or longitude') ? 400 : 500;
+    res.status(statusCode).json({ message: error.message });
+  }
+});
+
+// GET /prescription/status - Get prescription statuses for medications
+router.get('/status', requireConsent, async (req, res) => {
+  try {
+    const patientIdentifier = req.headers['x-guest-id'];
+    const { medicationIds } = req.query;
+
+    if (!patientIdentifier) {
+      return res.status(400).json({ message: 'Patient identifier is required' });
+    }
+    if (!medicationIds) {
+      return res.status(400).json({ message: 'Medication IDs are required' });
+    }
+
+    const medicationIdArray = medicationIds.split(',').map(id => id.trim());
+    if (medicationIdArray.length === 0) {
+      return res.status(400).json({ message: 'Invalid medication IDs' });
+    }
+
+    const statuses = await prescriptionService.getPrescriptionStatuses({
+      patientIdentifier,
+      medicationIds: medicationIdArray,
+    });
+    res.status(200).json(statuses);
+  } catch (error) {
+    console.error('Prescription status error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

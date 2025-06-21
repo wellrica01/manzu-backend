@@ -66,7 +66,7 @@ router.delete('/remove/:id', async (req, res) => {
     const userId = req.headers['x-guest-id'];
 
     // Validate input
-    const { error } = validateRemoveFromCart({ orderitemId: orderItemId, userId });
+    const { error } = validateRemoveFromCart({ orderItemId, userId });
     if (error) {
       return res.status(400).json({ message: error.message });
     }

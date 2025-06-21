@@ -250,14 +250,19 @@ function validateFetchMedications(data) {
 
 function validateAddMedication(data) {
   const schema = Joi.object({
-    medicationId: Joi.number().integer().required(),
-    stock: Joi.number().integer().min(0).required(),
-    price: Joi.number().min(0).required(),
-    receivedDate: Joi.date().optional().allow(null),
-    expiryDate: Joi.date().optional().allow(null),
+    id: Joi.number().integer().required(),
+    medications: Joi.array().items(
+      Joi.object({
+        medicationId: Joi.number().integer().required(),
+        quantity: Joi.number().integer().positive().required(),
+        pharmacyId: Joi.number().integer().allow(null).optional(), 
+      })
+    ).min(1).required(),
   });
+
   return schema.validate(data, { abortEarly: false });
 }
+
 
 function validateUpdateMedication(data) {
   const schema = Joi.object({

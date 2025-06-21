@@ -171,8 +171,21 @@ async function getGuestOrder({ patientIdentifier, lat, lng, radius }) {
   if (!prescription) {
     throw new Error('Prescription not found or not verified');
   }
+
+  // For pending prescriptions, return metadata without medications or order details
   if (prescription.status === 'pending') {
-    throw new Error('Prescription is still under review. You’ll be notified when it’s ready.');
+    return {
+      medications: [],
+      prescriptionId: prescription.id,
+      orderId: null,
+      orderStatus: null,
+      prescriptionMetadata: {
+        id: prescription.id,
+        uploadedAt: prescription.createdAt,
+        status: prescription.status,
+        fileUrl: prescription.fileUrl,
+      },
+    };
   }
 
   let pharmacyIdsWithDistance = [];
@@ -272,4 +285,59 @@ async function getGuestOrder({ patientIdentifier, lat, lng, radius }) {
   };
 }
 
-module.exports = { uploadPrescription, addMedications, verifyPrescription, getGuestOrder };
+async function getPrescriptionStatuses({ patientIdentifier, medicationIds }) {
+  try {
+    // Validate medicationIds
+    const validMedicationIds = medicationIds.filter(id => id && !isNaN(parseInt(id))).map(id => id.toString());
+    if (validMedicationIds.length === 0) {
+      console.warn('No valid medication IDs provided:', { patientIdentifier, medicationIds });
+      return Object.fromEntries(medicationIds.map(id => [id, 'none']));
+    }
+
+    // Fetch the latest prescription for the patient
+    const prescription = await prisma.prescription.findFirst({
+      where: { 
+        patientIdentifier, 
+        status: { in: ['pending', 'verified'] } 
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        PrescriptionMedication: {
+          include: {
+            Medication: {
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+
+    // Initialize statuses as 'none' for all requested medicationIds
+    const statuses = Object.fromEntries(
+      validMedicationIds.map(id => [id, 'none'])
+    );
+
+    if (!prescription) {
+      console.log('No prescription found for patient:', { patientIdentifier });
+      return statuses;
+    }
+
+    // Map medicationIds covered by the prescription
+    const coveredMedicationIds = prescription.PrescriptionMedication
+      .map(pm => pm.medicationId.toString());
+
+    for (const medId of validMedicationIds) {
+      if (coveredMedicationIds.includes(medId)) {
+        statuses[medId] = prescription.status; // 'verified' or 'pending'
+      }
+    }
+
+    console.log('Prescription statuses retrieved:', { patientIdentifier, statuses });
+    return statuses;
+  } catch (error) {
+    console.error('Error fetching prescription statuses:', error);
+    throw new Error('Failed to fetch prescription statuses');
+  }
+}
+
+module.exports = { uploadPrescription, addMedications, verifyPrescription, getGuestOrder, getPrescriptionStatuses };

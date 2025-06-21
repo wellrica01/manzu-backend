@@ -1,6 +1,7 @@
 const express = require('express');
+const z = require('zod');
 const adminService = require('../services/adminService');
-const { editPharmacySchema, createMedicationSchema, updateMedicationSchema, medicationFilterSchema, prescriptionFilterSchema, orderFilterSchema, adminUserFilterSchema, pharmacyUserFilterSchema } = require('../utils/adminValidation');
+const { editPharmacySchema, paginationSchema, createMedicationSchema, updateMedicationSchema, medicationFilterSchema, prescriptionFilterSchema, orderFilterSchema, adminUserFilterSchema, pharmacyUserFilterSchema } = require('../utils/adminValidation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const router = express.Router();
 
@@ -20,17 +21,23 @@ router.get('/dashboard', authenticate, authenticateAdmin, async (req, res) => {
 // GET /admin/pharmacies - Get all pharmacies
 router.get('/pharmacies', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const query = editPharmacySchema.partial().merge({ page: editPharmacySchema.shape.page, limit: editPharmacySchema.shape.limit }).parse(req.query);
+    const query = paginationSchema.parse(req.query);
     const { pharmacies, pagination } = await adminService.getPharmacies(query);
-    res.status(200).json({ message: 'Pharmacies fetched successfully', pharmacies, pagination });
+
+    res.status(200).json({
+      message: 'Pharmacies fetched successfully',
+      pharmacies,
+      pagination,
+    });
   } catch (error) {
-    console.error('Fetch pharmacies error:', { message: error.message });
+    console.error('Fetch pharmacies error:', error);
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
 
 // GET /admin/pharmacies/simple - Get pharmacies for filter dropdown
 router.get('/pharmacies/simple', authenticate, authenticateAdmin, async (req, res) => {
