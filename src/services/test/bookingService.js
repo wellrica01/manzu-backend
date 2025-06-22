@@ -1,14 +1,16 @@
 const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
-const { recalculateBookingTotal } = require('../../utils/lab/bookingUtils');
+const { recalculateBookingTotal } = require('../../utils/test/bookingUtils');
 const prisma = new PrismaClient();
 
-async function addToBooking({ testId, labId, quantity, userId }) {
-  // Generate userId if not provided
+async function addToBooking({ testId, labId, userId }) {
+  if (!testId || isNaN(parseInt(testId)) || !labId || isNaN(parseInt(labId))) {
+    throw new Error('Invalid test or lab ID');
+  }
   userId = userId || uuidv4();
 
   // Check if lab exists
-  const lab = await prisma.lab.findUnique({ where: { id: labId } });
+  const lab = await prisma.lab.findUnique({ where: { id: parseInt(labId) } });
   if (!lab) {
     throw new Error('Lab not found');
   }
@@ -22,31 +24,29 @@ async function addToBooking({ testId, labId, quantity, userId }) {
   });
 
   // If booking exists and isn't in 'cart' status, update it
-  if (booking) {
-    if (booking.status !== 'cart') {
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: { status: 'cart' },
-      });
-    }
-  } else {
+  if (booking && booking.status !== 'cart') {
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { status: 'cart', updatedAt: new Date().toISOString() },
+    });
+  } else if (!booking) {
     // If no booking exists, create a new one
     booking = await prisma.booking.create({
       data: {
         patientIdentifier: userId,
         status: 'cart',
         totalPrice: 0,
-        fulfillmentType: 'unspecified',
+        fulfillmentType: 'Home', // Default to valid FulType
         paymentStatus: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
     });
   }
 
   // Check if the test is available at the selected lab
   const labTest = await prisma.labTest.findFirst({
-    where: { testId, labId, available: true },
+    where: { testId: parseInt(testId), labId: parseInt(labId), available: true },
   });
 
   if (!labTest) {
@@ -59,8 +59,8 @@ async function addToBooking({ testId, labId, quantity, userId }) {
       where: {
         bookingId_labTestLabId_labTestTestId: {
           bookingId: booking.id,
-          labTestLabId: labId,
-          labTestTestId: testId,
+          labTestLabId: parseInt(labId),
+          labTestTestId: parseInt(testId),
         },
       },
       update: {
@@ -68,8 +68,8 @@ async function addToBooking({ testId, labId, quantity, userId }) {
       },
       create: {
         bookingId: booking.id,
-        labTestLabId: labId,
-        labTestTestId: testId,
+        labTestLabId: parseInt(labId),
+        labTestTestId: parseInt(testId),
         price: labTest.price,
       },
     });
@@ -84,6 +84,10 @@ async function addToBooking({ testId, labId, quantity, userId }) {
 }
 
 async function getBooking(userId) {
+  if (!userId) {
+    throw new Error('User ID is required');
+  }
+
   const booking = await prisma.booking.findFirst({
     where: {
       patientIdentifier: userId,
@@ -105,7 +109,7 @@ async function getBooking(userId) {
   });
 
   if (!booking) {
-    return { items: [], totalPrice: 0, labs: [] };
+    return { items: [], totalPrice: 0, labs: [], testOrderId: null };
   }
 
   const labGroups = booking.BookingItem.reduce((acc, item) => {
@@ -116,8 +120,8 @@ async function getBooking(userId) {
       acc[labId] = {
         lab: {
           id: labId,
-          name: item.LabTest?.Lab?.name ?? "Unknown Lab",
-          address: item.LabTest?.Lab?.address ?? "No address",
+          name: item.LabTest?.Lab?.name ?? 'Unknown Lab',
+          address: item.LabTest?.Lab?.address ?? 'No address',
         },
         items: [],
         subtotal: 0,
@@ -127,8 +131,8 @@ async function getBooking(userId) {
     acc[labId].items.push({
       id: item.id,
       test: {
-        name: item.LabTest?.Test?.name ?? "Unknown",
-        displayName: item.LabTest?.Test?.name ?? "",
+        name: item.LabTest?.Test?.name ?? 'Unknown',
+        displayName: item.LabTest?.Test?.name ?? '',
         category: item.LabTest?.Test?.category,
         orderRequired: item.LabTest?.Test?.orderRequired ?? false,
       },
@@ -137,7 +141,7 @@ async function getBooking(userId) {
       labTestLabId: item.labTestLabId,
     });
 
-    acc[labId].subtotal += item.price; // assuming quantity = 1
+    acc[labId].subtotal += item.price;
     return acc;
   }, {});
 
@@ -153,8 +157,11 @@ async function getBooking(userId) {
   };
 }
 
+async function updateBookingItem({ bookingItemId, userId }) {
+  if (!bookingItemId || isNaN(parseInt(bookingItemId)) || !userId) {
+    throw new Error('Invalid booking item ID or user ID');
+  }
 
-async function updateBookingItem({ bookingItemId, quantity, userId }) {
   const booking = await prisma.booking.findFirst({
     where: { patientIdentifier: userId, status: 'cart' },
   });
@@ -163,8 +170,8 @@ async function updateBookingItem({ bookingItemId, quantity, userId }) {
   }
 
   const bookingItem = await prisma.bookingItem.findFirst({
-    where: { id: bookingItemId, bookingId: booking.id },
-    include: { labTest: true },
+    where: { id: parseInt(bookingItemId), bookingId: booking.id },
+    include: { LabTest: true },
   });
   if (!bookingItem) {
     throw new Error('Item not found');
@@ -184,8 +191,8 @@ async function updateBookingItem({ bookingItemId, quantity, userId }) {
   // Perform booking item update and total recalculation in a transaction
   const updatedItem = await prisma.$transaction(async (tx) => {
     const item = await tx.bookingItem.update({
-      where: { id: bookingItemId },
-      data: { quantity, price: labTest.price },
+      where: { id: parseInt(bookingItemId) },
+      data: { price: labTest.price },
     });
 
     await recalculateBookingTotal(tx, booking.id);
@@ -197,6 +204,10 @@ async function updateBookingItem({ bookingItemId, quantity, userId }) {
 }
 
 async function removeFromBooking({ bookingItemId, userId }) {
+  if (!bookingItemId || isNaN(parseInt(bookingItemId)) || !userId) {
+    throw new Error('Invalid booking item ID or user ID');
+  }
+
   const booking = await prisma.booking.findFirst({
     where: { patientIdentifier: userId, status: 'cart' },
   });
@@ -207,7 +218,7 @@ async function removeFromBooking({ bookingItemId, userId }) {
   // Perform booking item deletion and total recalculation in a transaction
   await prisma.$transaction(async (tx) => {
     await tx.bookingItem.delete({
-      where: { id: bookingItemId, bookingId: booking.id },
+      where: { id: parseInt(bookingItemId), bookingId: booking.id },
     });
 
     await recalculateBookingTotal(tx, booking.id);

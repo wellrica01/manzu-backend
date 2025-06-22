@@ -1,5 +1,5 @@
 const express = require('express');
-const labService = require('../../services/lab/labService');
+const labService = require('../../services/test/labService');
 const { validateFetchBookings, validateUpdateBooking, validateFetchTests, validateAddTest, validateUpdateTest, validateDeleteTest, validateFetchUsers, validateRegisterDevice } = require('../../utils/validation');
 const { authenticate, authenticateManager } = require('../../middleware/auth');
 const router = express.Router();

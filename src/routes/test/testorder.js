@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const testOrderService = require('../../services/lab/testOrderService');
+const testOrderService = require('../../services/test/testOrderService');
 const { isValidEmail, validateTestOrderUpload, validateAddTest, validateVerifyTestOrder, validateGuestTestOrder } = require('../../utils/validation');
 const { authenticate, authenticateAdmin } = require('../../middleware/auth');
 const requireConsent = require('../../middleware/requireConsent');
@@ -110,7 +110,7 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
 });
 
 // GET /testorders/guest-order/:patientIdentifier - Retrieve guest test order details
-router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) => {
+router.get('/guest-test/:patientIdentifier', requireConsent, async (req, res) => {
   try {
     const { patientIdentifier } = req.params;
     const { lat, lng, radius } = req.query;

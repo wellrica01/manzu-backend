@@ -2,12 +2,16 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function fetchBookings(labId) {
+  if (!labId || isNaN(parseInt(labId))) {
+    throw new Error('Invalid lab ID');
+  }
+
   const bookings = await prisma.booking.findMany({
     where: {
-      items: {
+      BookingItem: {
         some: {
-          labTest: {
-            labId,
+          LabTest: {
+            labId: parseInt(labId),
           },
         },
       },
@@ -18,18 +22,18 @@ async function fetchBookings(labId) {
       createdAt: true,
       trackingCode: true,
       patientIdentifier: true,
-      deliveryMethod: true,
+      fulfillmentType: true,
       address: true,
       status: true,
       totalPrice: true,
-      items: {
+      BookingItem: {
         select: {
           id: true,
           price: true,
-          labTest: {
+          LabTest: {
             select: {
-              test: { select: { name: true } },
-              lab: { select: { name: true, address: true } },
+              Test: { select: { name: true } },
+              Lab: { select: { name: true, address: true } },
               labId: true,
             },
           },
@@ -43,18 +47,18 @@ async function fetchBookings(labId) {
     createdAt: booking.createdAt,
     trackingCode: booking.trackingCode,
     patientIdentifier: booking.patientIdentifier,
-    deliveryMethod: booking.deliveryMethod,
+    fulfillmentType: booking.fulfillmentType,
     address: booking.address,
     status: booking.status,
     totalPrice: booking.totalPrice,
-    items: booking.items
-      .filter(item => item.labTest.labId === labId)
+    items: booking.BookingItem
+      .filter(item => item.LabTest.labId === parseInt(labId))
       .map(item => ({
         id: item.id,
-        test: { name: item.labTest.test.name },
+        test: { name: item.LabTest.Test.name },
         lab: {
-          name: item.labTest.lab.name,
-          address: item.labTest.lab.address,
+          name: item.LabTest.Lab.name,
+          address: item.LabTest.Lab.address,
         },
         price: item.price,
       })),
@@ -62,13 +66,22 @@ async function fetchBookings(labId) {
 }
 
 async function updateBookingStatus(bookingId, status, labId) {
+  if (!bookingId || isNaN(parseInt(bookingId)) || !labId || isNaN(parseInt(labId))) {
+    throw new Error('Invalid booking or lab ID');
+  }
+
+  const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled', 'sample_collected', 'result_ready', 'completed'];
+  if (!validStatuses.includes(status)) {
+    throw new Error('Invalid status value');
+  }
+
   const booking = await prisma.booking.findFirst({
     where: {
-      id: bookingId,
-      items: {
+      id: parseInt(bookingId),
+      BookingItem: {
         some: {
-          labTest: {
-            labId,
+          LabTest: {
+            labId: parseInt(labId),
           },
         },
       },
@@ -79,12 +92,12 @@ async function updateBookingStatus(bookingId, status, labId) {
   }
 
   const updateData = { status };
-  if (status === 'completed' || status === 'scheduled') {
-    updateData.filledAt = new Date();
+  if (status === 'completed') {
+    updateData.filledAt = new Date().toISOString();
   }
 
   const updatedBooking = await prisma.booking.update({
-    where: { id: bookingId },
+    where: { id: parseInt(bookingId) },
     data: updateData,
   });
 
@@ -93,9 +106,13 @@ async function updateBookingStatus(bookingId, status, labId) {
 }
 
 async function fetchTests(labId) {
+  if (!labId || isNaN(parseInt(labId))) {
+    throw new Error('Invalid lab ID');
+  }
+
   const tests = await prisma.labTest.findMany({
-    where: { labId },
-    include: { test: true },
+    where: { labId: parseInt(labId) },
+    include: { Test: true },
   });
   const allTests = await prisma.test.findMany();
 
@@ -103,7 +120,7 @@ async function fetchTests(labId) {
     tests: tests.map(t => ({
       labId: t.labId,
       testId: t.testId,
-      name: t.test.name,
+      name: t.Test.name,
       price: t.price,
       available: t.available,
     })),
@@ -115,8 +132,15 @@ async function fetchTests(labId) {
 }
 
 async function addTest({ labId, testId, price, available }) {
+  if (!labId || isNaN(parseInt(labId)) || !testId || isNaN(parseInt(testId))) {
+    throw new Error('Invalid lab or test ID');
+  }
+  if (isNaN(parseFloat(price)) || price < 0) {
+    throw new Error('Invalid price');
+  }
+
   const existing = await prisma.labTest.findUnique({
-    where: { labId_testId: { labId, testId } },
+    where: { labId_testId: { labId: parseInt(labId), testId: parseInt(testId) } },
   });
   if (existing) {
     throw new Error('Test already exists in lab inventory');
@@ -124,70 +148,85 @@ async function addTest({ labId, testId, price, available }) {
 
   const test = await prisma.labTest.create({
     data: {
-      labId,
-      testId,
-      price,
-      available,
+      labId: parseInt(labId),
+      testId: parseInt(testId),
+      price: parseFloat(price),
+      available: Boolean(available),
     },
-    include: { test: true },
+    include: { Test: true },
   });
 
   console.log('Test added:', { labId: test.labId, testId: test.testId });
   return {
     labId: test.labId,
     testId: test.testId,
-    name: test.test.name,
+    name: test.Test.name,
     price: test.price,
     available: test.available,
   };
 }
 
 async function updateTest({ labId, testId, price, available }) {
+  if (!labId || isNaN(parseInt(labId)) || !testId || isNaN(parseInt(testId))) {
+    throw new Error('Invalid lab or test ID');
+  }
+  if (isNaN(parseFloat(price)) || price < 0) {
+    throw new Error('Invalid price');
+  }
+
   const test = await prisma.labTest.findUnique({
-    where: { labId_testId: { labId, testId } },
-    include: { test: true },
+    where: { labId_testId: { labId: parseInt(labId), testId: parseInt(testId) } },
+    include: { Test: true },
   });
   if (!test) {
     throw new Error('Test not found');
   }
 
   const updatedTest = await prisma.labTest.update({
-    where: { labId_testId: { labId, testId } },
+    where: { labId_testId: { labId: parseInt(labId), testId: parseInt(testId) } },
     data: {
-      price,
-      available,
+      price: parseFloat(price),
+      available: Boolean(available),
     },
-    include: { test: true },
+    include: { Test: true },
   });
 
   console.log('Test updated:', { labId: updatedTest.labId, testId: updatedTest.testId });
   return {
     labId: updatedTest.labId,
     testId: updatedTest.testId,
-    name: updatedTest.test.name,
+    name: updatedTest.Test.name,
     price: updatedTest.price,
     available: updatedTest.available,
   };
 }
 
 async function deleteTest(labId, testId) {
+  if (!labId || isNaN(parseInt(labId)) || !testId || isNaN(parseInt(testId))) {
+    throw new Error('Invalid lab or test ID');
+  }
+
   const test = await prisma.labTest.findUnique({
-    where: { labId_testId: { labId, testId } },
+    where: { labId_testId: { labId: parseInt(labId), testId: parseInt(testId) } },
   });
   if (!test) {
     throw new Error('Test not found');
   }
 
   await prisma.labTest.delete({
-    where: { labId_testId: { labId, testId } },
+    where: { labId_testId: { labId: parseInt(labId), testId: parseInt(testId) } },
   });
 
   console.log('Test deleted:', { labId, testId });
 }
 
 async function fetchUsers(labId) {
+  if (!labId || isNaN(parseInt(labId))) {
+    throw new Error('Invalid lab ID');
+  }
+
   const users = await prisma.labUser.findMany({
-    where: { labId },
+    where: { labId: parseInt(labId) },
     select: { id: true, name: true, email: true, role: true },
   });
   console.log('Users fetched:', { labId, userCount: users.length });
@@ -195,14 +234,16 @@ async function fetchUsers(labId) {
 }
 
 async function registerDevice(labId, deviceToken) {
+  if (!labId || isNaN(parseInt(labId)) || !deviceToken) {
+    throw new Error('Invalid lab ID or device token');
+  }
+
   await prisma.lab.update({
-    where: { id: labId },
+    where: { id: parseInt(labId) },
     data: { deviceToken },
   });
   console.log('Device registered:', { labId });
 }
-
-
 
 module.exports = {
   fetchBookings,

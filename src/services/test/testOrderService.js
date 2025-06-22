@@ -1,11 +1,15 @@
 const { PrismaClient } = require('@prisma/client');
 const { normalizePhone } = require('../../utils/validation');
 const { sendVerificationNotification } = require('../../utils/notifications');
-const { formatDisplayName } = require('../../utils/lab/testUtils');
+const { formatDisplayName } = require('../../utils/test/testUtils');
 const prisma = new PrismaClient();
 
 async function uploadTestOrder({ patientIdentifier, email, phone, fileUrl }) {
-  const normalizedPhone = phone ? normalizePhone(phone) : phone;
+  if (!patientIdentifier || !fileUrl) {
+    throw new Error('Patient identifier and file URL are required');
+  }
+
+  const normalizedPhone = phone ? normalizePhone(phone) : null;
   const testOrder = await prisma.testOrder.create({
     data: {
       patientIdentifier,
@@ -14,6 +18,7 @@ async function uploadTestOrder({ patientIdentifier, email, phone, fileUrl }) {
       fileUrl,
       status: 'pending',
       verified: false,
+      createdAt: new Date().toISOString(),
     },
   });
   console.log('Test order uploaded:', { testOrderId: testOrder.id });
@@ -21,11 +26,15 @@ async function uploadTestOrder({ patientIdentifier, email, phone, fileUrl }) {
 }
 
 async function addTests(testOrderId, tests) {
+  if (!testOrderId || isNaN(parseInt(testOrderId)) || !Array.isArray(tests) || tests.length === 0) {
+    throw new Error('Invalid test order ID or tests array');
+  }
+
   const testOrder = await prisma.testOrder.findUnique({
-    where: { id: testOrderId },
+    where: { id: parseInt(testOrderId) },
   });
   if (!testOrder) {
-    throw new Error('Order not found');
+    throw new Error('Test order not found');
   }
   if (testOrder.status !== 'pending') {
     throw new Error('Test order is already processed');
@@ -34,22 +43,24 @@ async function addTests(testOrderId, tests) {
   const result = await prisma.$transaction(async (tx) => {
     const testOrderTests = [];
     for (const test of tests) {
-      const { testId, quantity } = test;
-      const test = await tx.test.findUnique({
-        where: { id: Number(testId) },
+      const { testId } = test;
+      if (!testId || isNaN(parseInt(testId))) {
+        throw new Error(`Invalid test ID: ${testId}`);
+      }
+      const testRecord = await tx.test.findUnique({
+        where: { id: parseInt(testId) },
       });
-      if (!test) {
+      if (!testRecord) {
         throw new Error(`Test ${testId} not found`);
       }
       const testOrderTest = await tx.testOrderTest.create({
         data: {
-          testOrderId,
-          testId: Number(testId),
-          quantity,
+          testOrderId: parseInt(testOrderId),
+          testId: parseInt(testId),
         },
       });
       testOrderTests.push(testOrderTest);
-    };
+    }
     return { testOrderTests };
   });
 
@@ -58,47 +69,56 @@ async function addTests(testOrderId, tests) {
 }
 
 async function verifyTestOrder(testOrderId, status) {
+  if (!testOrderId || isNaN(parseInt(testOrderId))) {
+    throw new Error('Invalid test order ID');
+  }
+  if (!['pending', 'verified', 'rejected'].includes(status)) {
+    throw new Error('Invalid status value');
+  }
+
   const testOrder = await prisma.testOrder.findUnique({
-    where: { id: testOrderId },
+    where: { id: parseInt(testOrderId) },
     include: {
-      bookings: [{
-        include: { 
-          items: true,
-          lab: true,
+      Booking: {
+        include: {
+          BookingItem: true,
+          Lab: true,
         },
-      }],
+      },
     },
   });
   if (!testOrder) {
     throw new Error('Test order not found');
   }
+
   const updatedOrder = await prisma.$transaction(async (tx) => {
     const testOrderUpdate = await tx.testOrder.update({
-      where: { id: testOrderId },
+      where: { id: parseInt(testOrderId) },
       data: {
         status,
         verified: status === 'verified',
+        updatedAt: new Date().toISOString(),
       },
     });
 
-    if (testOrder.bookings && testOrder.bookings.length > 0) {
+    if (testOrder.Booking && testOrder.Booking.length > 0) {
       if (status === 'rejected') {
-        for (const booking of testOrder.bookings) {
+        for (const booking of testOrder.Booking) {
           await tx.booking.update({
             where: { id: booking.id },
             data: {
               status: 'cancelled',
               cancelReason: 'Test order rejected',
-              cancelledAt: true,
+              cancelledAt: new Date().toISOString(),
             },
           });
         }
       } else if (status === 'verified') {
-        for (const booking of testOrder.bookings) {
+        for (const booking of testOrder.Booking) {
           await tx.booking.update({
             where: { id: booking.id },
             data: {
-              status: 'pending',
+              status: 'confirmed',
             },
           });
         }
@@ -108,8 +128,8 @@ async function verifyTestOrder(testOrderId, status) {
     return testOrderUpdate;
   });
 
-  if (testOrder.bookings && testOrder.bookings.length > 0) {
-    for (const booking of testOrder.bookings) {
+  if (testOrder.Booking && testOrder.Booking.length > 0) {
+    for (const booking of testOrder.Booking) {
       await sendVerificationNotification(testOrder, status, booking);
     }
   }
@@ -119,9 +139,13 @@ async function verifyTestOrder(testOrderId, status) {
 }
 
 async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
+  if (!patientIdentifier) {
+    throw new Error('Patient identifier is required');
+  }
+
   const userLat = parseFloat(lat);
   const userLng = parseFloat(lng);
-  const radiusKm = parseFloat(radius);
+  const radiusKm = parseFloat(radius) || 10;
   const hasValidCoordinates = lat && lng && !isNaN(userLat) && !isNaN(userLng) && !isNaN(radiusKm);
 
   if (hasValidCoordinates && (userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180)) {
@@ -146,7 +170,6 @@ async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
     throw new Error('Test order not found or not verified');
   }
 
-  // For pending test orders, return metadata without tests or booking details
   if (testOrder.status === 'pending') {
     return {
       tests: [],
@@ -159,7 +182,7 @@ async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
         status: testOrder.status,
         fileUrl: testOrder.fileUrl,
       },
-    }
+    };
   }
 
   let labIdsWithDistance = [];
@@ -174,7 +197,7 @@ async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
       FROM "Lab"
       WHERE ST_DWithin(
         location,
-        ST_SetSRID(ST_MakePoint(${userLat}, ${userLng}), 4326),
+        ST_SetSRID(ST_MakePoint(${userLng}, ${userLat}), 4326),
         ${radiusKm} * 1000
       )
       AND status = 'verified'
@@ -198,7 +221,7 @@ async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
         where: {
           testId: test.id,
           available: true,
-          lab: {
+          Lab: {
             status: 'verified',
             isActive: true,
             ...(hasValidCoordinates && {
@@ -211,25 +234,24 @@ async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
           },
         },
         include: {
-          lab: { select: { id: true, name: true, address: true } },
+          Lab: { select: { id: true, name: true, address: true } },
         },
       });
 
       return {
         id: test.id,
         displayName: formatDisplayName(test),
-        quantity: testOrderItem.quantity,
         testType: test.testType,
         orderRequired: test.orderRequired,
         testCode: test.testCode,
         imageUrl: test.imageUrl,
         availability: availability.map(avail => ({
-          labId: avail.lab.id,
-          labName: avail.lab.name,
-          address: avail.lab.address,
+          labId: avail.Lab.id,
+          labName: avail.Lab.name,
+          address: avail.Lab.address,
           price: avail.price,
-          distance_km: distanceMap.has(avail.lab.id)
-            ? distanceMap.get(avail.lab.id)
+          distance_km: distanceMap.has(avail.Lab.id)
+            ? distanceMap.get(avail.Lab.id)
             : null,
         })),
       };
@@ -240,7 +262,7 @@ async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
     where: {
       patientIdentifier,
       testOrderId: testOrder.id,
-      status: { in: ['pending', 'confirmed', 'processing', 'delivered', 'ready_for_pickup', 'cancelled'] },
+      status: { in: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled', 'sample_collected', 'result_ready', 'completed'] },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -260,9 +282,15 @@ async function getGuestTestOrder({ patientIdentifier, lat, lng, radius }) {
 }
 
 async function getTestOrderStatuses({ patientIdentifier, testIds }) {
+  if (!patientIdentifier) {
+    throw new Error('Patient identifier is required');
+  }
+
   try {
     // Validate testIds
-    const validTestIds = testIds.filter(id => id && !isNaN(parseInt(id))).map(id => id.toString());
+    const validTestIds = testIds
+      .filter(id => id && !isNaN(parseInt(id)))
+      .map(id => parseInt(id).toString());
     if (validTestIds.length === 0) {
       console.warn('No valid test IDs provided:', { patientIdentifier, testIds });
       return Object.fromEntries(testIds.map(id => [id, 'none']));
@@ -270,9 +298,9 @@ async function getTestOrderStatuses({ patientIdentifier, testIds }) {
 
     // Fetch the latest test order for the patient
     const testOrder = await prisma.testOrder.findFirst({
-      where: { 
-        patientIdentifier, 
-        status: { in: ['pending', 'verified'] } 
+      where: {
+        patientIdentifier,
+        status: { in: ['pending', 'verified'] },
       },
       orderBy: { createdAt: 'desc' },
       include: {

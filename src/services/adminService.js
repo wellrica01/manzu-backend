@@ -8,7 +8,7 @@ const geocoder = NodeGeocoder({
 });
 
 async function getDashboardOverview() {
-  const [pharmacyCount, labCount, medicationCount, testCount, prescriptionCount, bookingCount, userCount, labUserCount, pendingPrescriptions, pendingBookings, verifiedPharmacies, verifiedLabs, recentOrders, recentBookings] = await prisma.$transaction([
+  const [pharmacyCount, labCount, medicationCount, testCount, prescriptionCount, orderCount, bookingCount, userCount, labUserCount, pendingPrescriptions, pendingBookings, verifiedPharmacies, verifiedLabs, recentOrders, recentBookings] = await prisma.$transaction([
     prisma.pharmacy.count(),
     prisma.lab.count(),
     prisma.medication.count(),

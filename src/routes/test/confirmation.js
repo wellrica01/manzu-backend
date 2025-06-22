@@ -1,5 +1,5 @@
 const express = require('express');
-const bookingConfirmationService = require('../../services/lab/confirmationService');
+const bookingConfirmationService = require('../../services/test/confirmationService');
 const { validateBookingConfirmation } = require('../../utils/validation');
 const router = express.Router();
 

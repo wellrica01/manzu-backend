@@ -14,7 +14,7 @@ async function confirmBooking({ reference, session, userId }) {
     }
 
     transactionRef = await prisma.transactionReference.findFirst({
-      where: { bookingReferences: { has: reference } },
+      where: { orderReferences: { has: reference } },
     });
 
     if (!transactionRef) {
@@ -22,26 +22,26 @@ async function confirmBooking({ reference, session, userId }) {
     }
   }
 
-  // Fetch bookings: prioritize transactionRef.bookingReferences if available, else fallback to checkoutSessionId
+  // Fetch bookings: prioritize transactionRef.orderReferences if available, else fallback to checkoutSessionId
   let bookings = [];
   if (transactionRef) {
     bookings = await prisma.booking.findMany({
       where: {
         patientIdentifier: userId,
-        paymentReference: { in: transactionRef.bookingReferences },
+        paymentReference: { in: transactionRef.orderReferences },
       },
       include: {
-        items: {
+        BookingItem: {
           include: {
-            labTest: {
-              include: { test: true, lab: true },
+            LabTest: {
+              include: { Test: true, Lab: true },
             },
           },
         },
-        testOrder: {
+        TestOrder: {
           include: { TestOrderTest: true },
         },
-        lab: true,
+        Lab: true,
       },
     });
   } else {
@@ -49,20 +49,20 @@ async function confirmBooking({ reference, session, userId }) {
       where: {
         patientIdentifier: userId,
         checkoutSessionId: session,
-        status: { in: ['pending', 'confirmed', 'paid'] },
+        status: { in: ['pending', 'confirmed'] },
       },
       include: {
-        items: {
+        BookingItem: {
           include: {
-            labTest: {
-              include: { test: true, lab: true },
+            LabTest: {
+              include: { Test: true, Lab: true },
             },
           },
         },
-        testOrder: {
+        TestOrder: {
           include: { TestOrderTest: true },
         },
-        lab: true,
+        Lab: true,
       },
     });
   }
@@ -81,7 +81,7 @@ async function confirmBooking({ reference, session, userId }) {
   // Generate or reuse a tracking code
   const existingTrackingCode = bookings.find(b => b.trackingCode)?.trackingCode;
   const trackingCode = existingTrackingCode || generateTrackingCode(session, bookings[0]?.id);
-  let status = 'completed';
+  let status = 'confirmed';
 
   // Verify Paystack transaction if transactionRef is found
   if (transactionRef) {
@@ -99,10 +99,10 @@ async function confirmBooking({ reference, session, userId }) {
     if (!paystackResponse.data.status || paystackResponse.data.data.status !== 'success') {
       await prisma.$transaction(async (tx) => {
         for (const booking of bookings) {
-          if (transactionRef.bookingReferences.includes(booking.paymentReference)) {
+          if (transactionRef.orderReferences.includes(booking.paymentReference)) {
             await tx.booking.update({
               where: { id: booking.id },
-              data: { paymentStatus: 'failed', updatedAt: new Date() },
+              data: { paymentStatus: 'failed', updatedAt: new Date().toISOString() },
             });
           }
         }
@@ -129,29 +129,31 @@ async function confirmBooking({ reference, session, userId }) {
       let newPaymentStatus = booking.paymentStatus;
       let newTestOrderId = booking.testOrderId;
 
-      const requiresTestOrder = booking.items.some(
-        item => item.labTest.test.orderRequired
+      const requiresTestOrder = booking.BookingItem.some(
+        item => item.LabTest.Test.orderRequired
       );
 
       if (requiresTestOrder && verifiedTestOrder) {
-        const bookingTestIds = booking.items
-          .filter(item => item.labTest.test.orderRequired)
-          .map(item => item.labTest.testId);
+        const bookingTestIds = booking.BookingItem
+          .filter(item => item.LabTest.Test.orderRequired)
+          .map(item => item.LabTest.testId);
         const testOrderTestIds = verifiedTestOrder.TestOrderTest.map(tot => tot.testId);
         const isTestOrderValid = bookingTestIds.every(id => testOrderTestIds.includes(id));
 
-        if (isTestOrderValid && transactionRef?.bookingReferences.includes(booking.paymentReference)) {
+        if (isTestOrderValid && transactionRef?.orderReferences.includes(booking.paymentReference)) {
           newStatus = 'confirmed';
           newPaymentStatus = 'paid';
           newTestOrderId = verifiedTestOrder.id;
-        } else if (booking.status === 'pending_testorder') {
-          status = 'pending_testorder';
+        } else {
+          newStatus = 'pending'; // Awaiting test order verification
+          status = 'pending';
         }
-      } else if (!requiresTestOrder && transactionRef?.bookingReferences.includes(booking.paymentReference)) {
+      } else if (!requiresTestOrder && transactionRef?.orderReferences.includes(booking.paymentReference)) {
         newStatus = 'confirmed';
         newPaymentStatus = 'paid';
-      } else if (booking.status === 'pending_testorder') {
-        status = 'pending_testorder';
+      } else {
+        newStatus = 'pending'; // Awaiting test order or payment
+        status = 'pending';
       }
 
       const updatedBooking = await tx.booking.update({
@@ -161,18 +163,18 @@ async function confirmBooking({ reference, session, userId }) {
           status: newStatus,
           trackingCode,
           testOrderId: newTestOrderId,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
         include: {
-          items: {
+          BookingItem: {
             include: {
-              labTest: {
-                include: { test: true, lab: true },
+              LabTest: {
+                include: { Test: true, Lab: true },
               },
             },
           },
-          testOrder: true,
-          lab: true,
+          TestOrder: true,
+          Lab: true,
         },
       });
       updated.push(updatedBooking);
@@ -197,8 +199,8 @@ async function confirmBooking({ reference, session, userId }) {
         acc[labId] = {
           lab: {
             id: labId,
-            name: booking.lab?.name || 'Unknown',
-            address: booking.lab?.address || '',
+            name: booking.Lab?.name || 'Unknown',
+            address: booking.Lab?.address || '',
           },
           bookings: [],
           subtotal: 0,
@@ -208,21 +210,21 @@ async function confirmBooking({ reference, session, userId }) {
         id: booking.id,
         totalPrice: booking.totalPrice,
         status: booking.status,
-        deliveryMethod: booking.deliveryMethod,
+        deliveryMethod: booking.fulfillmentType,
         address: booking.address,
         paymentReference: booking.paymentReference,
-        testOrder: booking.testOrder
+        testOrder: booking.TestOrder
           ? {
-              id: booking.testOrder.id,
-              status: booking.testOrder.status,
-              fileUrl: booking.testOrder.fileUrl,
+              id: booking.TestOrder.id,
+              status: booking.TestOrder.status,
+              fileUrl: booking.TestOrder.fileUrl,
             }
           : null,
-        items: booking.items.map(item => ({
+        items: booking.BookingItem.map(item => ({
           id: item.id,
           test: {
-            name: item.labTest.test.name,
-            orderRequired: item.labTest.test.orderRequired,
+            name: item.LabTest.Test.name,
+            orderRequired: item.LabTest.Test.orderRequired,
           },
           price: item.price,
         })),
@@ -232,7 +234,7 @@ async function confirmBooking({ reference, session, userId }) {
     }, {});
 
   return {
-    message: status === 'completed' ? 'Payment verified' : 'Bookings retrieved, some awaiting verification',
+    message: status === 'confirmed' ? 'Payment verified and bookings confirmed' : 'Bookings retrieved, some awaiting verification',
     status,
     checkoutSessionId: session,
     trackingCode,

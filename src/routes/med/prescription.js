@@ -110,7 +110,7 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
 });
 
 // GET /prescription/guest-order/:patientIdentifier - Retrieve guest order details
-router.get('/guest-order/:patientIdentifier', requireConsent, async (req, res) => {
+router.get('/guest-med/:patientIdentifier', requireConsent, async (req, res) => {
   try {
     const { patientIdentifier } = req.params;
     const { lat, lng, radius } = req.query;

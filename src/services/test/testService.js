@@ -1,5 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
-const { formatDisplayName } = require('../../utils/lab/testUtils');
+const { formatDisplayName } = require('../../utils/test/testUtils');
 const prisma = new PrismaClient();
 
 async function getSampleTest() {
@@ -37,12 +37,20 @@ async function getTestSuggestions(searchTerm) {
 async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lga, ward, sortBy }) {
   const pageNum = parseInt(page, 10);
   const limitNum = parseInt(limit, 10);
+
+  if (isNaN(pageNum) || pageNum < 1) {
+    throw new Error('Invalid page number');
+  }
+  if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+    throw new Error('Invalid limit value');
+  }
+
   const skip = (pageNum - 1) * limitNum;
-  const radiusKm = parseFloat(radius);
+  const radiusKm = parseFloat(radius) || 10; // Default radius if not provided
 
   // Build lab filter
   let labFilter = {
-    Lab: { // Fixed: Changed 'lab' to 'Lab'
+    Lab: {
       status: 'verified',
       isActive: true,
     },
@@ -63,7 +71,7 @@ async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lg
   if (lat && lng) {
     const latitude = parseFloat(lat);
     const longitude = parseFloat(lng);
-    if (isNaN(latitude) || isNaN(longitude)) {
+    if (isNaN(latitude) || isNaN(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
       throw new Error('Invalid latitude or longitude');
     }
     labIdsWithDistance = await prisma.$queryRaw`
@@ -96,8 +104,8 @@ async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lg
     const query = q.trim();
     whereClause = {
       OR: [
-        { name: { contains: `%${query}%`, mode: 'insensitive' } },
-        { testType: { contains: `%${query}%`, mode: 'insensitive' } },
+        { name: { startsWith: query, mode: 'insensitive' } },
+        { testType: { startsWith: query, mode: 'insensitive' } },
       ],
     };
   }

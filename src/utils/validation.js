@@ -22,7 +22,7 @@ function isValidPhone(phone) {
 }
 
 function isValidReference(reference) {
-  return typeof reference === 'string' && reference.startsWith('order_') && reference.length > 10;
+  return typeof reference === 'string' && reference.startsWith('booking_') && reference.length > 10;
 }
 
 function isValidTrackingCode(trackingCode) {
@@ -157,12 +157,12 @@ function validateBookingCheckout(data) {
       }
       return value;
     }, 'phone validation').required(),
-    address: Joi.string().when('deliveryMethod', {
-      is: 'home',
+    address: Joi.string().when('fulfillmentType', {
+      is: 'Home Collection',
       then: Joi.string().required(),
       otherwise: Joi.string().allow(null, ''),
     }),
-    deliveryMethod: Joi.string().valid('in-person', 'home').required(),
+    fulfillmentType: Joi.string().valid('lab_visit', 'home_collection').required(),
     userId: Joi.string().required(),
   });
   return schema.validate(data, { abortEarly: false });

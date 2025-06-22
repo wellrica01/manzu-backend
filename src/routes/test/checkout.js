@@ -1,8 +1,8 @@
 const express = require('express');
 const { upload } = require('../../utils/upload');
 const requireConsent = require('../../middleware/requireConsent');
-const bookingCheckoutService = require('../../services/lab/bookingCheckoutService');
-const { validateBookingCheckout, validateBookingSessionRetrieve, validateBookingResume, validateTestOrder } = require('../../utils/validation');
+const checkoutService = require('../../services/test/checkoutService');
+const { validateBookingCheckout, validateBookingSessionRetrieve, validateBookingResume } = require('../../utils/validation');
 const router = express.Router();
 
 console.log('Loaded bookingCheckout.js version: 2025-06-21-v1');
@@ -10,22 +10,22 @@ console.log('Loaded bookingCheckout.js version: 2025-06-21-v1');
 // POST /booking-checkout - Initiate booking checkout
 router.post('/', upload.single('testOrder'), requireConsent, async (req, res) => {
   try {
-    const { name, email, phone, address, deliveryMethod } = req.body;
+    const { name, email, phone, address, fulfillmentType } = req.body;
     const userId = req.headers['x-guest-id'];
 
     // Validate input
-    const { error } = validateBookingCheckout({ name, email, phone, address, deliveryMethod, userId });
+    const { error } = validateBookingCheckout({ name, email, phone, address, fulfillmentType, userId });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    const result = await bookingCheckoutService.initiateBookingCheckout({
+    const result = await checkoutService.initiateBookingCheckout({
       name,
       email,
       phone,
       address,
-      deliveryMethod,
+      fulfillmentType,
       userId,
       file: req.file,
     });
@@ -58,18 +58,18 @@ router.post('/session/retrieve', requireConsent, async (req, res) => {
 });
 
 // GET /testorder/validate - Validate test order for tests
-router.get('/testorder/validate', async (req, res) => {
+router.get('/test-order/validate', async (req, res) => {
   try {
     const { patientIdentifier, testIds } = req.query;
 
     // Validate input
-    const { error } = validateTestOrder({ patientIdentifier, testIds });
+    const { error } = checkoutService.validateTestOrder({ patientIdentifier, testIds });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    const requiresUpload = await bookingCheckoutService.validateTestOrder({ patientIdentifier, testIds });
+    const requiresUpload = await checkoutService.validateTestOrder({ patientIdentifier, testIds });
     res.status(200).json({ requiresUpload });
   } catch (error) {
     console.error('Test order validation error:', error);

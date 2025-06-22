@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const { normalizePhone } = require('../../utils/validation');
 const prisma = new PrismaClient();
 
-async function initiateBookingCheckout({ name, email, phone, address, deliveryMethod, userId, file }) {
+async function initiateBookingCheckout({ name, email, phone, address, fulfillmentType, userId, file, timeSlotStart, timeSlotEnd }) {
   const patientIdentifier = userId;
   const normalizedPhone = normalizePhone(phone);
 
@@ -12,25 +12,25 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
   const cartBooking = await prisma.booking.findFirst({
     where: { patientIdentifier, status: 'cart' },
     include: {
-      items: {
+      BookingItem: {
         include: {
-          labTest: {
-            include: { test: true, lab: true },
+          LabTest: {
+            include: { Test: true, Lab: true },
           },
         },
       },
     },
   });
 
-  if (!cartBooking || cartBooking.items.length === 0) {
+  if (!cartBooking || cartBooking.BookingItem.length === 0) {
     throw new Error('Booking is empty or not found');
   }
 
   // Group items by lab
-  const itemsByLab = cartBooking.items.reduce((acc, item) => {
+  const itemsByLab = cartBooking.BookingItem.reduce((acc, item) => {
     const labId = item.labTestLabId;
     if (!acc[labId]) {
-      acc[labId] = { items: [], lab: item.labTest.lab };
+      acc[labId] = { items: [], lab: item.LabTest.Lab };
     }
     acc[labId].items.push(item);
     return acc;
@@ -44,10 +44,10 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
   for (const labId of labIds) {
     const { items } = itemsByLab[labId];
     for (const item of items) {
-      if (!item.labTest.available) {
-        throw new Error(`Test ${item.labTest.test.name} is not available at ${item.labTest.lab.name}`);
+      if (!item.LabTest.available) {
+        throw new Error(`Test ${item.LabTest.Test.name} is not available at ${item.LabTest.Lab.name}`);
       }
-      if (item.labTest.test.orderRequired) {
+      if (item.LabTest.Test.orderRequired) {
         requiresTestOrder = true;
       }
     }
@@ -63,9 +63,9 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
       orderBy: [{ createdAt: 'desc' }],
     });
 
-    const bookingTestIds = cartBooking.items
-      .filter(item => item.labTest.test.orderRequired)
-      .map(item => item.labTest.testId);
+    const bookingTestIds = cartBooking.BookingItem
+      .filter(item => item.LabTest.Test.orderRequired)
+      .map(item => item.LabTest.testId);
 
     let isValidTestOrder = false;
     if (verifiedTestOrder) {
@@ -84,7 +84,7 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
             verified: false,
             email,
             phone: normalizedPhone,
-            createdAt: new Date(),
+            createdAt: new Date().toISOString(),
           },
         });
         const uncoveredTestIds = verifiedTestOrder
@@ -93,7 +93,6 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
         const testOrderItems = uncoveredTestIds.map(testId => ({
           testOrderId: newTestOrder.id,
           testId,
-          quantity: 1, // Fixed quantity for bookings
         }));
         if (testOrderItems.length > 0) {
           await prisma.testOrderTest.createMany({ data: testOrderItems });
@@ -112,36 +111,38 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
   for (const labId of labIds) {
     const { items, lab } = itemsByLab[labId];
     const coveredItems = verifiedTestOrder
-      ? items.filter(item => item.labTest.test.orderRequired &&
-          verifiedTestOrder.TestOrderTest.map(tot => tot.testId).includes(item.labTest.testId))
+      ? items.filter(item => item.LabTest.Test.orderRequired &&
+          verifiedTestOrder.TestOrderTest.map(tot => tot.testId).includes(item.LabTest.testId))
       : [];
     const uncoveredItems = newTestOrder
-      ? items.filter(item => item.labTest.test.orderRequired &&
-          !verifiedTestOrder?.TestOrderTest.map(tot => tot.testId).includes(item.labTest.testId))
+      ? items.filter(item => item.LabTest.Test.orderRequired &&
+          !verifiedTestOrder?.TestOrderTest.map(tot => tot.testId).includes(item.LabTest.testId))
       : [];
-    const nonOrderItems = items.filter(item => !item.labTest.test.orderRequired);
+    const nonOrderItems = items.filter(item => !item.LabTest.Test.orderRequired);
 
     if (coveredItems.length > 0) {
       const totalPrice = coveredItems.reduce((sum, item) => sum + item.price, 0);
       const bookingStatus = 'pending';
-      const paymentReference = `booking_${Date.now()}_${labId}_verified`;
+      const paymentReference = `booking_${uuidv4()}`;
       const booking = await prisma.$transaction(async (tx) => {
         const newBooking = await tx.booking.create({
           data: {
             patientIdentifier,
             labId: parseInt(labId),
             status: bookingStatus,
-            deliveryMethod,
-            address: deliveryMethod === 'home' ? address : null,
+            fulfillmentType,
+            address: fulfillmentType === 'Home Collection' ? address : null,
             email,
             phone: normalizedPhone,
             totalPrice,
             paymentReference,
             paymentStatus: 'pending',
             checkoutSessionId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
             testOrderId: verifiedTestOrder.id,
+            timeSlotStart: timeSlotStart ? new Date(timeSlotStart).toISOString() : null,
+            timeSlotEnd: timeSlotEnd ? new Date(timeSlotEnd).toISOString() : null,
           },
         });
 
@@ -150,7 +151,7 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
             data: {
               bookingId: newBooking.id,
               labTestLabId: item.labTestLabId,
-              labTestTestId: item.labTestTestId,
+              labTestTestId: item.LabTest.testId,
               price: item.price,
             },
           });
@@ -164,25 +165,27 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
 
     if (uncoveredItems.length > 0) {
       const totalPrice = uncoveredItems.reduce((sum, item) => sum + item.price, 0);
-      const bookingStatus = 'pending_testorder';
-      const paymentReference = `booking_${Date.now()}_${labId}_new`;
+      const bookingStatus = 'pending'; // Using 'pending' to indicate awaiting test order verification
+      const paymentReference = `booking_${uuidv4()}`;
       const booking = await prisma.$transaction(async (tx) => {
         const newBooking = await tx.booking.create({
           data: {
             patientIdentifier,
             labId: parseInt(labId),
             status: bookingStatus,
-            deliveryMethod,
-            address: deliveryMethod === 'home' ? address : null,
+            fulfillmentType,
+            address: fulfillmentType === 'Home Collection' ? address : null,
             email,
             phone: normalizedPhone,
             totalPrice,
             paymentReference,
             paymentStatus: 'pending',
             checkoutSessionId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
             testOrderId: newTestOrder.id,
+            timeSlotStart: timeSlotStart ? new Date(timeSlotStart).toISOString() : null,
+            timeSlotEnd: timeSlotEnd ? new Date(timeSlotEnd).toISOString() : null,
           },
         });
 
@@ -191,7 +194,7 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
             data: {
               bookingId: newBooking.id,
               labTestLabId: item.labTestLabId,
-              labTestTestId: item.labTestTestId,
+              labTestTestId: item.LabTest.testId,
               price: item.price,
             },
           });
@@ -206,24 +209,26 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
     if (nonOrderItems.length > 0) {
       const totalPrice = nonOrderItems.reduce((sum, item) => sum + item.price, 0);
       const bookingStatus = 'pending';
-      const paymentReference = `booking_${Date.now()}_${labId}_nonorder`;
+      const paymentReference = `booking_${uuidv4()}`;
       const booking = await prisma.$transaction(async (tx) => {
         const newBooking = await tx.booking.create({
           data: {
             patientIdentifier,
             labId: parseInt(labId),
             status: bookingStatus,
-            deliveryMethod,
-            address: deliveryMethod === 'home' ? address : null,
+            fulfillmentType,
+            address: fulfillmentType === 'Home Collection' ? address : null,
             email,
             phone: normalizedPhone,
             totalPrice,
             paymentReference,
             paymentStatus: 'pending',
             checkoutSessionId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
             testOrderId: null,
+            timeSlotStart: timeSlotStart ? new Date(timeSlotStart).toISOString() : null,
+            timeSlotEnd: timeSlotEnd ? new Date(timeSlotEnd).toISOString() : null,
           },
         });
 
@@ -232,7 +237,7 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
             data: {
               bookingId: newBooking.id,
               labTestLabId: item.labTestLabId,
-              labTestTestId: item.labTestTestId,
+              labTestTestId: item.LabTest.testId,
               price: item.price,
             },
           });
@@ -255,7 +260,7 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
 
   if (payableBookings.length > 0) {
     const totalPayableAmount = payableBookings.reduce((sum, b) => sum + b.booking.totalPrice, 0) * 100;
-    const transactionReference = `session_${checkoutSessionId}_${Date.now()}`;
+    const transactionReference = `session_${checkoutSessionId}_${uuidv4()}`;
 
     console.log('Initiating Paystack for payable bookings:', { totalPayableAmount, transactionReference });
 
@@ -282,9 +287,9 @@ async function initiateBookingCheckout({ name, email, phone, address, deliveryMe
     await prisma.transactionReference.create({
       data: {
         transactionReference,
-        bookingReferences: paymentReferences,
+        orderReferences: paymentReferences,
         checkoutSessionId,
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
       },
     });
 
@@ -468,14 +473,14 @@ async function resumeBookingCheckout({ bookingId, email, userId }) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
-      items: {
+      BookingItem: {
         include: {
-          labTest: {
-            include: { test: true },
+          LabTest: {
+            include: { Test: true },
           },
         },
       },
-      testOrder: true,
+      TestOrder: true,
     },
   });
 
@@ -490,14 +495,14 @@ async function resumeBookingCheckout({ bookingId, email, userId }) {
       status: 'pending',
     },
     include: {
-      items: {
+      BookingItem: {
         include: {
-          labTest: {
-            include: { test: true },
+          LabTest: {
+            include: { Test: true },
           },
         },
       },
-      testOrder: true,
+      TestOrder: true,
     },
   });
 
@@ -506,10 +511,10 @@ async function resumeBookingCheckout({ bookingId, email, userId }) {
   }
 
   for (const sessionBooking of sessionBookings) {
-    const requiresTestOrder = sessionBooking.items.some(
-      item => item.labTest.test.orderRequired
+    const requiresTestOrder = sessionBooking.BookingItem.some(
+      item => item.LabTest.Test.orderRequired
     );
-    if (requiresTestOrder && (!sessionBooking.testOrder || sessionBooking.testOrder.status !== 'verified')) {
+    if (requiresTestOrder && (!sessionBooking.TestOrder || sessionBooking.TestOrder.status !== 'verified')) {
       throw new Error(`Test order not verified for booking ${sessionBooking.id}`);
     }
   }
@@ -519,7 +524,7 @@ async function resumeBookingCheckout({ bookingId, email, userId }) {
     throw new Error('Invalid booking amount');
   }
 
-  const transactionReference = `session_${booking.checkoutSessionId}_${Date.now()}`;
+  const transactionReference = `session_${booking.checkoutSessionId}_${uuidv4()}`;
   const paymentReferences = [];
 
   const paystackResponse = await axios.post(
@@ -544,13 +549,13 @@ async function resumeBookingCheckout({ bookingId, email, userId }) {
 
   await prisma.$transaction(async (tx) => {
     for (const sessionBooking of sessionBookings) {
-      const bookingSpecificReference = `booking_${sessionBooking.id}_${booking.checkoutSessionId}_${Date.now()}`;
+      const bookingSpecificReference = `booking_${sessionBooking.id}_${uuidv4()}`;
       await tx.booking.update({
         where: { id: sessionBooking.id },
         data: {
           paymentReference: bookingSpecificReference,
           paymentStatus: 'pending',
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
       });
       paymentReferences.push(bookingSpecificReference);
@@ -558,9 +563,9 @@ async function resumeBookingCheckout({ bookingId, email, userId }) {
     await tx.transactionReference.create({
       data: {
         transactionReference,
-        bookingReferences: paymentReferences,
+        orderReferences: paymentReferences,
         checkoutSessionId: booking.checkoutSessionId,
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
       },
     });
   });
@@ -601,13 +606,13 @@ async function getResumeBookings({ bookingId, userId }) {
       status: 'pending',
     },
     include: {
-      items: {
+      BookingItem: {
         include: {
-          labTest: { include: { test: true, lab: true } },
+          LabTest: { include: { Test: true, Lab: true } },
         },
       },
-      testOrder: true,
-      lab: true,
+      TestOrder: true,
+      Lab: true,
     },
   });
 
@@ -623,13 +628,13 @@ async function getResumeBookings({ bookingId, userId }) {
       totalPrice: booking.totalPrice,
       status: booking.status,
       email: booking.email || null,
-      testOrder: booking.testOrder
-        ? { id: booking.testOrder.id, status: booking.testOrder.status, uploadedAt: booking.testOrder.createdAt }
+      testOrder: booking.TestOrder
+        ? { id: booking.TestOrder.id, status: booking.TestOrder.status, uploadedAt: booking.TestOrder.createdAt }
         : null,
-      items: booking.items.map(item => ({
+      items: booking.BookingItem.map(item => ({
         id: item.id,
         price: item.price,
-        test: { id: item.labTest.test.id, name: item.labTest.test.name },
+        test: { id: item.LabTest.Test.id, name: item.LabTest.Test.name },
       })),
     };
 
@@ -637,7 +642,7 @@ async function getResumeBookings({ bookingId, userId }) {
       existing.bookings.push(bookingData);
     } else {
       acc.push({
-        lab: { id: booking.lab.id, name: booking.lab.name, address: booking.lab.address },
+        lab: { id: booking.Lab.id, name: booking.Lab.name, address: booking.Lab.address },
         bookings: [bookingData],
       });
     }

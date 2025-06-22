@@ -8,7 +8,7 @@ async function trackBookings(trackingCode) {
     where: {
       trackingCode,
       status: {
-        in: ['confirmed', 'processing', 'scheduled', 'completed', 'cancelled'],
+        in: ['confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled', 'sample_collected', 'result_ready', 'completed'],
       },
     },
     select: {
@@ -16,17 +16,16 @@ async function trackBookings(trackingCode) {
       patientIdentifier: true,
       totalPrice: true,
       address: true,
-      deliveryMethod: true,
+      fulfillmentType: true,
       trackingCode: true,
       status: true,
       paymentStatus: true,
       createdAt: true,
       updatedAt: true,
-      filledAt: true,
       cancelledAt: true,
       cancelReason: true,
       testOrderId: true,
-      testOrder: {
+      TestOrder: {
         select: {
           id: true,
           status: true,
@@ -36,7 +35,6 @@ async function trackBookings(trackingCode) {
           TestOrderTest: {
             select: {
               testId: true,
-              quantity: true,
               Test: {
                 select: { id: true, name: true, description: true },
               },
@@ -44,19 +42,19 @@ async function trackBookings(trackingCode) {
           },
         },
       },
-      lab: {
+      Lab: {
         select: { id: true, name: true, address: true },
       },
-      items: {
+      BookingItem: {
         select: {
           id: true,
           price: true,
-          labTest: {
+          LabTest: {
             select: {
-              test: {
+              Test: {
                 select: { id: true, name: true, description: true, orderRequired: true },
               },
-              lab: {
+              Lab: {
                 select: { name: true, address: true },
               },
               available: true,
@@ -81,7 +79,7 @@ async function trackBookings(trackingCode) {
       patientIdentifier: booking.patientIdentifier,
       totalPrice: booking.totalPrice,
       address: booking.address,
-      deliveryMethod: booking.deliveryMethod,
+      fulfillmentType: booking.fulfillmentType,
       trackingCode: booking.trackingCode,
       status: booking.status,
       paymentStatus: booking.paymentStatus,
@@ -90,38 +88,39 @@ async function trackBookings(trackingCode) {
       filledAt: booking.filledAt,
       cancelledAt: booking.cancelledAt,
       cancelReason: booking.cancelReason,
-      testOrder: booking.testOrder ? {
-        id: booking.testOrder.id,
-        status: booking.testOrder.status,
-        fileUrl: booking.testOrder.fileUrl,
-        verified: booking.testOrder.verified,
-        createdAt: booking.testOrder.createdAt,
-        tests: booking.testOrder.TestOrderTest.map(tot => ({
+      testOrder: booking.TestOrder ? {
+        id: booking.TestOrder.id,
+        status: booking.TestOrder.status,
+        fileUrl: booking.TestOrder.fileUrl,
+        verified: booking.TestOrder.verified,
+        createdAt: booking.TestOrder.createdAt,
+        tests: booking.TestOrder.TestOrderTest.map(tot => ({
           testId: tot.testId,
           name: tot.Test.name,
           description: tot.Test.description,
-          quantity: tot.quantity,
         })),
       } : null,
       lab: {
-        id: booking.lab.id,
-        name: booking.lab.name,
-        address: booking.lab.address,
+        id: booking.Lab.id,
+        name: booking.Lab.name,
+        address: booking.Lab.address,
       },
-      items: booking.items.map(item => ({
+      items: booking.BookingItem.map(item => ({
         id: item.id,
-        test: {
-          id: item.labTest.test.id,
-          name: item.labTest.test.name,
-          description: item.labTest.test.description,
-          orderRequired: item.labTest.test.orderRequired,
-        },
-        lab: {
-          name: item.labTest.lab.name,
-          address: item.labTest.lab.address,
+        labTest: {
+          test: {
+            id: item.LabTest.Test.id,
+            name: item.LabTest.Test.name,
+            description: item.LabTest.Test.description,
+            orderRequired: item.LabTest.Test.orderRequired,
+          },
+          lab: {
+            name: item.LabTest.Lab.name,
+            address: item.LabTest.Lab.address,
+          },
+          available: item.LabTest.available,
         },
         price: item.price,
-        available: item.labTest.available,
       })),
     })),
   };
