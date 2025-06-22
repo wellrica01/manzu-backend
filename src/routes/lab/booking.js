@@ -1,6 +1,6 @@
 const express = require('express');
-const { validateAddToBooking, validateUpdateBooking, validateRemoveFromBooking } = require('../utils/validation');
-const bookingService = require('../services/bookingService');
+const { validateAddToBooking, validateUpdateBooking, validateRemoveFromBooking } = require('../../utils/validation');
+const bookingService = require('../../services/lab/bookingService');
 const router = express.Router();
 
 // Add item to booking

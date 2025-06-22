@@ -1,5 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
-const { formatDisplayName } = require('../utils/testUtils');
+const { formatDisplayName } = require('../../utils/lab/testUtils');
 const prisma = new PrismaClient();
 
 async function getSampleTest() {

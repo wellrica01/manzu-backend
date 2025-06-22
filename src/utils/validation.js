@@ -466,6 +466,36 @@ function validateRegisterDevice(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+function validateFetchBookings(data) {
+  const schema = Joi.object({});
+  return schema.validate(data, { abortEarly: false });
+}
+
+
+function validateFetchTests(data) {
+  const schema = Joi.object({});
+  return schema.validate(data, { abortEarly: false });
+}
+
+
+function validateUpdateTest(data) {
+  const schema = Joi.object({
+    testId: Joi.number().integer().required(),
+    price: Joi.number().positive().required(),
+    available: Joi.boolean().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateDeleteTest(data) {
+  const schema = Joi.object({
+    testId: Joi.number().integer().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+
+
 module.exports = {
   isValidEmail,
   normalizePhone,
@@ -511,4 +541,8 @@ module.exports = {
   validateDeleteMedication,
   validateFetchUsers,
   validateRegisterDevice,
+  validateFetchBookings,
+  validateFetchTests,
+  validateUpdateTest,
+  validateDeleteTest
 };

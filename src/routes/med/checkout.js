@@ -1,8 +1,8 @@
 const express = require('express');
-const { upload } = require('../utils/upload');
-const requireConsent = require('../middleware/requireConsent');
-const checkoutService = require('../services/checkoutService');
-const { validateCheckout, validateSessionRetrieve, validateResume } = require('../utils/validation');
+const { upload } = require('../../utils/upload');
+const requireConsent = require('../../middleware/requireConsent');
+const checkoutService = require('../../services/med/checkoutService');
+const { validateCheckout, validateSessionRetrieve, validateResume } = require('../../utils/validation');
 const router = express.Router();
 
 console.log('Loaded checkout.js version: 2025-06-18-v2');

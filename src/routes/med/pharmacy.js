@@ -1,7 +1,7 @@
 const express = require('express');
-const pharmacyService = require('../services/pharmacyService');
-const { validateFetchOrders, validateUpdateOrder, validateFetchMedications, validateAddMedication, validateUpdateMedication, validateDeleteMedication, validateFetchUsers, validateRegisterDevice } = require('../utils/validation');
-const { authenticate, authenticateManager } = require('../middleware/auth');
+const pharmacyService = require('../../services/med/pharmacyService');
+const { validateFetchOrders, validateUpdateOrder, validateFetchMedications, validateAddMedication, validateUpdateMedication, validateDeleteMedication, validateFetchUsers, validateRegisterDevice } = require('../../utils/validation');
+const { authenticate, authenticateManager } = require('../../middleware/auth');
 const router = express.Router();
 
 console.log('Loaded pharmacy.js version: 2025-06-19-v1');

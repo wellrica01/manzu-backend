@@ -1,6 +1,6 @@
 const express = require('express');
-const testService = require('../services/testService');
-const { validateTests, validateTestSuggestions, validateTestSearch } = require('../utils/validation');
+const testService = require('../../services/lab/testService');
+const { validateTests, validateTestSuggestions, validateTestSearch } = require('../../utils/validation');
 const router = express.Router();
 
 console.log('Loaded test.js version: 2025-06-21-v1');

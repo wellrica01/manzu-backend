@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
-const { normalizePhone } = require('../utils/validation');
-const { sendVerificationNotification } = require('../utils/notifications');
-const { formatDisplayName } = require('../utils/medicationUtils');
+const { normalizePhone } = require('../../utils/validation');
+const { sendVerificationNotification } = require('../../utils/notifications');
+const { formatDisplayName } = require('../../utils/med/medicationUtils');
 const prisma = new PrismaClient();
 
 async function uploadPrescription({ patientIdentifier, email, phone, fileUrl }) {

@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
-const { normalizePhone } = require('../utils/validation');
+const { normalizePhone } = require('../../utils/validation');
 const prisma = new PrismaClient();
 
 async function initiateCheckout({ name, email, phone, address, deliveryMethod, userId, file }) {

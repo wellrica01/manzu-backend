@@ -1,8 +1,8 @@
 const express = require('express');
-const { upload } = require('../utils/upload');
-const requireConsent = require('../middleware/requireConsent');
-const bookingCheckoutService = require('../services/bookingCheckoutService');
-const { validateBookingCheckout, validateBookingSessionRetrieve, validateBookingResume, validateTestOrder } = require('../utils/validation');
+const { upload } = require('../../utils/upload');
+const requireConsent = require('../../middleware/requireConsent');
+const bookingCheckoutService = require('../../services/lab/bookingCheckoutService');
+const { validateBookingCheckout, validateBookingSessionRetrieve, validateBookingResume, validateTestOrder } = require('../../utils/validation');
 const router = express.Router();
 
 console.log('Loaded bookingCheckout.js version: 2025-06-21-v1');

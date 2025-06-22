@@ -1,10 +1,10 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const prescriptionService = require('../services/prescriptionService');
-const { isValidEmail, validatePrescriptionUpload, validateAddMedication, validateVerifyPrescription, validateGuestOrder } = require('../utils/validation');
-const { authenticate, authenticateAdmin } = require('../middleware/auth');
-const requireConsent = require('../middleware/requireConsent');
+const prescriptionService = require('../../services/med/prescriptionService');
+const { isValidEmail, validatePrescriptionUpload, validateAddMedication, validateVerifyPrescription, validateGuestOrder } = require('../../utils/validation');
+const { authenticate, authenticateAdmin } = require('../../middleware/auth');
+const requireConsent = require('../../middleware/requireConsent');
 const router = express.Router();
 
 // Multer setup

@@ -1,10 +1,10 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const testOrderService = require('../services/testOrderService');
-const { isValidEmail, validateTestOrderUpload, validateAddTest, validateVerifyTestOrder, validateGuestTestOrder } = require('../utils/validation');
-const { authenticate, authenticateAdmin } = require('../middleware/auth');
-const requireConsent = require('../middleware/requireConsent');
+const testOrderService = require('../../services/lab/testOrderService');
+const { isValidEmail, validateTestOrderUpload, validateAddTest, validateVerifyTestOrder, validateGuestTestOrder } = require('../../utils/validation');
+const { authenticate, authenticateAdmin } = require('../../middleware/auth');
+const requireConsent = require('../../middleware/requireConsent');
 const router = express.Router();
 
 // Multer setup

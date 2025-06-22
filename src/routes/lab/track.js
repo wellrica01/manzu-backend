@@ -1,6 +1,6 @@
 const express = require('express');
-const bookingTrackService = require('../services/bookingTrackService');
-const { validateBookingTracking } = require('../utils/validation');
+const bookingTrackService = require('../../services/lab/trackService');
+const { validateBookingTracking } = require('../../utils/validation');
 const router = express.Router();
 
 console.log('Loaded bookingTrack.js version: 2025-06-21-v1');

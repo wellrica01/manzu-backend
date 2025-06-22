@@ -1,6 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
-const { recalculateBookingTotal } = require('../utils/bookingUtils');
+const { recalculateBookingTotal } = require('../../utils/lab/bookingUtils');
 const prisma = new PrismaClient();
 
 async function addToBooking({ testId, labId, quantity, userId }) {
