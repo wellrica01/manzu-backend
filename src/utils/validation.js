@@ -21,7 +21,11 @@ function isValidPhone(phone) {
   return /^\+234[0-9]{10}$/.test(normalized);
 }
 
-function isValidReference(reference) {
+function isValidOrderReference(reference) {
+  return typeof reference === 'string' && reference.startsWith('order_') && reference.length > 10;
+}
+
+function isValidBookingReference(reference) {
   return typeof reference === 'string' && reference.startsWith('booking_') && reference.length > 10;
 }
 
@@ -201,10 +205,10 @@ function validateBookingResume(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
-function validateConfirmation(data) {
+function validateOrderConfirmation(data) {
   const schema = Joi.object({
     reference: Joi.string().custom((value, helpers) => {
-      if (value && !isValidReference(value)) {
+      if (value && !isValidOrderReference(value)) {
         return helpers.error('any.invalid', { message: 'Invalid payment reference format' });
       }
       return value;
@@ -219,7 +223,7 @@ function validateConfirmation(data) {
 function validateBookingConfirmation(data) {
   const schema = Joi.object({
     reference: Joi.string().custom((value, helpers) => {
-      if (value && !isValidReference(value)) {
+      if (value && !isValidBookingReference(value)) {
         return helpers.error('any.invalid', { message: 'Invalid payment reference format' });
       }
       return value;
@@ -500,7 +504,8 @@ module.exports = {
   isValidEmail,
   normalizePhone,
   isValidPhone,
-  isValidReference,
+  isValidOrderReference,
+  isValidBookingReference,
   isValidTrackingCode,
   validateAddToCart,
   validateUpdateCart,
@@ -514,7 +519,7 @@ module.exports = {
   validateBookingCheckout,
   validateBookingSessionRetrieve,
   validateBookingResume,
-  validateConfirmation,
+  validateOrderConfirmation,
   validateBookingConfirmation,
   validateTracking,
   validateBookingTracking,

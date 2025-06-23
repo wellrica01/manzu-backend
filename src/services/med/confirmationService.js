@@ -1,6 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
-const { isValidReference } = require('../../utils/validation');
+const { isValidOrderReference } = require('../../utils/validation');
 const { generateTrackingCode } = require('../../utils/tracking');
 const prisma = new PrismaClient();
 
@@ -9,7 +9,7 @@ async function confirmOrder({ reference, session, userId }) {
 
   // Find transaction reference if provided
   if (reference) {
-    if (!isValidReference(reference)) {
+    if (!isValidOrderReference(reference)) {
       throw new Error('Invalid payment reference format');
     }
 

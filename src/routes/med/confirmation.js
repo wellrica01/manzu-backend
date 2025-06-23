@@ -1,6 +1,6 @@
 const express = require('express');
 const confirmationService = require('../../services/med/confirmationService');
-const { validateConfirmation } = require('../../utils/validation');
+const { validateOrderConfirmation } = require('../../utils/validation');
 const router = express.Router();
 
 console.log('Loaded confirmation.js version: 2025-06-18-v1');
@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
     const userId = req.headers['x-guest-id'];
 
     // Validate input
-    const { error } = validateConfirmation({ reference, session, userId });
+    const { error } = validateOrderConfirmation({ reference, session, userId });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
