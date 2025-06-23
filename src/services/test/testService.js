@@ -34,7 +34,7 @@ async function getTestSuggestions(searchTerm) {
   }));
 }
 
-async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lga, ward, sortBy }) {
+async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lga, ward, sortBy, homeCollection }) {
   const pageNum = parseInt(page, 10);
   const limitNum = parseInt(limit, 10);
 
@@ -65,6 +65,9 @@ async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lg
   }
   if (ward) {
     labFilter.Lab.ward = { equals: ward, mode: 'insensitive' };
+  }
+  if (homeCollection === 'true') {
+    labFilter.Lab.homeCollectionAvailable = true;
   }
 
   let labIdsWithDistance = [];
@@ -118,18 +121,22 @@ async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lg
       testType: true,
       description: true,
       testCode: true,
+      orderRequired: true,
+      prepInstructions: true,
       imageUrl: true,
       LabTest: {
         where: labFilter,
         select: {
           price: true,
           labId: true,
+          resultTurnaroundHours: true,
           createdAt: true,
           updatedAt: true,
           Lab: {
             select: {
               name: true,
               address: true,
+              homeCollectionAvailable: true,
             },
           },
         },
@@ -148,6 +155,8 @@ async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lg
       labId: lt.labId,
       labName: lt.Lab.name,
       address: lt.Lab.address,
+      resultTurnaroundHours: lt.resultTurnaroundHours,
+      homeCollectionAvailable: lt.Lab.homeCollectionAvailable,
       price: lt.price,
       distance_km: distanceMap.get(lt.labId) ? parseFloat(distanceMap.get(lt.labId).toFixed(2)) : null,
     }));
@@ -164,6 +173,8 @@ async function searchTests({ q, testId, page, limit, lat, lng, radius, state, lg
       displayName: formatDisplayName(test),
       testType: test.testType,
       description: test.description,
+      prepInstructions: test.prepInstructions,
+      orderRequired: test.orderRequired,
       testCode: test.testCode,
       imageUrl: test.imageUrl,
       availability,

@@ -54,7 +54,8 @@ async function addMedications(prescriptionId, medications) {
     return { prescriptionMedications };
   });
 
-  console.log('Medications added:', { prescriptionId });
+  console.log('Medications added:', { prescriptionId, medications: result.prescriptionMedications });
+
   return result;
 }
 

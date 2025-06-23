@@ -323,6 +323,7 @@ function validateTestSearch(data) {
     lga: Joi.string().optional(),
     ward: Joi.string().optional(),
     sortBy: Joi.string().valid('cheapest', 'closest').default('cheapest'),
+    homeCollection: Joi.string().valid('true').optional(),
   }).or('q', 'testId');
   return schema.validate(data, { abortEarly: false });
 }
@@ -342,7 +343,7 @@ function validatePrescriptionUpload(data) {
 
 function validateAddMedications(data) {
   const schema = Joi.object({
-    id: Joi.string().pattern(/^\d+$/).required(),
+    id: Joi.number().integer().required(),
     medications: Joi.array().items(
       Joi.object({
         medicationId: Joi.number().integer().required(),

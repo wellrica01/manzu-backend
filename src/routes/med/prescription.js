@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const prescriptionService = require('../../services/med/prescriptionService');
-const { isValidEmail, validatePrescriptionUpload, validateAddMedication, validateVerifyPrescription, validateGuestOrder } = require('../../utils/validation');
+const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validateGuestOrder } = require('../../utils/validation');
 const { authenticate, authenticateAdmin } = require('../../middleware/auth');
 const requireConsent = require('../../middleware/requireConsent');
 const router = express.Router();
@@ -74,7 +74,7 @@ router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res
     const { medications } = req.body;
 
     // Validate input
-    const { error } = validateAddMedication({ id, medications });
+    const { error } = validateAddMedications({ id, medications });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });

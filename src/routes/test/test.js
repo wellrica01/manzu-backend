@@ -40,10 +40,10 @@ router.get('/test-suggestions', async (req, res) => {
 // GET /search - Search tests with filtering and sorting
 router.get('/search', async (req, res) => {
   try {
-    const { q, testId, page, limit, lat, lng, radius, state, lga, ward, sortBy } = req.query;
+    const { q, testId, page, limit, lat, lng, radius, state, lga, ward, sortBy, homeCollection } = req.query;
 
     // Validate input
-    const { error, value } = validateTestSearch({ q, testId, page, limit, lat, lng, radius, state, lga, ward, sortBy });
+    const { error, value } = validateTestSearch({ q, testId, page, limit, lat, lng, radius, state, lga, ward, sortBy, homeCollection });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
