@@ -86,6 +86,24 @@ function validateRemoveFromBooking(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+const validateGetTimeSlots = (data) => {
+  const schema = Joi.object({
+    labId: Joi.number().integer().required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data);
+};
+
+const validateUpdateBookingDetails = (data) => {
+  const schema = Joi.object({
+    bookingId: Joi.number().integer().required(),
+    timeSlotStart: Joi.string().isoDate().optional(),
+    fulfillmentType: Joi.string().valid('Lab Visit', 'Home Collection').optional(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data);
+};
+
 function validateCheckout(data) {
   const schema = Joi.object({
     name: Joi.string().required(),
@@ -514,6 +532,8 @@ module.exports = {
   validateAddToBooking,
   validateUpdateBooking,
   validateRemoveFromBooking,
+  validateGetTimeSlots,
+  validateUpdateBookingDetails,
   validateCheckout,
   validateSessionRetrieve,
   validateResume,

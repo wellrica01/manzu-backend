@@ -1,5 +1,5 @@
 const express = require('express');
-const { validateAddToBooking, validateUpdateBooking, validateRemoveFromBooking } = require('../../utils/validation');
+const { validateAddToBooking, validateUpdateBooking, validateRemoveFromBooking, validateGetTimeSlots, validateUpdateBookingDetails } = require('../../utils/validation');
 const bookingService = require('../../services/test/bookingService');
 const router = express.Router();
 
@@ -9,7 +9,6 @@ router.post('/add', async (req, res) => {
     const { testId, labId } = req.body;
     const userId = req.headers['x-guest-id'];
 
-    // Validate input
     const { error } = validateAddToBooking({ testId, labId, userId });
     if (error) {
       return res.status(400).json({ message: error.message });
@@ -39,19 +38,15 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Update booking item
-router.put('/update', async (req, res) => {
+router.patch('/update/:itemId', async (req, res) => {
   try {
-    const { bookingItemId, quantity } = req.body;
+    const bookingItemId = parseInt(req.params.itemId);
     const userId = req.headers['x-guest-id'];
-
-    // Validate input
-    const { error } = validateUpdateBooking({ bookingItemId, quantity, userId });
+    const { error } = validateUpdateBooking({ bookingItemId, userId });
     if (error) {
       return res.status(400).json({ message: error.message });
     }
-
-    const updatedItem = await bookingService.updateBookingItem({ bookingItemId, quantity, userId });
+    const updatedItem = await bookingService.updateBookingItem({ bookingItemId, userId });
     res.status(200).json({ message: 'Booking updated', bookingItem: updatedItem });
   } catch (error) {
     console.error('Booking update error:', error);
@@ -65,7 +60,6 @@ router.delete('/remove/:id', async (req, res) => {
     const bookingItemId = parseInt(req.params.id);
     const userId = req.headers['x-guest-id'];
 
-    // Validate input
     const { error } = validateRemoveFromBooking({ bookingItemId, userId });
     if (error) {
       return res.status(400).json({ message: error.message });
@@ -74,6 +68,45 @@ router.delete('/remove/:id', async (req, res) => {
     res.status(200).json({ message: 'Item removed' });
   } catch (error) {
     console.error('Booking remove error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get time slots for a lab
+router.get('/slots', async (req, res) => {
+  try {
+    const { labId } = req.query;
+    const userId = req.headers['x-guest-id'];
+
+    const { error } = validateGetTimeSlots({ labId, userId });
+    if (error) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    const { timeSlots } = await bookingService.getTimeSlots({ labId });
+    res.status(200).json({ timeSlots });
+  } catch (error) {
+    console.error('Booking slots error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Update booking details (scheduling)
+router.patch('/update-details/:id', async (req, res) => {
+  try {
+    const bookingId = parseInt(req.params.id);
+    const { timeSlotStart, fulfillmentType } = req.body;
+    const userId = req.headers['x-guest-id'];
+
+    const { error } = validateUpdateBookingDetails({ bookingId, timeSlotStart, fulfillmentType, userId });
+    if (error) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    const result = await bookingService.updateBookingDetails({ bookingId, timeSlotStart, fulfillmentType, userId });
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Booking update details error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
