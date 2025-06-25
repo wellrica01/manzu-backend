@@ -1,6 +1,6 @@
 const express = require('express');
 const z = require('zod');
-const authService = require('../services/prescription/authService');
+const authService = require('../services/authService');
 const { registerSchema, loginSchema, editUserSchema, addUserSchema, editProfileSchema, adminRegisterSchema, adminLoginSchema } = require('../utils/adminValidation');
 const { authenticate, authenticateManager, authenticateAdmin } = require('../middleware/auth');
 const router = express.Router();

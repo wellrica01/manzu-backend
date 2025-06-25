@@ -19,9 +19,9 @@ app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
 app.use('/api/admin', adminRoutes);
-app.use('/api/auth', '/api/auth');
+app.use('/api/auth', authRoutes);
 app.use('/api/checkout', checkoutRoutes);
-app.use('/api/confirmation', orders/confirmationRoutes);
+app.use('/api/confirmation', confirmationRoutes);
 app.use('/api/consent', consentRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/prescriptions', prescriptionsRoutes);
