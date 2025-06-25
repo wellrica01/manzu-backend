@@ -1,11 +1,11 @@
 const express = require('express');
 const z = require('zod');
 const adminService = require('../services/adminService');
-const { editPharmacySchema, editLabSchema, paginationSchema, createMedicationSchema, updateMedicationSchema, createTestSchema, updateTestSchema, medicationFilterSchema, testFilterSchema, prescriptionFilterSchema, orderFilterSchema, bookingFilterSchema, adminUserFilterSchema, pharmacyUserFilterSchema, labUserFilterSchema } = require('../utils/adminValidation');
+const { editProviderSchema, paginationSchema, createServiceSchema, updateServiceSchema, serviceFilterSchema, prescriptionFilterSchema, orderFilterSchema, adminUserFilterSchema, providerUserFilterSchema } = require('../utils/adminValidation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const router = express.Router();
 
-console.log('Loaded admin.js version: 2025-06-22-v1');
+console.log('Loaded admin.js version: 2025-06-25-v2');
 
 // GET /admin/dashboard - Dashboard overview
 router.get('/dashboard', authenticate, authenticateAdmin, async (req, res) => {
@@ -18,18 +18,18 @@ router.get('/dashboard', authenticate, authenticateAdmin, async (req, res) => {
   }
 });
 
-// GET /admin/pharmacies - Get all pharmacies
-router.get('/pharmacies', authenticate, authenticateAdmin, async (req, res) => {
+// GET /admin/providers - Get all providers
+router.get('/providers', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const query = paginationSchema.parse(req.query);
-    const { pharmacies, pagination } = await adminService.getPharmacies(query);
+    const { providers, pagination } = await adminService.getProviders(query);
     res.status(200).json({
-      message: 'Pharmacies fetched successfully',
-      pharmacies,
+      message: 'Providers fetched successfully',
+      providers,
       pagination,
     });
   } catch (error) {
-    console.error('Fetch pharmacies error:', error);
+    console.error('Fetch providers error:', error);
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
@@ -37,44 +37,44 @@ router.get('/pharmacies', authenticate, authenticateAdmin, async (req, res) => {
   }
 });
 
-// GET /admin/pharmacies/simple - Get pharmacies for filter dropdown
-router.get('/pharmacies/simple', authenticate, authenticateAdmin, async (req, res) => {
+// GET /admin/providers/simple - Get providers for filter dropdown
+router.get('/providers/simple', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const simplePharmacies = await adminService.getSimplePharmacies();
-    res.status(200).json({ message: 'Pharmacies fetched successfully', simplePharmacies });
+    const simpleProviders = await adminService.getSimpleProviders();
+    res.status(200).json({ message: 'Providers fetched successfully', simpleProviders });
   } catch (error) {
-    console.error('Fetch pharmacies error:', { message: error.message });
+    console.error('Fetch providers error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// GET /admin/pharmacies/:id - Get single pharmacy
-router.get('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res) => {
+// GET /admin/providers/:id - Get single provider
+router.get('/providers/:id', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid pharmacy ID' });
+      return res.status(400).json({ message: 'Invalid provider ID' });
     }
-    const pharmacy = await adminService.getPharmacy(Number(id));
-    res.status(200).json({ message: 'Pharmacy fetched successfully', pharmacy });
+    const provider = await adminService.getProvider(Number(id));
+    res.status(200).json({ message: 'Provider fetched successfully', provider });
   } catch (error) {
-    console.error('Fetch pharmacy error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Pharmacy not found' : 'Server error', error: error.message });
+    console.error('Fetch provider error:', { message: error.message });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Provider not found' : 'Server error', error: error.message });
   }
 });
 
-// PATCH /admin/pharmacies/:id - Edit pharmacy
-router.patch('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res) => {
+// PATCH /admin/providers/:id - Edit provider
+router.patch('/providers/:id', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid pharmacy ID' });
+      return res.status(400).json({ message: 'Invalid provider ID' });
     }
-    const data = editPharmacySchema.parse(req.body);
-    const pharmacy = await adminService.updatePharmacy(Number(id), data);
-    res.status(200).json({ message: 'Pharmacy updated successfully', pharmacy });
+    const data = editProviderSchema.parse(req.body);
+    const provider = await adminService.updateProvider(Number(id), data);
+    res.status(200).json({ message: 'Provider updated successfully', provider });
   } catch (error) {
-    console.error('Edit pharmacy error:', { message: error.message });
+    console.error('Edit provider error:', { message: error.message });
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
@@ -82,33 +82,29 @@ router.patch('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res
   }
 });
 
-// DELETE /admin/pharmacies/:id - Delete pharmacy
-router.delete('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res) => {
+// DELETE /admin/providers/:id - Delete provider
+router.delete('/providers/:id', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid pharmacy ID' });
+      return res.status(400).json({ message: 'Invalid provider ID' });
     }
-    await adminService.deletePharmacy(Number(id));
-    res.status(200).json({ message: 'Pharmacy deleted successfully' });
+    await adminService.deleteProvider(Number(id));
+    res.status(200).json({ message: 'Provider deleted successfully' });
   } catch (error) {
-    console.error('Delete pharmacy error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Pharmacy not found' : 'Server error', error: error.message });
+    console.error('Delete provider error:', { message: error.message });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Provider not found' : 'Server error', error: error.message });
   }
 });
 
-// GET /admin/labs - Get all labs
-router.get('/labs', authenticate, authenticateAdmin, async (req, res) => {
+// GET /admin/services - Get all services
+router.get('/services', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const query = paginationSchema.parse(req.query);
-    const { labs, pagination } = await adminService.getLabs(query);
-    res.status(200).json({
-      message: 'Labs fetched successfully',
-      labs,
-      pagination,
-    });
+    const query = serviceFilterSchema.parse(req.query);
+    const { services, pagination } = await adminService.getServices(query);
+    res.status(200).json({ message: 'Services fetched successfully', services, pagination });
   } catch (error) {
-    console.error('Fetch labs error:', error);
+    console.error('Fetch services error:', { message: error.message });
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
@@ -116,74 +112,29 @@ router.get('/labs', authenticate, authenticateAdmin, async (req, res) => {
   }
 });
 
-// GET /admin/labs/simple - Get labs for filter dropdown
-router.get('/labs/simple', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const simpleLabs = await adminService.getSimpleLabs();
-    res.status(200).json({ message: 'Labs fetched successfully', simpleLabs });
-  } catch (error) {
-    console.error('Fetch labs error:', { message: error.message });
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// GET /admin/labs/:id - Get single lab
-router.get('/labs/:id', authenticate, authenticateAdmin, async (req, res) => {
+// GET /admin/services/:id - Get single service
+router.get('/services/:id', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid lab ID' });
+      return res.status(400).json({ message: 'Invalid service ID' });
     }
-    const lab = await adminService.getLab(Number(id));
-    res.status(200).json({ message: 'Lab fetched successfully', lab });
+    const service = await adminService.getService(Number(id));
+    res.status(200).json({ message: 'Service fetched successfully', service });
   } catch (error) {
-    console.error('Fetch lab error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Lab not found' : 'Server error', error: error.message });
+    console.error('Fetch service error:', { message: error.message });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Service not found' : 'Server error', error: error.message });
   }
 });
 
-// PATCH /admin/labs/:id - Edit lab
-router.patch('/labs/:id', authenticate, authenticateAdmin, async (req, res) => {
+// POST /admin/services - Create service
+router.post('/services', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid lab ID' });
-    }
-    const data = editLabSchema.parse(req.body);
-    const lab = await adminService.updateLab(Number(id), data);
-    res.status(200).json({ message: 'Lab updated successfully', lab });
+    const data = createServiceSchema.parse(req.body);
+    const service = await adminService.createService(data);
+    res.status(201).json({ message: 'Service created successfully', service });
   } catch (error) {
-    console.error('Edit lab error:', { message: error.message });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(error.status === 404 || error.status === 400 ? error.status : 500).json({ message: error.message, error: error.message });
-  }
-});
-
-// DELETE /admin/labs/:id - Delete lab
-router.delete('/labs/:id', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid lab ID' });
-    }
-    await adminService.deleteLab(Number(id));
-    res.status(200).json({ message: 'Lab deleted successfully' });
-  } catch (error) {
-    console.error('Delete lab error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Lab not found' : 'Server error', error: error.message });
-  }
-});
-
-// GET /admin/medications - Get all medications
-router.get('/medications', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const query = medicationFilterSchema.parse(req.query);
-    const { medications, pagination } = await adminService.getMedications(query);
-    res.status(200).json({ message: 'Medications fetched successfully', medications, pagination });
-  } catch (error) {
-    console.error('Fetch medications error:', { message: error.message });
+    console.error('Create service error:', { message: error.message });
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
@@ -191,146 +142,37 @@ router.get('/medications', authenticate, authenticateAdmin, async (req, res) => 
   }
 });
 
-// GET /admin/medications/:id - Get single medication
-router.get('/medications/:id', authenticate, authenticateAdmin, async (req, res) => {
+// PATCH /admin/services/:id - Update service
+router.patch('/services/:id', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid medication ID' });
+      return res.status(400).json({ message: 'Invalid service ID' });
     }
-    const medication = await adminService.getMedication(Number(id));
-    res.status(200).json({ message: 'Medication fetched successfully', medication });
+    const data = updateServiceSchema.parse(req.body);
+    const service = await adminService.updateService(Number(id), data);
+    res.status(200).json({ message: 'Service updated successfully', service });
   } catch (error) {
-    console.error('Fetch medication error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Medication not found' : 'Server error', error: error.message });
-  }
-});
-
-// POST /admin/medications - Create medication
-router.post('/medications', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const data = createMedicationSchema.parse(req.body);
-    const medication = await adminService.createMedication(data);
-    res.status(201).json({ message: 'Medication created successfully', medication });
-  } catch (error) {
-    console.error('Create medication error:', { message: error.message });
+    console.error('Update service error:', { message: error.message });
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Service not found' : 'Server error', error: error.message });
   }
 });
 
-// PATCH /admin/medications/:id - Update medication
-router.patch('/medications/:id', authenticate, authenticateAdmin, async (req, res) => {
+// DELETE /admin/services/:id - Delete service
+router.delete('/services/:id', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid medication ID' });
+      return res.status(400).json({ message: 'Invalid service ID' });
     }
-    const data = updateMedicationSchema.parse(req.body);
-    const medication = await adminService.updateMedication(Number(id), data);
-    res.status(200).json({ message: 'Medication updated successfully', medication });
+    await adminService.deleteService(Number(id));
+    res.status(200).json({ message: 'Service deleted successfully' });
   } catch (error) {
-    console.error('Update medication error:', { message: error.message });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Medication not found' : 'Server error', error: error.message });
-  }
-});
-
-// DELETE /admin/medications/:id - Delete medication
-router.delete('/medications/:id', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid medication ID' });
-    }
-    await adminService.deleteMedication(Number(id));
-    res.status(200).json({ message: 'Medication deleted successfully' });
-  } catch (error) {
-    console.error('Delete medication error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Medication not found' : 'Server error', error: error.message });
-  }
-});
-
-// GET /admin/tests - Get all tests
-router.get('/tests', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const query = testFilterSchema.parse(req.query);
-    const { tests, pagination } = await adminService.getTests(query);
-    res.status(200).json({ message: 'Tests fetched successfully', tests, pagination });
-  } catch (error) {
-    console.error('Fetch tests error:', { message: error.message });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// GET /admin/tests/:id - Get single test
-router.get('/tests/:id', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid test ID' });
-    }
-    const test = await adminService.getTest(Number(id));
-    res.status(200).json({ message: 'Test fetched successfully', test });
-  } catch (error) {
-    console.error('Fetch test error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Test not found' : 'Server error', error: error.message });
-  }
-});
-
-// POST /admin/tests - Create test
-router.post('/tests', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const data = createTestSchema.parse(req.body);
-    const test = await adminService.createTest(data);
-    res.status(201).json({ message: 'Test created successfully', test });
-  } catch (error) {
-    console.error('Create test error:', { message: error.message });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// PATCH /admin/tests/:id - Update test
-router.patch('/tests/:id', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid test ID' });
-    }
-    const data = updateTestSchema.parse(req.body);
-    const test = await adminService.updateTest(Number(id), data);
-    res.status(200).json({ message: 'Test updated successfully', test });
-  } catch (error) {
-    console.error('Update test error:', { message: error.message });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Test not found' : 'Server error', error: error.message });
-  }
-});
-
-// DELETE /admin/tests/:id - Delete test
-router.delete('/tests/:id', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid test ID' });
-    }
-    await adminService.deleteTest(Number(id));
-    res.status(200).json({ message: 'Test deleted successfully' });
-  } catch (error) {
-    console.error('Delete test error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Test not found' : 'Server error', error: error.message });
+    console.error('Delete service error:', { message: error.message });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Service not found' : 'Server error', error: error.message });
   }
 });
 
@@ -394,36 +236,6 @@ router.get('/orders/:id', authenticate, authenticateAdmin, async (req, res) => {
   }
 });
 
-// GET /admin/bookings - Get all bookings
-router.get('/bookings', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const query = bookingFilterSchema.parse(req.query);
-    const { bookings, pagination } = await adminService.getBookings(query);
-    res.status(200).json({ message: 'Bookings fetched successfully', bookings, pagination });
-  } catch (error) {
-    console.error('Fetch bookings error:', { message: error.message });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// GET /admin/bookings/:id - Get single booking
-router.get('/bookings/:id', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid booking ID' });
-    }
-    const booking = await adminService.getBooking(Number(id));
-    res.status(200).json({ message: 'Booking fetched successfully', booking });
-  } catch (error) {
-    console.error('Fetch booking error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Booking not found' : 'Server error', error: error.message });
-  }
-});
-
 // GET /admin/admin-users - Get all admin users
 router.get('/admin-users', authenticate, authenticateAdmin, async (req, res) => {
   try {
@@ -454,14 +266,14 @@ router.get('/admin-users/:id', authenticate, authenticateAdmin, async (req, res)
   }
 });
 
-// GET /admin/pharmacy-users - Get all pharmacy users
-router.get('/pharmacy-users', authenticate, authenticateAdmin, async (req, res) => {
+// GET /admin/provider-users - Get all provider users
+router.get('/provider-users', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const query = pharmacyUserFilterSchema.parse(req.query);
-    const { users, pagination } = await adminService.getPharmacyUsers(query);
-    res.status(200).json({ message: 'Pharmacy users fetched successfully', users, pagination });
+    const query = providerUserFilterSchema.parse(req.query);
+    const { users, pagination } = await adminService.getProviderUsers(query);
+    res.status(200).json({ message: 'Provider users fetched successfully', users, pagination });
   } catch (error) {
-    console.error('Fetch pharmacy users error:', { message: error.message });
+    console.error('Fetch provider users error:', { message: error.message });
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
@@ -469,48 +281,18 @@ router.get('/pharmacy-users', authenticate, authenticateAdmin, async (req, res) 
   }
 });
 
-// GET /admin/pharmacy-users/:id - Get single pharmacy user
-router.get('/pharmacy-users/:id', authenticate, authenticateAdmin, async (req, res) => {
+// GET /admin/provider-users/:id - Get single provider user
+router.get('/provider-users/:id', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid pharmacy user ID' });
+      return res.status(400).json({ message: 'Invalid provider user ID' });
     }
-    const user = await adminService.getPharmacyUser(Number(id));
-    res.status(200).json({ message: 'Pharmacy user fetched successfully', user });
+    const user = await adminService.getProviderUser(Number(id));
+    res.status(200).json({ message: 'Provider user fetched successfully', user });
   } catch (error) {
-    console.error('Fetch pharmacy user error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Pharmacy user not found' : 'Server error', error: error.message });
-  }
-});
-
-// GET /admin/lab-users - Get all lab users
-router.get('/lab-users', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const query = labUserFilterSchema.parse(req.query);
-    const { users, pagination } = await adminService.getLabUsers(query);
-    res.status(200).json({ message: 'Lab users fetched successfully', users, pagination });
-  } catch (error) {
-    console.error('Fetch lab users error:', { message: error.message });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// GET /admin/lab-users/:id - Get single lab user
-router.get('/lab-users/:id', authenticate, authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({ message: 'Invalid lab user ID' });
-    }
-    const user = await adminService.getLabUser(Number(id));
-    res.status(200).json({ message: 'Lab user fetched successfully', user });
-  } catch (error) {
-    console.error('Fetch lab user error:', { message: error.message });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Lab user not found' : 'Server error', error: error.message });
+    console.error('Fetch provider user error:', { message: error.message });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Provider user not found' : 'Server error', error: error.message });
   }
 });
 

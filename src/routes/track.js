@@ -1,9 +1,9 @@
 const express = require('express');
-const trackService = require('../../services/med/trackService');
-const { validateTracking } = require('../../utils/validation');
+const trackService = require('../services/trackService');
+const { validateTracking } = require('../utils/validation');
 const router = express.Router();
 
-console.log('Loaded track.js version: 2025-06-19-v1');
+console.log('Loaded track.js version: 2025-06-25-v1');
 
 // GET /track - Track orders by tracking code
 router.get('/', async (req, res) => {

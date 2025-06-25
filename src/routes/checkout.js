@@ -1,11 +1,11 @@
 const express = require('express');
-const { upload } = require('../../utils/upload');
-const requireConsent = require('../../middleware/requireConsent');
-const checkoutService = require('../../services/med/checkoutService');
-const { validateCheckout, validateSessionRetrieve, validateResume } = require('../../utils/validation');
+const { upload } = require('../utils/upload');
+const requireConsent = require('../middleware/requireConsent');
+const checkoutService = require('../services/checkoutService');
+const { validateCheckout, validateSessionRetrieve, validateResume } = require('../utils/validation');
 const router = express.Router();
 
-console.log('Loaded checkout.js version: 2025-06-18-v2');
+console.log('Loaded checkout.js version: 2025-06-25-v1');
 
 // POST /checkout - Initiate checkout
 router.post('/', upload.single('prescription'), requireConsent, async (req, res) => {
@@ -57,12 +57,12 @@ router.post('/session/retrieve', requireConsent, async (req, res) => {
   }
 });
 
-// GET /prescription/validate - Validate prescription for medications
+// GET /prescription/validate - Validate prescription for services
 router.get('/prescription/validate', async (req, res) => {
   try {
-    const { patientIdentifier, medicationIds } = req.query;
+    const { patientIdentifier, serviceIds } = req.query;
 
-    const requiresUpload = await checkoutService.validatePrescription({ patientIdentifier, medicationIds });
+    const requiresUpload = await checkoutService.validatePrescription({ patientIdentifier, serviceIds });
     res.status(200).json({ requiresUpload });
   } catch (error) {
     console.error('Prescription validation error:', error);

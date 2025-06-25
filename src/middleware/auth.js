@@ -9,8 +9,8 @@ function authenticate(req, res, next) {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // { userId, pharmacyId, role } or { adminId, role }
-    console.log('Token verified:', { userId: decoded.userId, pharmacyId: decoded.pharmacyId, adminId: decoded.adminId, role: decoded.role });
+    req.user = decoded; // { userId, providerId, role } or { adminId, role }
+    console.log('Token verified:', { userId: decoded.userId, providerId: decoded.providerId, adminId: decoded.adminId, role: decoded.role });
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

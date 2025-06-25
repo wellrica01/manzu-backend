@@ -40,166 +40,6 @@ function isValidTrackingCode(trackingCode) {
 
 
 
-function validateCheckout(data) {
-  const schema = Joi.object({
-    name: Joi.string().required(),
-    email: Joi.string().custom((value, helpers) => {
-      if (!isValidEmail(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'email validation').required(),
-    phone: Joi.string().custom((value, helpers) => {
-      if (!isValidPhone(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid phone number format (e.g., 09031615501 or +2349031615501)' });
-      }
-      return value;
-    }, 'phone validation').required(),
-    address: Joi.string().when('deliveryMethod', {
-      is: 'delivery',
-      then: Joi.string().required(),
-      otherwise: Joi.string().allow(null, ''),
-    }),
-    deliveryMethod: Joi.string().valid('delivery', 'pickup').required(),
-    userId: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateSessionRetrieve(data) {
-  const schema = Joi.object({
-    email: Joi.string().custom((value, helpers) => {
-      if (value && !isValidEmail(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'email validation').optional(),
-    phone: Joi.string().custom((value, helpers) => {
-      if (value && !isValidPhone(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid phone number format' });
-      }
-      return value;
-    }, 'phone validation').optional(),
-    checkoutSessionId: Joi.string().optional(),
-  }).or('email', 'phone', 'checkoutSessionId');
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateResume(data) {
-  const schema = Joi.object({
-    orderId: Joi.number().integer().required(),
-    email: Joi.string().custom((value, helpers) => {
-      if (!isValidEmail(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'email validation').required(),
-    userId: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-// Booking checkout validations
-function validateBookingCheckout(data) {
-  const schema = Joi.object({
-    name: Joi.string().required(),
-    email: Joi.string().custom((value, helpers) => {
-      if (!isValidEmail(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'email validation').required(),
-    phone: Joi.string().custom((value, helpers) => {
-      if (!isValidPhone(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid phone number format (e.g., 09031615501 or +2349031615501)' });
-      }
-      return value;
-    }, 'phone validation').required(),
-    address: Joi.string().when('fulfillmentType', {
-      is: 'Home Collection',
-      then: Joi.string().required(),
-      otherwise: Joi.string().allow(null, ''),
-    }),
-    fulfillmentType: Joi.string().valid('lab_visit', 'home_collection').required(),
-    userId: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateBookingSessionRetrieve(data) {
-  const schema = Joi.object({
-    email: Joi.string().custom((value, helpers) => {
-      if (value && !isValidEmail(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'email validation').optional(),
-    phone: Joi.string().custom((value, helpers) => {
-      if (value && !isValidPhone(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid phone number format' });
-      }
-      return value;
-    }, 'phone validation').optional(),
-    checkoutSessionId: Joi.string().optional(),
-  }).or('email', 'phone', 'checkoutSessionId');
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateBookingResume(data) {
-  const schema = Joi.object({
-    bookingId: Joi.number().integer().required(),
-    email: Joi.string().custom((value, helpers) => {
-      if (!isValidEmail(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'email validation').required(),
-    userId: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateOrderConfirmation(data) {
-  const schema = Joi.object({
-    reference: Joi.string().custom((value, helpers) => {
-      if (value && !isValidOrderReference(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid payment reference format' });
-      }
-      return value;
-    }, 'reference validation').optional(),
-    session: Joi.string().required(),
-    userId: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-// Booking confirmation validation
-function validateBookingConfirmation(data) {
-  const schema = Joi.object({
-    reference: Joi.string().custom((value, helpers) => {
-      if (value && !isValidBookingReference(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid payment reference format' });
-      }
-      return value;
-    }, 'reference validation').optional(),
-    session: Joi.string().required(),
-    userId: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateTracking(data) {
-  const schema = Joi.object({
-    trackingCode: Joi.string().custom((value, helpers) => {
-      if (!isValidTrackingCode(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid tracking code format' });
-      }
-      return value;
-    }, 'tracking code validation').required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
 
 
 
@@ -264,14 +104,7 @@ function validateAddToOrder(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
-function validateUpdateOrder(data) {
-  const schema = Joi.object({
-    orderItemId: Joi.number().integer().required(),
-    quantity: Joi.number().integer().min(1).default(1), // Default to 1 for diagnostics
-    userId: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
+
 
 function validateRemoveFromOrder(data) {
   const schema = Joi.object({
@@ -343,33 +176,139 @@ function validateGuestOrder(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+function validateCheckout(data) {
+  const schema = Joi.object({
+    name: Joi.string().required(),
+    email: Joi.string().custom((value, helpers) => {
+      if (!isValidEmail(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid email format' });
+      }
+      return value;
+    }, 'email validation').required(),
+    phone: Joi.string().custom((value, helpers) => {
+      if (!isValidPhone(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid phone number format (e.g., 09031615501 or +2349031615501)' });
+      }
+      return value;
+    }, 'phone validation').required(),
+    address: Joi.string().when('deliveryMethod', {
+      is: 'delivery',
+      then: Joi.string().required(),
+      otherwise: Joi.string().allow(null, ''),
+    }),
+    deliveryMethod: Joi.string().valid('delivery', 'pickup', 'lab_visit').required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateSessionRetrieve(data) {
+  const schema = Joi.object({
+    email: Joi.string().custom((value, helpers) => {
+      if (value && !isValidEmail(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid email format' });
+      }
+      return value;
+    }, 'email validation').optional(),
+    phone: Joi.string().custom((value, helpers) => {
+      if (value && !isValidPhone(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid phone number format' });
+      }
+      return value;
+    }, 'phone validation').optional(),
+    checkoutSessionId: Joi.string().optional(),
+  }).or('email', 'phone', 'checkoutSessionId');
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateResume(data) {
+  const schema = Joi.object({
+    orderId: Joi.number().integer().required(),
+    email: Joi.string().custom((value, helpers) => {
+      if (!isValidEmail(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid email format' });
+      }
+      return value;
+    }, 'email validation').required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateOrderConfirmation(data) {
+  const schema = Joi.object({
+    reference: Joi.string().custom((value, helpers) => {
+      if (value && !isValidOrderReference(value)) {
+        return helpers.error('any.invalid', { message: 'Invalid payment reference format' });
+      }
+      return value;
+    }, 'reference validation').optional(),
+    session: Joi.string().required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateFetchOrders(data) {
+  const schema = Joi.object({});
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateUpdateOrder(data) {
+  const schema = Joi.object({
+    orderId: Joi.number().integer().required(),
+    status: Joi.string().valid('processing', 'shipped', 'delivered', 'ready_for_pickup', 'sample_collected', 'result_ready', 'completed').required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateFetchServices(data) {
+  const schema = Joi.object({});
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateAddService(data) {
+  const schema = Joi.object({
+    serviceId: Joi.number().integer().required(),
+    stock: Joi.number().integer().positive().optional(),
+    price: Joi.number().precision(2).positive().required(),
+    available: Joi.boolean().optional(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateUpdateService(data) {
+  const schema = Joi.object({
+    serviceId: Joi.number().integer().required(),
+    stock: Joi.number().integer().min(0).optional(),
+    price: Joi.number().min(0).required(),
+    available: Joi.boolean().optional(),
+    receivedDate: Joi.date().optional().allow(null),
+    expiryDate: Joi.date().optional().allow(null),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateDeleteService(data) {
+  const schema = Joi.object({
+    serviceId: Joi.number().integer().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateFetchUsers(data) {
+  const schema = Joi.object({});
+  return schema.validate(data, { abortEarly: false });
+}
 
+function validateRegisterDevice(data) {
+  const schema = Joi.object({
+    deviceToken: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Booking tracking validation
-function validateBookingTracking(data) {
+function validateTracking(data) {
   const schema = Joi.object({
     trackingCode: Joi.string().custom((value, helpers) => {
       if (!isValidTrackingCode(value)) {
@@ -380,6 +319,31 @@ function validateBookingTracking(data) {
   });
   return schema.validate(data, { abortEarly: false });
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function validateConsent(data) {
   const schema = Joi.object({
@@ -404,93 +368,10 @@ function validateTests(data) {
 
 
 
-function validateFetchOrders(data) {
-  const schema = Joi.object({});
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateUpdateOrder(data) {
-  const schema = Joi.object({
-    orderId: Joi.string().pattern(/^\d+$/).required(),
-    status: Joi.string().valid('processing', 'shipped', 'delivered', 'ready_for_pickup').required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateFetchMedications(data) {
-  const schema = Joi.object({});
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateAddMedication(data) {
-  const schema = Joi.object({
-    medicationId: Joi.number().integer().required(),
-    stock: Joi.number().integer().positive().required(),
-    price: Joi.number().precision(2).positive().required(),
-  });
-
-  return schema.validate(data, { abortEarly: false });
-}
 
 
 
-function validateUpdateMedication(data) {
-  const schema = Joi.object({
-    medicationId: Joi.number().integer().required(),
-    stock: Joi.number().integer().min(0).required(),
-    price: Joi.number().min(0).required(),
-    receivedDate: Joi.date().optional().allow(null),
-    expiryDate: Joi.date().optional().allow(null),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
 
-function validateDeleteMedication(data) {
-  const schema = Joi.object({
-    medicationId: Joi.string().pattern(/^\d+$/).required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateFetchUsers(data) {
-  const schema = Joi.object({});
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateRegisterDevice(data) {
-  const schema = Joi.object({
-    deviceToken: Joi.string().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateFetchBookings(data) {
-  const schema = Joi.object({});
-  return schema.validate(data, { abortEarly: false });
-}
-
-
-function validateFetchTests(data) {
-  const schema = Joi.object({});
-  return schema.validate(data, { abortEarly: false });
-}
-
-
-function validateUpdateTest(data) {
-  const schema = Joi.object({
-    testId: Joi.number().integer().required(),
-    price: Joi.number().positive().required(),
-    available: Joi.boolean().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
-
-function validateDeleteTest(data) {
-  const schema = Joi.object({
-    testId: Joi.number().integer().required(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
 
 
 
@@ -502,16 +383,6 @@ module.exports = {
   isValidBookingReference,
   isValidTrackingCode,
   validateGetTimeSlots,
-  validateCheckout,
-  validateSessionRetrieve,
-  validateResume,
-  validateBookingCheckout,
-  validateBookingSessionRetrieve,
-  validateBookingResume,
-  validateOrderConfirmation,
-  validateBookingConfirmation,
-  validateTracking,
-  validateBookingTracking,
   validateConsent,
   validateMedications,
   validateTests,
@@ -520,16 +391,9 @@ module.exports = {
   validateGuestOrder,
   validateFetchOrders,
   validateUpdateOrder,
-  validateFetchMedications,
-  validateAddMedication,
-  validateUpdateMedication,
-  validateDeleteMedication,
   validateFetchUsers,
   validateRegisterDevice,
-  validateFetchBookings,
-  validateFetchTests,
-  validateUpdateTest,
-  validateDeleteTest,
+
 
 
 
@@ -570,4 +434,17 @@ module.exports = {
   validateAddServices,
   validateVerifyPrescription,
   validateGuestOrder,
+  validateCheckout,
+  validateSessionRetrieve,
+  validateResume,
+  validateOrderConfirmation,
+  validateFetchOrders,
+  validateUpdateOrder,
+  validateFetchServices,
+  validateAddService,
+  validateUpdateService,
+  validateDeleteService,
+  validateFetchUsers,
+  validateRegisterDevice,
+  validateTracking
 };

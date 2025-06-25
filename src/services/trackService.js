@@ -8,7 +8,7 @@ async function trackOrders(trackingCode) {
     where: {
       trackingCode,
       status: {
-        in: ['confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled'],
+        in: ['confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled', 'sample_collected', 'result_ready', 'completed'],
       },
     },
     select: {
@@ -17,6 +17,7 @@ async function trackOrders(trackingCode) {
       totalPrice: true,
       address: true,
       deliveryMethod: true,
+      fulfillmentType: true,
       trackingCode: true,
       status: true,
       paymentStatus: true,
@@ -33,18 +34,26 @@ async function trackOrders(trackingCode) {
           fileUrl: true,
           verified: true,
           createdAt: true,
-          PrescriptionMedication: {
+          prescriptionServices: {
             select: {
-              medicationId: true,
+              serviceId: true,
               quantity: true,
-              Medication: {
-                select: { name: true, genericName: true, dosage: true },
+              service: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  genericName: true,
+                  dosage: true,
+                  description: true,
+                  prescriptionRequired: true,
+                },
               },
             },
           },
         },
       },
-      pharmacy: {
+      provider: {
         select: { id: true, name: true, address: true },
       },
       items: {
@@ -52,16 +61,25 @@ async function trackOrders(trackingCode) {
           id: true,
           quantity: true,
           price: true,
-          pharmacyMedication: {
+          providerService: {
             select: {
-              medication: {
-                select: { id: true, name: true, genericName: true, dosage: true, prescriptionRequired: true },
+              service: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  genericName: true,
+                  dosage: true,
+                  description: true,
+                  prescriptionRequired: true,
+                },
               },
-              pharmacy: {
+              provider: {
                 select: { name: true, address: true },
               },
               receivedDate: true,
               expiryDate: true,
+              available: true,
             },
           },
         },
@@ -84,6 +102,7 @@ async function trackOrders(trackingCode) {
       totalPrice: order.totalPrice,
       address: order.address,
       deliveryMethod: order.deliveryMethod,
+      fulfillmentType: order.fulfillmentType,
       trackingCode: order.trackingCode,
       status: order.status,
       paymentStatus: order.paymentStatus,
@@ -98,36 +117,41 @@ async function trackOrders(trackingCode) {
         fileUrl: order.prescription.fileUrl,
         verified: order.prescription.verified,
         createdAt: order.prescription.createdAt,
-        medications: order.prescription.PrescriptionMedication.map(pm => ({
-          medicationId: pm.medicationId,
-          name: pm.Medication.name,
-          genericName: pm.Medication.genericName,
-          dosage: pm.Medication.dosage,
-          quantity: pm.quantity,
+        services: order.prescription.prescriptionServices.map(ps => ({
+          serviceId: ps.serviceId,
+          name: ps.service.name,
+          type: ps.service.type,
+          genericName: ps.service.genericName,
+          dosage: ps.service.dosage,
+          description: ps.service.description,
+          quantity: ps.quantity,
         })),
       } : null,
-      pharmacy: {
-        id: order.pharmacy.id,
-        name: order.pharmacy.name,
-        address: order.pharmacy.address,
+      provider: {
+        id: order.provider.id,
+        name: order.provider.name,
+        address: order.provider.address,
       },
       items: order.items.map(item => ({
         id: item.id,
-        medication: {
-          id: item.pharmacyMedication.medication.id,
-          name: item.pharmacyMedication.medication.name,
-          genericName: item.pharmacyMedication.medication.genericName,
-          dosage: item.pharmacyMedication.medication.dosage,
-          prescriptionRequired: item.pharmacyMedication.medication.prescriptionRequired,
+        service: {
+          id: item.providerService.service.id,
+          name: item.providerService.service.name,
+          type: item.providerService.service.type,
+          genericName: item.providerService.service.genericName,
+          dosage: item.providerService.service.dosage,
+          description: item.providerService.service.description,
+          prescriptionRequired: item.providerService.service.prescriptionRequired,
         },
-        pharmacy: {
-          name: item.pharmacyMedication.pharmacy.name,
-          address: item.pharmacyMedication.pharmacy.address,
+        provider: {
+          name: item.providerService.provider.name,
+          address: item.providerService.provider.address,
         },
         quantity: item.quantity,
         price: item.price,
-        receivedDate: item.pharmacyMedication.receivedDate,
-        expiryDate: item.pharmacyMedication.expiryDate,
+        receivedDate: item.providerService.receivedDate,
+        expiryDate: item.providerService.expiryDate,
+        available: item.providerService.available,
       })),
     })),
   };

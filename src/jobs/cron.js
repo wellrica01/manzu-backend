@@ -2,116 +2,65 @@ const { PrismaClient } = require('@prisma/client');
 const cron = require('node-cron');
 const prisma = new PrismaClient();
 
-// Cleanup timed-out pending_prescription orders
-const cleanupPendingPrescriptionOrders = async () => {
+async function cleanupTimedOutOrders() {
   try {
-    const timeoutThreshold = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48 hours ago
+    const prescriptionTimeout = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48 hours
+    const paymentTimeout = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours
 
     const orders = await prisma.order.findMany({
       where: {
-        status: 'pending_prescription',
-        createdAt: { lte: timeoutThreshold },
+        OR: [
+          { status: 'pending_prescription', createdAt: { lte: prescriptionTimeout } },
+          { status: 'pending', createdAt: { lte: paymentTimeout } },
+        ],
       },
       include: { items: true },
     });
 
     if (orders.length === 0) {
-      console.log('No timed-out prescription orders found');
+      console.log('No timed-out orders found');
       return;
     }
 
     await prisma.$transaction(async (tx) => {
       for (const order of orders) {
+        const cancelReason = order.status === 'pending_prescription' ? 'Prescription verification timeout' : 'Payment timeout';
         await tx.order.update({
           where: { id: order.id },
           data: {
             status: 'cancelled',
-            cancelReason: 'Prescription verification timeout',
+            cancelReason,
             cancelledAt: new Date(),
             updatedAt: new Date(),
           },
         });
 
         for (const item of order.items) {
-          await tx.pharmacyMedication.update({
+          await tx.providerService.update({
             where: {
-              pharmacyId_medicationId: {
-                pharmacyId: item.pharmacyMedicationPharmacyId,
-                medicationId: item.pharmacyMedicationMedicationId,
+              providerId_serviceId: {
+                providerId: item.providerServiceProviderId,
+                serviceId: item.providerServiceServiceId,
               },
             },
             data: { stock: { increment: item.quantity } },
           });
         }
 
-        console.log('Prescription order cancelled and stock released:', { orderId: order.id });
+        console.log('Order cancelled and stock released:', { orderId: order.id, status: order.status });
       }
     });
 
-    console.log('Prescription cleanup completed:', { cancelledOrders: orders.length });
+    console.log('Order cleanup completed:', { cancelledOrders: orders.length });
   } catch (error) {
-    console.error('Prescription cleanup error:', { message: error.message, stack: error.stack });
+    console.error('Order cleanup error:', { message: error.message, stack: error.stack });
   }
-};
-
-// Cleanup timed-out pending (OTC) orders
-const cleanupPendingPaymentOrders = async () => {
-  try {
-    const timeoutThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
-
-    const orders = await prisma.order.findMany({
-      where: {
-        status: 'pending',
-        createdAt: { lte: timeoutThreshold },
-      },
-      include: { items: true },
-    });
-
-    if (orders.length === 0) {
-      console.log('No timed-out payment orders found');
-      return;
-    }
-
-    await prisma.$transaction(async (tx) => {
-      for (const order of orders) {
-        await tx.order.update({
-          where: { id: order.id },
-          data: {
-            status: 'cancelled',
-            cancelReason: 'Payment timeout',
-            cancelledAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-
-        for (const item of order.items) {
-          await tx.pharmacyMedication.update({
-            where: {
-              pharmacyId_medicationId: {
-                pharmacyId: item.pharmacyMedicationPharmacyId,
-                medicationId: item.pharmacyMedicationMedicationId,
-              },
-            },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
-
-        console.log('Payment order cancelled and stock released:', { orderId: order.id });
-      }
-    });
-
-    console.log('Payment cleanup completed:', { cancelledOrders: orders.length });
-  } catch (error) {
-    console.error('Payment cleanup error:', { message: error.message, stack: error.stack });
-  }
-};
+}
 
 // Schedule daily at midnight
-cron.schedule('0 0 * * *', cleanupPendingPrescriptionOrders);
-cron.schedule('0 0 * * *', cleanupPendingPaymentOrders);
+cron.schedule('0 0 * * *', cleanupTimedOutOrders);
 
-// Run immediately on startup (optional)
-cleanupPendingPrescriptionOrders();
-cleanupPendingPaymentOrders();
+// Run immediately on startup
+cleanupTimedOutOrders();
 
-module.exports = { cleanupPendingPrescriptionOrders, cleanupPendingPaymentOrders };
+module.exports = { cleanupTimedOutOrders };

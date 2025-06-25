@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
-const { isValidOrderReference } = require('../../utils/validation');
-const { generateTrackingCode } = require('../../utils/tracking');
+const { isValidOrderReference } = require('../utils/validation');
+const { generateTrackingCode } = require('../utils/tracking');
 const prisma = new PrismaClient();
 
 async function confirmOrder({ reference, session, userId }) {
@@ -33,15 +33,15 @@ async function confirmOrder({ reference, session, userId }) {
       include: {
         items: {
           include: {
-            pharmacyMedication: {
-              include: { medication: true, pharmacy: true },
+            providerService: {
+              include: { service: true, provider: true },
             },
           },
         },
         prescription: {
-          include: { PrescriptionMedication: true },
+          include: { prescriptionServices: true },
         },
-        pharmacy: true,
+        provider: true,
       },
     });
   } else {
@@ -49,20 +49,20 @@ async function confirmOrder({ reference, session, userId }) {
       where: {
         patientIdentifier: userId,
         checkoutSessionId: session,
-        status: { in: ['pending', 'confirmed', 'paid'] },
+        status: { in: ['pending', 'confirmed', 'paid', 'pending_prescription'] },
       },
       include: {
         items: {
           include: {
-            pharmacyMedication: {
-              include: { medication: true, pharmacy: true },
+            providerService: {
+              include: { service: true, provider: true },
             },
           },
         },
         prescription: {
-          include: { PrescriptionMedication: true },
+          include: { prescriptionServices: true },
         },
-        pharmacy: true,
+        provider: true,
       },
     });
   }
@@ -117,7 +117,7 @@ async function confirmOrder({ reference, session, userId }) {
       patientIdentifier: userId,
       status: 'verified',
     },
-    include: { PrescriptionMedication: true },
+    include: { prescriptionServices: true },
     orderBy: [{ createdAt: 'desc' }],
   });
 
@@ -130,15 +130,15 @@ async function confirmOrder({ reference, session, userId }) {
       let newPrescriptionId = order.prescriptionId;
 
       const requiresPrescription = order.items.some(
-        item => item.pharmacyMedication.medication.prescriptionRequired
+        item => item.providerService.service.prescriptionRequired
       );
 
       if (requiresPrescription && verifiedPrescription) {
-        const orderMedicationIds = order.items
-          .filter(item => item.pharmacyMedication.medication.prescriptionRequired)
-          .map(item => item.pharmacyMedication.medicationId);
-        const prescriptionMedicationIds = verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId);
-        const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
+        const orderServiceIds = order.items
+          .filter(item => item.providerService.service.prescriptionRequired)
+          .map(item => item.providerService.serviceId);
+        const prescriptionServiceIds = verifiedPrescription.prescriptionServices.map(ps => ps.serviceId);
+        const isPrescriptionValid = orderServiceIds.every(id => prescriptionServiceIds.includes(id));
 
         if (isPrescriptionValid && transactionRef?.orderReferences.includes(order.paymentReference)) {
           newStatus = 'confirmed';
@@ -166,13 +166,13 @@ async function confirmOrder({ reference, session, userId }) {
         include: {
           items: {
             include: {
-              pharmacyMedication: {
-                include: { medication: true, pharmacy: true },
+              providerService: {
+                include: { service: true, provider: true },
               },
             },
           },
           prescription: true,
-          pharmacy: true,
+          provider: true,
         },
       });
       updated.push(updatedOrder);
@@ -188,56 +188,57 @@ async function confirmOrder({ reference, session, userId }) {
     orderIds: updatedOrders.map(o => o.id),
   });
 
-  // Format response with orders grouped by pharmacy
-  const ordersByPharmacy = updatedOrders
-  .filter(order => order.status === 'confirmed' && order.paymentStatus === 'paid')
-  .reduce((acc, order) => {
-    const pharmacyId = order.pharmacyId;
-    if (!acc[pharmacyId]) {
-      acc[pharmacyId] = {
-        pharmacy: {
-          id: pharmacyId,
-          name: order.pharmacy?.name || 'Unknown',
-          address: order.pharmacy?.address || '',
-        },
-        orders: [],
-        subtotal: 0,
-      };
-    }
-    acc[pharmacyId].orders.push({
-      id: order.id,
-      totalPrice: order.totalPrice,
-      status: order.status,
-      deliveryMethod: order.deliveryMethod,
-      address: order.address,
-      paymentReference: order.paymentReference,
-      prescription: order.prescription
-        ? {
-            id: order.prescription.id,
-            status: order.prescription.status,
-            fileUrl: order.prescription.fileUrl,
-          }
-        : null,
-      items: order.items.map(item => ({
-        id: item.id,
-        medication: {
-          name: item.pharmacyMedication.medication.name,
-          prescriptionRequired: item.pharmacyMedication.medication.prescriptionRequired,
-        },
-        quantity: item.quantity,
-        price: item.price,
-      })),
-    });
-    acc[pharmacyId].subtotal += order.totalPrice;
-    return acc;
-  }, {});
+  // Format response with orders grouped by provider
+  const ordersByProvider = updatedOrders
+    .filter(order => order.status === 'confirmed' && order.paymentStatus === 'paid')
+    .reduce((acc, order) => {
+      const providerId = order.providerId;
+      if (!acc[providerId]) {
+        acc[providerId] = {
+          provider: {
+            id: providerId,
+            name: order.provider?.name || 'Unknown',
+            address: order.provider?.address || '',
+          },
+          orders: [],
+          subtotal: 0,
+        };
+      }
+      acc[providerId].orders.push({
+        id: order.id,
+        totalPrice: order.totalPrice,
+        status: order.status,
+        deliveryMethod: order.deliveryMethod,
+        address: order.address,
+        paymentReference: order.paymentReference,
+        prescription: order.prescription
+          ? {
+              id: order.prescription.id,
+              status: order.prescription.status,
+              fileUrl: order.prescription.fileUrl,
+            }
+          : null,
+        items: order.items.map(item => ({
+          id: item.id,
+          service: {
+            name: item.providerService.service.name,
+            type: item.providerService.service.type,
+            prescriptionRequired: item.providerService.service.prescriptionRequired,
+          },
+          quantity: item.quantity,
+          price: item.price,
+        })),
+      });
+      acc[providerId].subtotal += order.totalPrice;
+      return acc;
+    }, {});
 
   return {
-    message: status === 'completed' ? 'Payment verified' : 'Orders retrieved, some awaiting verification',
+    message: status === 'completed' ? 'Payment verified and orders confirmed' : 'Orders retrieved, some awaiting verification',
     status,
     checkoutSessionId: session,
     trackingCode,
-    pharmacies: Object.values(ordersByPharmacy),
+    providers: Object.values(ordersByProvider),
   };
 }
 

@@ -4,19 +4,21 @@ const jwt = require('jsonwebtoken');
 const { validateLocation } = require('../utils/location');
 const prisma = new PrismaClient();
 
-async function registerPharmacyAndUser({ pharmacy, user }) {
-  validateLocation(pharmacy.state, pharmacy.lga, pharmacy.ward, pharmacy.latitude, pharmacy.longitude);
+async function registerProviderAndUser({ provider, user }) {
+  validateLocation(provider.state, provider.lga, provider.ward, provider.latitude, provider.longitude);
 
-  const existingPharmacy = await prisma.pharmacy.findUnique({
-    where: { licenseNumber: pharmacy.licenseNumber },
-  });
-  if (existingPharmacy) {
-    const error = new Error('Pharmacy license number already exists');
-    error.status = 400;
-    throw error;
+  if (provider.licenseNumber) {
+    const existingProvider = await prisma.provider.findUnique({
+      where: { licenseNumber: provider.licenseNumber },
+    });
+    if (existingProvider) {
+      const error = new Error('Provider license number already exists');
+      error.status = 400;
+      throw error;
+    }
   }
 
-  const existingUser = await prisma.pharmacyUser.findUnique({
+  const existingUser = await prisma.providerUser.findUnique({
     where: { email: user.email },
   });
   if (existingUser) {
@@ -29,109 +31,54 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
   const hashedPassword = await bcrypt.hash(user.password, salt);
 
   const result = await prisma.$transaction(async (prisma) => {
-    const logoUrl = pharmacy.logoUrl || null;
-    const [newPharmacy] = await prisma.$queryRaw`
-      INSERT INTO "Pharmacy" (name, location, address, lga, state, ward, phone, "licenseNumber", status, "logoUrl")
+    const logoUrl = provider.logoUrl || null;
+    const [newProvider] = await prisma.$queryRaw`
+      INSERT INTO "Provider" (name, address, lga, state, ward, phone, "licenseNumber", status, "logoUrl", "isActive", "homeCollectionAvailable", location)
       VALUES (
-        ${pharmacy.name},
-        ST_SetSRID(ST_MakePoint(${pharmacy.longitude}, ${pharmacy.latitude}), 4326),
-        ${pharmacy.address},
-        ${pharmacy.lga},
-        ${pharmacy.state},
-        ${pharmacy.ward},
-        ${pharmacy.phone},
-        ${pharmacy.licenseNumber},
+        ${provider.name},
+        ${provider.address},
+        ${provider.lga},
+        ${provider.state},
+        ${provider.ward},
+        ${provider.phone},
+        ${provider.licenseNumber || null},
         'pending',
-        ${logoUrl}
+        ${logoUrl},
+        false,
+        ${provider.homeCollectionAvailable || false},
+        ST_SetSRID(ST_MakePoint(${provider.longitude}, ${provider.latitude}), 4326)
       )
       RETURNING id, name
     `;
 
-    const newUser = await prisma.pharmacyUser.create({
+    const newUser = await prisma.providerUser.create({
       data: {
         email: user.email,
         password: hashedPassword,
         name: user.name,
         role: 'manager',
-        pharmacyId: newPharmacy.id,
+        providerId: newProvider.id,
       },
     });
 
-    return { pharmacy: newPharmacy, user: newUser };
+    return { provider: newProvider, user: newUser };
   });
 
-  console.log('Pharmacy and user registered:', { pharmacyId: result.pharmacy.id, userId: result.user.id });
+  console.log('Provider and user registered:', { providerId: result.provider.id, userId: result.user.id });
 
   const token = jwt.sign(
-    { userId: result.user.id, pharmacyId: result.pharmacy.id, role: result.user.role },
+    { userId: result.user.id, providerId: result.provider.id, role: 'manager' },
     process.env.JWT_SECRET,
     { expiresIn: '1d' }
   );
 
-  return { token, user: result.user, pharmacy: result.pharmacy };
+  return { token, user: result.user, provider: result.provider };
 }
 
-async function registerLabAndUser({ lab, user }) {
-  validateLocation(lab.state, lab.lga, lab.ward, lab.latitude, lab.longitude);
-
-  const existingUser = await prisma.labUser.findUnique({
-    where: { email: user.email },
-  });
-  if (existingUser) {
-    const error = new Error('Email already registered');
-    error.status = 400;
-    throw error;
-  }
-
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(user.password, salt);
-
-  const result = await prisma.$transaction(async (prisma) => {
-    const logoUrl = lab.logoUrl || null;
-    const [newLab] = await prisma.$queryRaw`
-      INSERT INTO "Lab" (name, location, address, lga, state, ward, phone, status, "logoUrl")
-      VALUES (
-        ${lab.name},
-        ST_SetSRID(ST_MakePoint(${lab.longitude}, ${lab.latitude}), 4326),
-        ${lab.address},
-        ${lab.lga},
-        ${lab.state},
-        ${lab.ward},
-        ${lab.phone},
-        'pending',
-        ${logoUrl}
-      )
-      RETURNING id, name
-    `;
-
-    const newUser = await prisma.labUser.create({
-      data: {
-        email: user.email,
-        password: hashedPassword,
-        name: user.name,
-        role: 'manager',
-        labId: newLab.id,
-      },
-    });
-
-    return { lab: newLab, user: newUser };
-  });
-
-  console.log('Lab and user registered:', { labId: result.lab.id, userId: result.user.id });
-
-  const token = jwt.sign(
-    { userId: result.user.id, labId: result.lab.id, role: result.user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: '1d' }
-  );
-
-  return { token, user: result.user, lab: result.lab };
-}
-
-async function loginUser({ email, password }) {
-  const user = await prisma.pharmacyUser.findUnique({
+async function loginProviderUser({ email, password }) {
+  const user = await prisma.providerUser.findUnique({
     where: { email },
-    include: { pharmacy: true },
+    include: { provider: true },
   });
   if (!user) {
     const error = new Error('Invalid email or password');
@@ -146,44 +93,15 @@ async function loginUser({ email, password }) {
     throw error;
   }
 
-  console.log('User authenticated:', { userId: user.id, pharmacyId: user.pharmacyId });
+  console.log('Provider user authenticated:', { userId: user.id, providerId: user.providerId });
 
   const token = jwt.sign(
-    { userId: user.id, pharmacyId: user.pharmacyId, role: user.role },
+    { userId: user.id, providerId: user.providerId, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: '1d' }
   );
 
-  return { token, user, pharmacy: user.pharmacy };
-}
-
-async function loginLabUser({ email, password }) {
-  const user = await prisma.labUser.findUnique({
-    where: { email },
-    include: { lab: true },
-  });
-  if (!user) {
-    const error = new Error('Invalid email or password');
-    error.status = 401;
-    throw error;
-  }
-
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-  if (!isPasswordValid) {
-    const error = new Error('Invalid email or password');
-    error.status = 401;
-    throw error;
-  }
-
-  console.log('Lab user authenticated:', { userId: user.id, labId: user.labId });
-
-  const token = jwt.sign(
-    { userId: user.id, labId: user.labId, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: '1d' }
-  );
-
-  return { token, user, lab: user.lab };
+  return { token, user, provider: user.provider };
 }
 
 async function registerAdmin({ name, email, password }) {
@@ -247,8 +165,8 @@ async function loginAdmin({ email, password }) {
   return { token, admin };
 }
 
-async function addPharmacyUser({ name, email, password, role, pharmacyId }) {
-  const existingUser = await prisma.pharmacyUser.findUnique({
+async function addProviderUser({ name, email, password, role, providerId }) {
+  const existingUser = await prisma.providerUser.findUnique({
     where: { email },
   });
   if (existingUser) {
@@ -260,58 +178,30 @@ async function addPharmacyUser({ name, email, password, role, pharmacyId }) {
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(password, salt);
 
-  const newUser = await prisma.pharmacyUser.create({
+  const newUser = await prisma.providerUser.create({
     data: {
       name,
       email,
       password: hashedPassword,
       role,
-      pharmacyId,
+      providerId,
     },
   });
 
-  console.log('User added:', { userId: newUser.id, pharmacyId });
+  console.log('Provider user added:', { userId: newUser.id, providerId });
 
   return newUser;
 }
 
-async function addLabUser({ name, email, password, role, labId }) {
-  const existingUser = await prisma.labUser.findUnique({
-    where: { email },
-  });
-  if (existingUser) {
-    const error = new Error('Email already registered');
-    error.status = 400;
-    throw error;
-  }
-
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(password, salt);
-
-  const newUser = await prisma.labUser.create({
-    data: {
-      name,
-      email,
-      password: hashedPassword,
-      role,
-      labId,
-    },
-  });
-
-  console.log('Lab user added:', { userId: newUser.id, labId });
-
-  return newUser;
-}
-
-async function editPharmacyUser(userId, { name, email, password }, managerId, pharmacyId) {
+async function editProviderUser(userId, { name, email, password }, managerId, providerId) {
   if (userId === managerId) {
     const error = new Error('Cannot edit your own account');
     error.status = 403;
     throw error;
   }
 
-  const user = await prisma.pharmacyUser.findFirst({
-    where: { id: userId, pharmacyId },
+  const user = await prisma.providerUser.findFirst({
+    where: { id: userId, providerId },
   });
   if (!user) {
     const error = new Error('User not found');
@@ -320,7 +210,7 @@ async function editPharmacyUser(userId, { name, email, password }, managerId, ph
   }
 
   if (email !== user.email) {
-    const existingUser = await prisma.pharmacyUser.findUnique({
+    const existingUser = await prisma.providerUser.findUnique({
       where: { email },
     });
     if (existingUser) {
@@ -336,68 +226,25 @@ async function editPharmacyUser(userId, { name, email, password }, managerId, ph
     updateData.password = await bcrypt.hash(password, salt);
   }
 
-  const updatedUser = await prisma.pharmacyUser.update({
+  const updatedUser = await prisma.providerUser.update({
     where: { id: userId },
     data: updateData,
   });
 
-  console.log('User updated:', { userId: updatedUser.id, pharmacyId });
+  console.log('Provider user updated:', { userId: updatedUser.id, providerId });
 
   return updatedUser;
 }
 
-async function editLabUser(userId, { name, email, password }, managerId, labId) {
-  if (userId === managerId) {
-    const error = new Error('Cannot edit your own account');
-    error.status = 403;
-    throw error;
-  }
-
-  const user = await prisma.labUser.findFirst({
-    where: { id: userId, labId },
-  });
-  if (!user) {
-    const error = new Error('User not found');
-    error.status = 404;
-    throw error;
-  }
-
-  if (email !== user.email) {
-    const existingUser = await prisma.labUser.findUnique({
-      where: { email },
-    });
-    if (existingUser) {
-      const error = new Error('Email already registered');
-      error.status = 400;
-      throw error;
-    }
-  }
-
-  const updateData = { name, email };
-  if (password) {
-    const salt = await bcrypt.genSalt(10);
-    updateData.password = await bcrypt.hash(password, salt);
-  }
-
-  const updatedUser = await prisma.labUser.update({
-    where: { id: userId },
-    data: updateData,
-  });
-
-  console.log('Lab user updated:', { userId: updatedUser.id, labId });
-
-  return updatedUser;
-}
-
-async function deletePharmacyUser(userId, managerId, pharmacyId) {
+async function deleteProviderUser(userId, managerId, providerId) {
   if (userId === managerId) {
     const error = new Error('Cannot delete your own account');
     error.status = 403;
     throw error;
   }
 
-  const user = await prisma.pharmacyUser.findFirst({
-    where: { id: userId, pharmacyId },
+  const user = await prisma.providerUser.findFirst({
+    where: { id: userId, providerId },
   });
   if (!user) {
     const error = new Error('User not found');
@@ -405,38 +252,15 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
     throw error;
   }
 
-  await prisma.pharmacyUser.delete({
+  await prisma.providerUser.delete({
     where: { id: userId },
   });
 
-  console.log('User deleted:', { userId, pharmacyId });
+  console.log('Provider user deleted:', { userId, providerId });
 }
 
-async function deleteLabUser(userId, managerId, labId) {
-  if (userId === managerId) {
-    const error = new Error('Cannot delete your own account');
-    error.status = 403;
-    throw error;
-  }
-
-  const user = await prisma.labUser.findFirst({
-    where: { id: userId, labId },
-  });
-  if (!user) {
-    const error = new Error('User not found');
-    error.status = 404;
-    throw error;
-  }
-
-  await prisma.labUser.delete({
-    where: { id: userId },
-  });
-
-  console.log('Lab user deleted:', { userId, labId });
-}
-
-async function getProfile(userId, pharmacyId) {
-  const user = await prisma.pharmacyUser.findUnique({
+async function getProviderProfile(userId, providerId) {
+  const user = await prisma.providerUser.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true },
   });
@@ -446,55 +270,41 @@ async function getProfile(userId, pharmacyId) {
     throw error;
   }
 
-  const pharmacy = await prisma.pharmacy.findUnique({
-    where: { id: pharmacyId },
-    select: { id: true, name: true, address: true, lga: true, state: true, ward: true, phone: true, licenseNumber: true, status: true, logoUrl: true },
+  const provider = await prisma.provider.findUnique({
+    where: { id: providerId },
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      lga: true,
+      state: true,
+      ward: true,
+      phone: true,
+      licenseNumber: true,
+      status: true,
+      logoUrl: true,
+      homeCollectionAvailable: true,
+    },
   });
-  if (!pharmacy) {
-    const error = new Error('Pharmacy not found');
+  if (!provider) {
+    const error = new Error('Provider not found');
     error.status = 404;
     throw error;
   }
 
-  console.log('Profile fetched:', { userId, pharmacyId });
+  console.log('Provider profile fetched:', { userId, providerId });
 
-  return { user, pharmacy };
+  return { user, provider };
 }
 
-async function getLabProfile(userId, labId) {
-  const user = await prisma.labUser.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true, email: true, role: true },
-  });
-  if (!user) {
-    const error = new Error('User not found');
-    error.status = 404;
-    throw error;
-  }
+async function editProviderProfile({ user, provider }, userId, providerId) {
+  validateLocation(provider.state, provider.lga, provider.ward, provider.latitude, provider.longitude);
 
-  const lab = await prisma.lab.findUnique({
-    where: { id: labId },
-    select: { id: true, name: true, address: true, lga: true, state: true, ward: true, phone: true, status: true, logoUrl: true },
-  });
-  if (!lab) {
-    const error = new Error('Lab not found');
-    error.status = 404;
-    throw error;
-  }
-
-  console.log('Lab profile fetched:', { userId, labId });
-
-  return { user, lab };
-}
-
-async function editProfile({ user, pharmacy }, userId, pharmacyId) {
-  validateLocation(pharmacy.state, pharmacy.lga, pharmacy.ward, pharmacy.latitude, pharmacy.longitude);
-
-  const existingUser = await prisma.pharmacyUser.findUnique({
+  const existingUser = await prisma.providerUser.findUnique({
     where: { id: userId },
   });
   if (user.email !== existingUser.email) {
-    const emailConflict = await prisma.pharmacyUser.findUnique({
+    const emailConflict = await prisma.providerUser.findUnique({
       where: { email: user.email },
     });
     if (emailConflict) {
@@ -504,104 +314,60 @@ async function editProfile({ user, pharmacy }, userId, pharmacyId) {
     }
   }
 
-  const result = await prisma.$transaction(async (prisma) => {
-    const updatedUser = await prisma.pharmacyUser.update({
-      where: { id: userId },
-      data: { name: user.name, email: user.email },
+  if (provider.licenseNumber && provider.licenseNumber !== (await prisma.provider.findUnique({ where: { id: providerId } }))?.licenseNumber) {
+    const licenseConflict = await prisma.provider.findUnique({
+      where: { licenseNumber: provider.licenseNumber },
     });
-
-    const updatedPharmacy = await prisma.pharmacy.update({
-      where: { id: pharmacyId },
-      data: {
-        name: pharmacy.name,
-        address: pharmacy.address,
-        lga: pharmacy.lga,
-        state: pharmacy.state,
-        ward: pharmacy.ward,
-        phone: pharmacy.phone,
-        logoUrl: pharmacy.logoUrl || null,
-      },
-    });
-
-    await prisma.$queryRaw`
-      UPDATE "Pharmacy"
-      SET location = ST_SetSRID(ST_MakePoint(${pharmacy.longitude}, ${pharmacy.latitude}), 4326)
-      WHERE id = ${pharmacyId}
-    `;
-
-    return { user: updatedUser, pharmacy: updatedPharmacy };
-  });
-
-  console.log('Profile updated:', { userId, pharmacyId });
-
-  return { updatedUser: result.user, updatedPharmacy: result.pharmacy };
-}
-
-async function editLabProfile({ user, lab }, userId, labId) {
-  validateLocation(lab.state, lab.lga, lab.ward, lab.latitude, lab.longitude);
-
-  const existingUser = await prisma.labUser.findUnique({
-    where: { id: userId },
-  });
-  if (user.email !== existingUser.email) {
-    const emailConflict = await prisma.labUser.findUnique({
-      where: { email: user.email },
-    });
-    if (emailConflict) {
-      const error = new Error('Email already registered');
+    if (licenseConflict) {
+      const error = new Error('License number already registered');
       error.status = 400;
       throw error;
     }
   }
 
   const result = await prisma.$transaction(async (prisma) => {
-    const updatedUser = await prisma.labUser.update({
+    const updatedUser = await prisma.providerUser.update({
       where: { id: userId },
       data: { name: user.name, email: user.email },
     });
 
-    const updatedLab = await prisma.lab.update({
-      where: { id: labId },
+    const updatedProvider = await prisma.provider.update({
+      where: { id: providerId },
       data: {
-        name: lab.name,
-        address: lab.address,
-        lga: lab.lga,
-        state: lab.state,
-        ward: lab.ward,
-        phone: lab.phone,
-        logoUrl: lab.logoUrl || null,
+        name: provider.name,
+        address: provider.address,
+        lga: provider.lga,
+        state: provider.state,
+        ward: provider.ward,
+        phone: provider.phone,
+        licenseNumber: provider.licenseNumber || null,
+        logoUrl: provider.logoUrl || null,
+        homeCollectionAvailable: provider.homeCollectionAvailable,
       },
     });
 
     await prisma.$queryRaw`
-      UPDATE "Lab"
-      SET location = ST_SetSRID(ST_MakePoint(${lab.longitude}, ${lab.latitude}), 4326)
-      WHERE id = ${labId}
+      UPDATE "Provider"
+      SET location = ST_SetSRID(ST_MakePoint(${provider.longitude}, ${provider.latitude}), 4326)
+      WHERE id = ${providerId}
     `;
 
-    return { user: updatedUser, lab: updatedLab };
+    return { user: updatedUser, provider: updatedProvider };
   });
 
-  console.log('Lab profile updated:', { userId, labId });
+  console.log('Provider profile updated:', { userId, providerId });
 
-  return { updatedUser: result.user, updatedLab: result.lab };
+  return { updatedUser: result.user, updatedProvider: result.provider };
 }
 
 module.exports = {
-  registerPharmacyAndUser,
-  registerLabAndUser,
-  loginUser,
-  loginLabUser,
+  registerProviderAndUser,
+  loginProviderUser,
   registerAdmin,
   loginAdmin,
-  addPharmacyUser,
-  addLabUser,
-  editPharmacyUser,
-  editLabUser,
-  deletePharmacyUser,
-  deleteLabUser,
-  getProfile,
-  getLabProfile,
-  editProfile,
-  editLabProfile,
+  addProviderUser,
+  editProviderUser,
+  deleteProviderUser,
+  getProviderProfile,
+  editProviderProfile,
 };
