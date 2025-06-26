@@ -1,19 +1,24 @@
 const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
 const { recalculateOrderTotal } = require('../utils/orderUtils');
-const { parse } = require('date-fns');
+const { parse, startOfDay, endOfDay } = require('date-fns');
 const prisma = new PrismaClient();
 
 async function addToOrder({ serviceId, providerId, quantity, userId }) {
   userId = userId || uuidv4();
 
-  // Check if provider exists
-  const provider = await prisma.provider.findUnique({ where: { id: providerId } });
+  if (!providerId || isNaN(parseInt(providerId))) {
+    throw new Error('Invalid provider ID');
+  }
+  if (!serviceId || isNaN(parseInt(serviceId))) {
+    throw new Error('Invalid service ID');
+  }
+
+  const provider = await prisma.provider.findUnique({ where: { id: parseInt(providerId) } });
   if (!provider) {
     throw new Error('Provider not found');
   }
 
-  // Check if an order already exists for this user
   let order = await prisma.order.findFirst({
     where: {
       patientIdentifier: userId,
@@ -21,19 +26,18 @@ async function addToOrder({ serviceId, providerId, quantity, userId }) {
     },
   });
 
-  // If order exists and isn't in 'cart' status, update it
   if (order && order.status !== 'cart') {
     await prisma.order.update({
       where: { id: order.id },
-      data: { status: 'cart' },
+      data: { status: 'cart', providerId: parseInt(providerId) },
     });
   } else if (!order) {
-    // Create a new order
     order = await prisma.order.create({
       data: {
         patientIdentifier: userId,
         status: 'cart',
         totalPrice: 0,
+        providerId: parseInt(providerId),
         deliveryMethod: 'unspecified',
         paymentStatus: 'pending',
         createdAt: new Date(),
@@ -42,14 +46,13 @@ async function addToOrder({ serviceId, providerId, quantity, userId }) {
     });
   }
 
-  // Check if the service is available at the selected provider
   const providerService = await prisma.providerService.findFirst({
     where: {
-      serviceId,
-      providerId,
+      serviceId: parseInt(serviceId),
+      providerId: parseInt(providerId),
       OR: [
-        { stock: { gte: quantity } }, // For medications
-        { available: true }, // For diagnostics
+        { stock: { gte: quantity } },
+        { available: true },
       ],
     },
   });
@@ -58,25 +61,24 @@ async function addToOrder({ serviceId, providerId, quantity, userId }) {
     throw new Error('Service not available at this provider or insufficient stock');
   }
 
-  // Perform order item creation/update and total recalculation in a transaction
   const result = await prisma.$transaction(async (tx) => {
     const orderItem = await tx.orderItem.upsert({
       where: {
         orderId_providerId_serviceId: {
           orderId: order.id,
-          providerId,
-          serviceId,
+          providerId: parseInt(providerId),
+          serviceId: parseInt(serviceId),
         },
       },
       update: {
-        quantity: { increment: quantity || 1 }, // Default to 1 for diagnostics
+        quantity: { increment: quantity || 1 },
         price: providerService.price,
       },
       create: {
         orderId: order.id,
-        providerId,
-        serviceId,
-        quantity: quantity || 1, // Default to 1 for diagnostics
+        providerId: parseInt(providerId),
+        serviceId: parseInt(serviceId),
+        quantity: quantity || 1,
         price: providerService.price,
       },
     });
@@ -114,7 +116,7 @@ async function getOrder(userId) {
 
   const providerGroups = order.items.reduce((acc, item) => {
     const providerId = item.providerService?.provider?.id;
-    if (!providerId) return acc; // Skip if data is incomplete
+    if (!providerId) return acc;
 
     if (!acc[providerId]) {
       acc[providerId] = {
@@ -162,6 +164,7 @@ async function getOrder(userId) {
     providers,
     totalPrice,
     prescriptionId: order.prescriptionId ?? order.prescription?.id ?? null,
+    items: order.items,
   };
 }
 
@@ -186,8 +189,8 @@ async function updateOrderItem({ orderItemId, quantity, userId }) {
       serviceId: orderItem.serviceId,
       providerId: orderItem.providerId,
       OR: [
-        { stock: { gte: quantity || 1 } }, // For medications
-        { available: true }, // For diagnostics
+        { stock: { gte: quantity || 1 } },
+        { available: true },
       ],
     },
   });
@@ -195,11 +198,10 @@ async function updateOrderItem({ orderItemId, quantity, userId }) {
     throw new Error('Service not available or insufficient stock');
   }
 
-  // Perform order item update and total recalculation in a transaction
   const updatedItem = await prisma.$transaction(async (tx) => {
     const item = await tx.orderItem.update({
       where: { id: orderItemId },
-      data: { quantity: quantity || 1, price: providerService.price }, // Default to 1 for diagnostics
+      data: { quantity: quantity || 1, price: providerService.price },
     });
 
     await recalculateOrderTotal(order.id);
@@ -218,7 +220,6 @@ async function removeFromOrder({ orderItemId, userId }) {
     throw new Error('Order not found');
   }
 
-  // Perform order item deletion and total recalculation in a transaction
   await prisma.$transaction(async (tx) => {
     await tx.orderItem.delete({
       where: { id: orderItemId, orderId: order.id },
@@ -228,103 +229,160 @@ async function removeFromOrder({ orderItemId, userId }) {
   });
 }
 
-async function getTimeSlots({ providerId }) {
+async function getTimeSlots({ providerId, serviceId, fulfillmentType, date }) {
+
   if (!providerId || isNaN(parseInt(providerId))) {
     throw new Error('Invalid provider ID');
   }
 
-  const provider = await prisma.provider.findUnique({
-    where: { id: parseInt(providerId) },
-    select: { operatingHours: true },
-  });
+  try {
+    const provider = await prisma.provider.findUnique({
+      where: { id: parseInt(providerId) },
+      select: { operatingHours: true, homeCollectionAvailable: true },
+    });
+    if (!provider) {
+      throw new Error('Provider not found');
+    }
 
-  if (!provider) {
-    throw new Error('Provider not found');
-  }
+    let providerService;
+    if (serviceId) {
+      providerService = await prisma.providerService.findFirst({
+        where: {
+          providerId: parseInt(providerId),
+          serviceId: parseInt(serviceId),
+          available: true,
+        },
+      });
+      console.log('ProviderService check:', { providerId, serviceId, providerService });
+      if (!providerService) {
+        throw new Error('Service not available at this provider');
+      }
+    }
 
-  // Parse operating hours (e.g., "09:00-17:00")
-  const [startHour, endHour] = provider.operatingHours
-    ? provider.operatingHours.split('-').map(time => parse(time, 'HH:mm', new Date()))
-    : [new Date().setHours(9, 0, 0), new Date().setHours(17, 0, 0)];
+    if (fulfillmentType === 'home_collection' && !provider.homeCollectionAvailable) {
+      throw new Error('Home collection not available for this provider');
+    }
 
-  // Generate time slots (30-minute intervals for next 7 days)
-  const timeSlots = [];
-  const today = new Date();
-  for (let day = 0; day < 7; day++) {
-    const currentDate = new Date(today);
-    currentDate.setDate(today.getDate() + day);
-    let currentTime = new Date(currentDate.setHours(startHour.getHours(), startHour.getMinutes(), 0));
+    const [startHour, endHour] = provider.operatingHours
+      ? provider.operatingHours.split('-').map(time => parse(time, 'HH:mm', new Date()))
+      : [new Date().setHours(9, 0, 0), new Date().setHours(17, 0, 0)];
 
-    while (currentTime < new Date(currentDate.setHours(endHour.getHours(), endHour.getMinutes(), 0))) {
+    const targetDate = date ? new Date(date) : new Date();
+    const startOfTargetDay = startOfDay(targetDate);
+    const endOfTargetDay = endOfDay(targetDate);
+
+    console.log('Server timezone:', Intl.DateTimeFormat().resolvedOptions().timeZone);
+    console.log('Target date:', targetDate.toISOString(), 'Start of day:', startOfTargetDay.toISOString());
+    console.log('Operating hours:', { startHour: startHour.toISOString(), endHour: endHour.toISOString() });
+
+    const timeSlots = [];
+    let currentTime = new Date(startOfTargetDay.setHours(startHour.getHours(), startHour.getMinutes(), 0));
+
+    while (currentTime < new Date(startOfTargetDay.setHours(endHour.getHours(), endHour.getMinutes(), 0))) {
       const slotStart = new Date(currentTime);
       const slotEnd = new Date(currentTime.setMinutes(currentTime.getMinutes() + 30));
 
-      // Check if slot is booked
-      const existingOrder = await prisma.order.findFirst({
-        where: {
-          providerId: parseInt(providerId),
-          timeSlotStart: { lte: slotEnd },
-          timeSlotEnd: { gte: slotStart },
-          status: { not: 'cancelled' },
-        },
-      });
-
-      if (!existingOrder) {
-        timeSlots.push({
-          start: slotStart.toISOString(),
-          end: slotEnd.toISOString(),
+      let existingOrders = 0;
+      try {
+        existingOrders = await prisma.order.count({
+          where: {
+            providerId: parseInt(providerId),
+            timeSlotStart: { lte: slotEnd },
+            timeSlotEnd: { gte: slotStart },
+            status: { not: 'cancelled' },
+            ...(serviceId && { items: { some: { serviceId: parseInt(serviceId) } } }),
+            ...(fulfillmentType && { deliveryMethod: fulfillmentType }),
+          },
         });
+      } catch (err) {
+        console.error('Error counting existing orders:', err);
+        throw new Error('Failed to check existing orders');
       }
+
+      const availabilityStatus = existingOrders >= 3 ? 'limited' : 'available';
+      timeSlots.push({
+        start: slotStart.toISOString(),
+        end: slotEnd.toISOString(),
+        fulfillmentType: fulfillmentType || 'in_person',
+        availabilityStatus,
+      });
 
       currentTime = slotEnd;
     }
-  }
 
-  return { timeSlots };
+    console.log('Generated time slots:', timeSlots);
+    console.log('Provider:', provider);
+    console.log('ProviderService:', providerService);
+    return { timeSlots };
+  } catch (err) {
+    console.error('getTimeSlots error:', err.message, err.stack);
+    throw new Error(err.message || 'Server error');
+  }
 }
 
-async function updateOrderDetails({ orderId, timeSlotStart, fulfillmentType, userId }) {
-  if (!orderId || isNaN(parseInt(orderId)) || !userId) {
-    throw new Error('Invalid order ID or user ID');
+async function updateOrderDetails({ itemId, timeSlotStart, fulfillmentType, userId }) {
+  if (!itemId || isNaN(parseInt(itemId)) || !userId) {
+    throw new Error('Invalid item ID or user ID');
   }
 
-  const order = await prisma.order.findFirst({
-    where: { id: parseInt(orderId), patientIdentifier: userId },
+  // 🔍 Resolve orderId from itemId
+  const item = await prisma.orderItem.findUnique({
+    where: { id: parseInt(itemId) },
+    select: { orderId: true },
   });
+
+  if (!item) {
+    throw new Error('Order item not found');
+  }
+
+  const orderId = item.orderId;
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, patientIdentifier: userId },
+    include: { items: true },
+  });
+
   if (!order) {
     throw new Error('Order not found');
   }
 
+  // ⏰ Slot + fulfillment logic
   const updates = {};
   if (timeSlotStart) {
     const start = new Date(timeSlotStart);
-    const end = new Date(start.getTime() + 30 * 60 * 1000); // 30-minute slot
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
     updates.timeSlotStart = start;
     updates.timeSlotEnd = end;
   }
+
   if (fulfillmentType) {
     if (!['lab_visit', 'delivery'].includes(fulfillmentType)) {
       throw new Error('Invalid fulfillment type');
     }
+
     if (fulfillmentType === 'delivery') {
+      const providerId = order.items[0]?.providerId;
       const provider = await prisma.provider.findFirst({
-        where: { id: order.providerId },
+        where: { id: providerId },
         select: { homeCollectionAvailable: true },
       });
+
       if (!provider?.homeCollectionAvailable) {
         throw new Error('Delivery not available for this provider');
       }
     }
+
     updates.deliveryMethod = fulfillmentType;
   }
 
-  await prisma.order.update({
-    where: { id: parseInt(orderId) },
+  const updatedOrder = await prisma.order.update({
+    where: { id: orderId },
     data: updates,
   });
 
-  return { message: 'Order details updated' };
+  return { message: 'Order details updated', order: updatedOrder };
 }
+
 
 module.exports = {
   addToOrder,

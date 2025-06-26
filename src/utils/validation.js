@@ -94,16 +94,15 @@ function validateServiceSearch(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
-function validateAddToOrder(data) {
-  const schema = Joi.object({
-    serviceId: Joi.number().integer().required(),
-    providerId: Joi.number().integer().required(),
-    quantity: Joi.number().integer().min(1).default(1), // Default to 1 for diagnostics
-    userId: Joi.string().optional(),
-  });
-  return schema.validate(data, { abortEarly: false });
-}
 
+
+const validateAddToOrder = (data) => Joi.object({
+  serviceId: Joi.number().integer().required(),
+  providerId: Joi.number().integer().required(),
+  quantity: Joi.number().integer().min(1).optional(),
+  userId: Joi.string().required(),
+  type: Joi.string().valid('medication', 'diagnostic', 'diagnostic_package').required(),
+}).validate(data);
 
 
 function validateRemoveFromOrder(data) {
@@ -116,15 +115,45 @@ function validateRemoveFromOrder(data) {
 
 function validateGetTimeSlots(data) {
   const schema = Joi.object({
-    providerId: Joi.number().integer().required(),
-    userId: Joi.string().required(),
+    providerId: Joi.number().integer().required().messages({
+      'number.base': 'Provider ID must be a number',
+      'number.integer': 'Provider ID must be an integer',
+      'any.required': 'Provider ID is required',
+    }),
+    serviceId: Joi.number().integer().optional().messages({
+      'number.base': 'Service ID must be a number',
+      'number.integer': 'Service ID must be an integer',
+    }),
+    fulfillmentType: Joi.string()
+      .valid('in_person', 'home_collection')
+      .optional()
+      .messages({
+        'string.valid': 'Fulfillment type must be either "in_person" or "home_collection"',
+      }),
+    date: Joi.string()
+      .pattern(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .custom((value, helpers) => {
+        const inputDate = new Date(value);
+        const today = new Date(new Date().setHours(0, 0, 0, 0));
+        if (inputDate < today) {
+          return helpers.error('date.min');
+        }
+        return value;
+      })
+      .messages({
+        'string.pattern.base': 'Date must be in YYYY-MM-DD format',
+        'date.min': 'Date cannot be in the past',
+      }),
   });
+
   return schema.validate(data, { abortEarly: false });
 }
 
+
 function validateUpdateOrderDetails(data) {
   const schema = Joi.object({
-    orderId: Joi.number().integer().required(),
+    itemId: Joi.number().integer().required(),
     timeSlotStart: Joi.string().isoDate().optional(),
     fulfillmentType: Joi.string().valid('lab_visit', 'delivery').optional(), // Unified with Order deliveryMethod
     userId: Joi.string().required(),
@@ -382,7 +411,6 @@ module.exports = {
   isValidOrderReference,
   isValidBookingReference,
   isValidTrackingCode,
-  validateGetTimeSlots,
   validateConsent,
   validateMedications,
   validateTests,

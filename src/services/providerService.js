@@ -8,7 +8,13 @@ async function fetchOrders(providerId) {
 
   const orders = await prisma.order.findMany({
     where: {
-      providerId: parseInt(providerId),
+      items: {
+        some: {
+          providerService: {
+            providerId,
+          },
+        },
+      },
       status: { not: 'cart' },
     },
     select: {
@@ -78,10 +84,17 @@ async function updateOrderStatus(orderId, status, providerId) {
 
   const order = await prisma.order.findFirst({
     where: {
-      id: parseInt(orderId),
-      providerId: parseInt(providerId),
+      id: orderId,
+      items: {
+        some: {
+          providerService: {
+            providerId,
+          },
+        },
+      },
     },
   });
+  
   if (!order) {
     throw new Error('Order not found for provider');
   }

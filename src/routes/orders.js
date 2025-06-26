@@ -3,19 +3,25 @@ const { validateAddToOrder, validateUpdateOrder, validateRemoveFromOrder, valida
 const orderService = require('../services/orderService');
 const router = express.Router();
 
+
 // Add item to order
 router.post('/add', async (req, res) => {
   try {
-    const { serviceId, providerId, quantity } = req.body;
+    const { serviceId, providerId, quantity, type } = req.body;
     const userId = req.headers['x-guest-id'];
 
     // Validate input
-    const { error } = validateAddToOrder({ serviceId, providerId, quantity, userId });
+    const { error } = validateAddToOrder({ serviceId, providerId, quantity, userId, type });
     if (error) {
       return res.status(400).json({ message: error.message });
     }
 
-    const { orderItem, userId: returnedUserId } = await orderService.addToOrder({ serviceId, providerId, quantity, userId });
+    const { orderItem, userId: returnedUserId } = await orderService.addToOrder({
+      serviceId: parseInt(serviceId),
+      providerId: parseInt(providerId),
+      quantity,
+      userId,
+    });
     res.status(201).json({ message: 'Added to order', orderItem, userId: returnedUserId });
   } catch (error) {
     console.error('Order add error:', error);
@@ -82,15 +88,15 @@ router.delete('/remove/:id', async (req, res) => {
 // Get time slots for a provider (lab-specific)
 router.get('/slots', async (req, res) => {
   try {
-    const { providerId } = req.query;
+    const { providerId, serviceId, fulfillmentType, date } = req.query;
     const userId = req.headers['x-guest-id'];
 
-    const { error } = validateGetTimeSlots({ providerId, userId });
+    const { error } = validateGetTimeSlots({ providerId, serviceId, fulfillmentType, date });
     if (error) {
       return res.status(400).json({ message: error.message });
     }
 
-    const { timeSlots } = await orderService.getTimeSlots({ providerId });
+    const { timeSlots } = await orderService.getTimeSlots({ providerId: parseInt(providerId), serviceId: serviceId ? parseInt(serviceId) : undefined, fulfillmentType, date });
     res.status(200).json({ timeSlots });
   } catch (error) {
     console.error('Order slots error:', error);
@@ -101,16 +107,16 @@ router.get('/slots', async (req, res) => {
 // Update order details (scheduling for diagnostics)
 router.patch('/update-details/:id', async (req, res) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.id);
     const { timeSlotStart, fulfillmentType } = req.body;
     const userId = req.headers['x-guest-id'];
 
-    const { error } = validateUpdateOrderDetails({ orderId, timeSlotStart, fulfillmentType, userId });
+    const { error } = validateUpdateOrderDetails({ itemId, timeSlotStart, fulfillmentType, userId });
     if (error) {
       return res.status(400).json({ message: error.message });
     }
 
-    const result = await orderService.updateOrderDetails({ orderId, timeSlotStart, fulfillmentType, userId });
+    const result = await orderService.updateOrderDetails({ itemId, timeSlotStart, fulfillmentType, userId });
     res.status(200).json(result);
   } catch (error) {
     console.error('Order update details error:', error);

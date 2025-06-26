@@ -120,9 +120,9 @@ async function searchServices({ q, serviceId, page, limit, lat, lng, radius, sta
 
     whereClause = {
       OR: [
-        { name: { contains: nameMatch, mode: 'insensitive' } },
-        { genericName: { contains: nameMatch, mode: 'insensitive' } },
-        { testType: { contains: nameMatch, mode: 'insensitive' } },
+        { name: { contains: `%${nameMatch}%`, mode: 'insensitive' } },
+        { genericName: { contains: `%${nameMatch}%`, mode: 'insensitive' } },
+        { testType: { contains: `%${nameMatch}%`, mode: 'insensitive' } },
       ],
     };
     if (dosageMatch) {
