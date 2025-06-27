@@ -1,28 +1,51 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-async function recalculateOrderTotal(orderId) {
-  const items = await prisma.orderItem.findMany({
-    where: { orderId },
-    select: { price: true, quantity: true, providerId: true },
-  });
+// Modified recalculateOrderTotal to accept tx
+async function recalculateOrderTotal(orderId, tx = prisma) {
+  try {
+    console.log(`Recalculating totalPrice for order ${orderId}`);
+    const items = await tx.orderItem.findMany({
+      where: { orderId },
+      select: { price: true, quantity: true, providerId: true, serviceId: true },
+    });
 
-  // Calculate total for the entire order
-  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    console.log(`Order ${orderId} items:`, items);
 
-  // Calculate per-provider subtotals (optional for frontend)
-  const subtotals = items.reduce((acc, item) => {
-    const providerId = item.providerId;
-    acc[providerId] = (acc[providerId] || 0) + item.price * item.quantity;
-    return acc;
-  }, {});
+    if (!items.length) {
+      console.log(`No items found for order ${orderId}, setting totalPrice to 0`);
+      const updatedOrder = await tx.order.update({
+        where: { id: orderId },
+        data: { totalPrice: 0, updatedAt: new Date() },
+      });
+      return { updatedOrder, subtotals: {} };
+    }
 
-  const updatedOrder = await prisma.order.update({
-    where: { id: orderId },
-    data: { totalPrice: total, updatedAt: new Date() },
-  });
+    const total = items.reduce((sum, item) => {
+      const itemTotal = item.price * item.quantity;
+      console.log(`Item serviceId: ${item.serviceId}, providerId: ${item.providerId}, price: ${item.price}, quantity: ${item.quantity}, total: ${itemTotal}`);
+      return sum + itemTotal;
+    }, 0);
 
-  return { updatedOrder, subtotals };
+    const subtotals = items.reduce((acc, item) => {
+      const providerId = item.providerId;
+      acc[providerId] = (acc[providerId] || 0) + item.price * item.quantity;
+      return acc;
+    }, {});
+
+    console.log(`Calculated totalPrice: ${total}, subtotals:`, subtotals);
+    const updatedOrder = await tx.order.update({
+      where: { id: orderId },
+      data: { totalPrice: total, updatedAt: new Date() },
+    });
+    console.log(`After update - Order ${orderId} totalPrice: ${updatedOrder.totalPrice}`);
+
+    return { updatedOrder, subtotals };
+  } catch (error) {
+    console.error(`Error recalculating totalPrice for order ${orderId}:`, error);
+    throw new Error(`Failed to recalculate order total: ${error.message}`);
+  }
 }
+
 
 module.exports = { recalculateOrderTotal };

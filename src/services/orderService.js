@@ -4,7 +4,7 @@ const { recalculateOrderTotal } = require('../utils/orderUtils');
 const { parse, startOfDay, endOfDay } = require('date-fns');
 const prisma = new PrismaClient();
 
-async function addToOrder({ serviceId, providerId, quantity, userId }) {
+async function addToOrder({ serviceId, providerId, quantity, userId, type }) {
   userId = userId || uuidv4();
 
   if (!providerId || isNaN(parseInt(providerId))) {
@@ -13,6 +13,16 @@ async function addToOrder({ serviceId, providerId, quantity, userId }) {
   if (!serviceId || isNaN(parseInt(serviceId))) {
     throw new Error('Invalid service ID');
   }
+  if (!type || !['medication', 'diagnostic', 'diagnostic_package'].includes(type)) {
+    throw new Error('Invalid or missing service type');
+  }
+  if (type === 'diagnostic' || type === 'diagnostic_package') {
+    quantity = 1; // Enforce quantity = 1 for diagnostics
+  } else if (!quantity || quantity < 1) {
+    throw new Error('Invalid quantity');
+  }
+
+  console.log(`Adding to order: serviceId=${serviceId}, providerId=${providerId}, quantity=${quantity}, type=${type}, userId=${userId}`);
 
   const provider = await prisma.provider.findUnique({ where: { id: parseInt(providerId) } });
   if (!provider) {
@@ -29,38 +39,39 @@ async function addToOrder({ serviceId, providerId, quantity, userId }) {
   if (order && order.status !== 'cart') {
     await prisma.order.update({
       where: { id: order.id },
-      data: { status: 'cart', providerId: parseInt(providerId) },
+      data: { status: 'cart' },
     });
   } else if (!order) {
-      order = await prisma.order.create({
-        data: {
-          patientIdentifier: userId,
-          status: 'cart',
-          totalPrice: 0,
-          provider: {
-            connect: { id: parseInt(providerId) },
-          },
-          paymentStatus: 'pending',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
+    order = await prisma.order.create({
+      data: {
+        patientIdentifier: userId,
+        status: 'cart',
+        totalPrice: 0,
+        paymentStatus: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
   }
+
+  console.log(`Order ${order.id} found or created`);
 
   const providerService = await prisma.providerService.findFirst({
     where: {
       serviceId: parseInt(serviceId),
       providerId: parseInt(providerId),
       OR: [
-        { stock: { gte: quantity } },
+        { stock: type === 'medication' ? { gte: quantity } : undefined },
         { available: true },
-      ],
+      ].filter(Boolean),
     },
   });
 
   if (!providerService) {
     throw new Error('Service not available at this provider or insufficient stock');
   }
+
+  console.log(`ProviderService found: price=${providerService.price}`);
 
   const result = await prisma.$transaction(async (tx) => {
     const orderItem = await tx.orderItem.upsert({
@@ -72,30 +83,35 @@ async function addToOrder({ serviceId, providerId, quantity, userId }) {
         },
       },
       update: {
-        quantity: { increment: quantity || 1 },
+        quantity: { increment: quantity },
         price: providerService.price,
       },
       create: {
         orderId: order.id,
         providerId: parseInt(providerId),
         serviceId: parseInt(serviceId),
-        quantity: quantity || 1,
+        quantity: quantity,
         price: providerService.price,
       },
     });
 
-    const { updatedOrder } = await recalculateOrderTotal(order.id);
+    console.log(`OrderItem ${orderItem.id} upserted: quantity=${orderItem.quantity}, price=${orderItem.price}`);
+
+    // Pass tx to recalculateOrderTotal to use the same transaction
+    const { updatedOrder } = await recalculateOrderTotal(order.id, tx);
 
     return { orderItem, order: updatedOrder };
   });
 
-  console.log('Created/Updated OrderItem:', result.orderItem);
-  return { orderItem: result.orderItem, userId };
+  console.log(`Order ${order.id} updated with totalPrice: ${result.order.totalPrice}`);
+
+  return { orderItem: result.orderItem, order: result.order, userId };
 }
+
 
 async function getOrder(userId) {
   const order = await prisma.order.findFirst({
-    where: { patientIdentifier: userId, status: 'cart' },
+    where: { patientIdentifier: userId, status: { in: ['cart', 'pending_prescription', 'partially_completed'] } },
     include: {
       items: {
         include: {
@@ -105,6 +121,11 @@ async function getOrder(userId) {
               service: { select: { id: true, name: true, type: true, category: true, prescriptionRequired: true, prepInstructions: true, description: true, dosage: true, form: true } },
             },
           },
+          prescriptions: {
+            include: {
+              prescription: { select: { id: true, status: true, rejectReason: true } },
+            },
+          },
         },
       },
       prescription: { select: { id: true } },
@@ -112,7 +133,7 @@ async function getOrder(userId) {
   });
 
   if (!order) {
-    return { providers: [], totalPrice: 0, prescriptionId: null };
+    return { providers: [], totalPrice: 0, prescriptionId: null, items: [], orderId: null };
   }
 
   const providerGroups = order.items.reduce((acc, item) => {
@@ -151,9 +172,14 @@ async function getOrder(userId) {
       price: item.price,
       serviceId: item.serviceId,
       providerId: item.providerId,
-      timeSlotStart: item.timeSlotStart, // Include time slot
-      timeSlotEnd: item.timeSlotEnd,     // Include time slot
-      fulfillmentMethod: item.fulfillmentMethod, // Include fulfillment type
+      timeSlotStart: item.timeSlotStart,
+      timeSlotEnd: item.timeSlotEnd,
+      fulfillmentMethod: item.fulfillmentMethod,
+      prescriptions: item.prescriptions.map(p => ({
+        id: p.prescription.id,
+        status: p.prescription.status,
+        rejectReason: p.prescription.rejectReason,
+      })),
     });
 
     acc[providerId].subtotal += item.quantity * item.price;
@@ -170,10 +196,15 @@ async function getOrder(userId) {
     totalPrice,
     prescriptionId: order.prescriptionId ?? order.prescription?.id ?? null,
     items: order.items,
+    orderId: order.id,
   };
 }
 
 async function updateOrderItem({ orderItemId, quantity, userId }) {
+  if (!quantity || quantity < 1) {
+    throw new Error('Invalid quantity');
+  }
+
   const order = await prisma.order.findFirst({
     where: { patientIdentifier: userId, status: 'cart' },
   });
@@ -183,10 +214,17 @@ async function updateOrderItem({ orderItemId, quantity, userId }) {
 
   const orderItem = await prisma.orderItem.findFirst({
     where: { id: orderItemId, orderId: order.id },
-    include: { providerService: true },
+    include: { providerService: { include: { service: true } } },
   });
   if (!orderItem) {
     throw new Error('Item not found');
+  }
+
+  if (orderItem.providerService.service.type === 'diagnostic' || orderItem.providerService.service.type === 'diagnostic_package') {
+    if (quantity !== 1) {
+      throw new Error('Quantity must be 1 for diagnostic items');
+    }
+    return orderItem; // No update needed if quantity is already 1
   }
 
   const providerService = await prisma.providerService.findFirst({
@@ -194,7 +232,7 @@ async function updateOrderItem({ orderItemId, quantity, userId }) {
       serviceId: orderItem.serviceId,
       providerId: orderItem.providerId,
       OR: [
-        { stock: { gte: quantity || 1 } },
+        { stock: { gte: quantity } },
         { available: true },
       ],
     },
@@ -206,10 +244,10 @@ async function updateOrderItem({ orderItemId, quantity, userId }) {
   const updatedItem = await prisma.$transaction(async (tx) => {
     const item = await tx.orderItem.update({
       where: { id: orderItemId },
-      data: { quantity: quantity || 1, price: providerService.price },
+      data: { quantity, price: providerService.price },
     });
 
-    await recalculateOrderTotal(order.id);
+    await recalculateOrderTotal(order.id, tx); // Pass the transaction context
 
     return item;
   });
@@ -235,7 +273,6 @@ async function removeFromOrder({ orderItemId, userId }) {
 }
 
 async function getTimeSlots({ providerId, serviceId, fulfillmentType, date }) {
-
   if (!providerId || isNaN(parseInt(providerId))) {
     throw new Error('Invalid provider ID');
   }
@@ -312,7 +349,7 @@ async function getTimeSlots({ providerId, serviceId, fulfillmentType, date }) {
       timeSlots.push({
         start: slotStart.toISOString(),
         end: slotEnd.toISOString(),
-        fulfillmentType: fulfillmentType || 'in_person',
+        fulfillmentType: fulfillmentType || 'lab_visit',
         availabilityStatus,
       });
 
@@ -377,7 +414,6 @@ async function updateOrderDetails({ itemId, timeSlotStart, fulfillmentType, user
 
   return { message: 'Order item details updated', orderItem: updatedOrderItem };
 }
-
 
 module.exports = {
   addToOrder,

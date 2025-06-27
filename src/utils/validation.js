@@ -125,10 +125,10 @@ function validateGetTimeSlots(data) {
       'number.integer': 'Service ID must be an integer',
     }),
     fulfillmentType: Joi.string()
-      .valid('in_person', 'home_collection')
+      .valid('lab_visit', 'home_collection')
       .optional()
       .messages({
-        'string.valid': 'Fulfillment type must be either "in_person" or "home_collection"',
+        'string.valid': 'Fulfillment type must be either "lab_visit" or "home_collection"',
       }),
     date: Joi.string()
       .pattern(/^\d{4}-\d{2}-\d{2}$/)
@@ -283,13 +283,19 @@ function validateFetchOrders(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
-function validateUpdateOrder(data) {
+const validateUpdateOrderItem = (data) => {
   const schema = Joi.object({
-    orderId: Joi.number().integer().required(),
-    status: Joi.string().valid('processing', 'shipped', 'delivered', 'ready_for_pickup', 'sample_collected', 'result_ready', 'completed').required(),
+    orderItemId: Joi.number().integer().required(),
+    quantity: Joi.number().integer().min(1).when('type', {
+      is: Joi.string().valid('diagnostic', 'diagnostic_package'),
+      then: Joi.number().valid(1),
+      otherwise: Joi.number().min(1),
+    }).required(),
+    userId: Joi.string().required(),
+    type: Joi.string().valid('medication', 'diagnostic', 'diagnostic_package').required(),
   });
-  return schema.validate(data, { abortEarly: false });
-}
+  return schema.validate(data);
+};
 
 function validateFetchServices(data) {
   const schema = Joi.object({});
@@ -418,7 +424,6 @@ module.exports = {
   validateVerifyPrescription,
   validateGuestOrder,
   validateFetchOrders,
-  validateUpdateOrder,
   validateFetchUsers,
   validateRegisterDevice,
 
@@ -454,7 +459,6 @@ module.exports = {
   validateServiceSuggestions,
   validateServiceSearch,
   validateAddToOrder,
-  validateUpdateOrder,
   validateRemoveFromOrder,
   validateGetTimeSlots,
   validateUpdateOrderDetails,
@@ -467,7 +471,7 @@ module.exports = {
   validateResume,
   validateOrderConfirmation,
   validateFetchOrders,
-  validateUpdateOrder,
+  validateUpdateOrderItem,
   validateFetchServices,
   validateAddService,
   validateUpdateService,

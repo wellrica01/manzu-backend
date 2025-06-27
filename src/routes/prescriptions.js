@@ -40,25 +40,41 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
       return res.status(400).json({ message: 'No file uploaded' });
     }
     const patientIdentifier = req.headers['x-guest-id'];
-    const { contact } = req.body;
+    const { contact, orderId, itemIds, type, crossService } = req.body;
 
-    // Validate input
     const { error } = validatePrescriptionUpload({ patientIdentifier, contact });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    // Determine if contact is email or phone
     const isEmail = isValidEmail(contact);
     const email = isEmail ? contact : null;
     const phone = !isEmail && contact ? contact : null;
+
+    let parsedItemIds = [];
+    try {
+      parsedItemIds = itemIds ? JSON.parse(itemIds) : [];
+    } catch (e) {
+      return res.status(400).json({ message: 'Invalid item IDs format' });
+    }
+
+    if (!orderId || isNaN(parseInt(orderId))) {
+      return res.status(400).json({ message: 'Invalid order ID' });
+    }
+    if (!['medication', 'diagnostic'].includes(type)) {
+      return res.status(400).json({ message: 'Invalid service type' });
+    }
 
     const prescription = await prescriptionService.uploadPrescription({
       patientIdentifier,
       email,
       phone,
       fileUrl: `/uploads/${req.file.filename}`,
+      orderId: parseInt(orderId),
+      itemIds: parsedItemIds,
+      type,
+      crossService: crossService === 'true',
     });
     res.status(201).json({ message: 'Prescription uploaded successfully. You will be notified when it’s ready.', prescription });
   } catch (error) {

@@ -9,6 +9,8 @@ const prescriptionsRoutes = require('./routes/prescriptions');
 const providersRoutes = require('./routes/providers');
 const servicesRoutes = require('./routes/services');
 const trackRoutes = require('./routes/track');
+const notificationRoutes = require('./routes/notification');
+
 require('./jobs/cron');
 require('dotenv').config();
 const app = express();
@@ -28,6 +30,7 @@ app.use('/api/prescriptions', prescriptionsRoutes);
 app.use('/api/providers', providersRoutes);
 app.use('/api/services', servicesRoutes);
 app.use('/api/track', trackRoutes);
+app.use('/api/notification', notificationRoutes);
 
 const PORT = process.env.PORT || 5000;
 

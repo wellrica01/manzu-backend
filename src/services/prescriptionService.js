@@ -4,25 +4,71 @@ const { sendVerificationNotification } = require('../utils/notifications');
 const { formatServiceDisplayName } = require('../utils/serviceUtils');
 const prisma = new PrismaClient();
 
-async function uploadPrescription({ patientIdentifier, email, phone, fileUrl }) {
-  if (!patientIdentifier || !fileUrl) {
-    throw new Error('Patient identifier and file URL are required');
+async function uploadPrescription({ patientIdentifier, email, phone, fileUrl, orderId, itemIds, type, crossService }) {
+  if (!patientIdentifier || !fileUrl || !orderId) {
+    throw new Error('Patient identifier, file URL, and order ID are required');
   }
 
   const normalizedPhone = phone ? normalizePhone(phone) : null;
-  const prescription = await prisma.prescription.create({
-    data: {
-      patientIdentifier,
-      email,
-      phone: normalizedPhone,
-      fileUrl,
-      status: 'pending',
-      verified: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
+  const order = await prisma.order.findUnique({
+    where: { id: Number(orderId), patientIdentifier },
+    include: { items: { include: { service: true } } },
   });
-  console.log('Prescription uploaded:', { prescriptionId: prescription.id });
+  if (!order) {
+    throw new Error('Order not found');
+  }
+
+  const validItemIds = order.items
+    .filter((item) => item.service.prescriptionRequired && (crossService || item.service.type === type))
+    .map((item) => item.id);
+  const selectedItemIds = itemIds.filter((id) => validItemIds.includes(Number(id)));
+
+  if (!crossService && !selectedItemIds.length) {
+    throw new Error('No valid items selected for this prescription');
+  }
+
+  const prescription = await prisma.$transaction(async (tx) => {
+    const createdPrescription = await tx.prescription.create({
+      data: {
+        patientIdentifier,
+        email,
+        phone: normalizedPhone,
+        fileUrl,
+        status: 'pending',
+        verified: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        orders: { connect: { id: Number(orderId) } },
+      },
+    });
+
+    if (selectedItemIds.length) {
+      await tx.prescriptionOrderItem.createMany({
+        data: selectedItemIds.map((itemId) => ({
+          prescriptionId: createdPrescription.id,
+          orderItemId: Number(itemId),
+          createdAt: new Date(),
+        })),
+      });
+    } else if (crossService) {
+      await tx.prescriptionOrderItem.createMany({
+        data: validItemIds.map((itemId) => ({
+          prescriptionId: createdPrescription.id,
+          orderItemId: itemId,
+          createdAt: new Date(),
+        })),
+      });
+    }
+
+    await tx.order.update({
+      where: { id: Number(orderId) },
+      data: { status: 'pending_prescription' },
+    });
+
+    return createdPrescription;
+  });
+
+  console.log('Prescription uploaded:', { prescriptionId: prescription.id, itemIds: selectedItemIds });
   return prescription;
 }
 
@@ -63,12 +109,15 @@ async function addServices(prescriptionId, services) {
   return result;
 }
 
-async function verifyPrescription(prescriptionId, status) {
+async function verifyPrescription(prescriptionId, status, rejectReason) {
   if (!prescriptionId || isNaN(parseInt(prescriptionId))) {
     throw new Error('Invalid prescription ID');
   }
   if (!['pending', 'verified', 'rejected'].includes(status)) {
     throw new Error('Invalid status value');
+  }
+  if (status === 'rejected' && !rejectReason) {
+    throw new Error('Reject reason is required for rejected status');
   }
 
   const prescription = await prisma.prescription.findUnique({
@@ -86,6 +135,7 @@ async function verifyPrescription(prescriptionId, status) {
           },
         },
       },
+      orderItems: true,
     },
   });
   if (!prescription) {
@@ -101,6 +151,7 @@ async function verifyPrescription(prescriptionId, status) {
       data: {
         status,
         verified: status === 'verified',
+        rejectReason: status === 'rejected' ? rejectReason : null,
         updatedAt: new Date(),
       },
     });
@@ -117,21 +168,19 @@ async function verifyPrescription(prescriptionId, status) {
             },
           });
 
-          if (order.items && order.items.length > 0) {
-            for (const item of order.items) {
-              if (item.providerService.service.type === 'medication') {
-                await tx.providerService.update({
-                  where: {
-                    providerId_serviceId: {
-                      providerId: item.providerId,
-                      serviceId: item.serviceId,
-                    },
+          for (const item of order.items) {
+            if (item.providerService.service.type === 'medication') {
+              await tx.providerService.update({
+                where: {
+                  providerId_serviceId: {
+                    providerId: item.providerId,
+                    serviceId: item.serviceId,
                   },
-                  data: {
-                    stock: { increment: item.quantity },
-                  },
-                });
-              }
+                },
+                data: {
+                  stock: { increment: item.quantity },
+                },
+              });
             }
           }
         }

@@ -57,6 +57,7 @@ model Provider {
   devicetoken             String?                  @db.VarChar(255)
   operatingHours          String?
   homeCollectionAvailable Boolean?
+  prescriptionFormat      String?                  @db.VarChar(255)
   orders                  Order[]
   providerServices        ProviderService[]
   providerUsers           ProviderUser[]
@@ -83,18 +84,20 @@ model ProviderService {
 }
 
 model Prescription {
-  id                     Int                @id @default(autoincrement())
+  id                     Int                     @id @default(autoincrement())
   patientIdentifier      String
   fileUrl                String
-  status                 PrescriptionStatus @default(pending)
-  verified               Boolean            @default(false)
-  createdAt              DateTime           @default(now())
-  email                  String?            @db.VarChar(255)
-  phone                  String?            @db.VarChar(20)
+  status                 PrescriptionStatus      @default(pending)
+  verified               Boolean                 @default(false)
+  rejectReason           String?                 @db.VarChar(255)
+  createdAt              DateTime                @default(now())
+  email                  String?                 @db.VarChar(255)
+  phone                  String?                 @db.VarChar(20)
   referringPhysicianName String?
   priority               String?
   orders                 Order[]
   prescriptionItems      PrescriptionItem[]
+  orderItems             PrescriptionOrderItem[] @relation("PrescriptionToOrderItems")
 
   @@index([patientIdentifier], map: "idx_prescription_patientidentifier")
 }
@@ -127,20 +130,31 @@ model Order {
 }
 
 model OrderItem {
-  id                Int             @id @default(autoincrement())
+  id                Int                     @id @default(autoincrement())
   orderId           Int
   providerId        Int
   serviceId         Int
   quantity          Int
   price             Float
-  timeSlotStart     DateTime?       @db.Timestamp(6)
-  timeSlotEnd       DateTime?       @db.Timestamp(6)
-  fulfillmentMethod String?         @db.VarChar
-  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  providerService   ProviderService @relation(fields: [providerId, serviceId], references: [providerId, serviceId], onDelete: Cascade)
-  service           Service         @relation("ServiceToOrderItems", fields: [serviceId], references: [id], onDelete: Cascade)
+  timeSlotStart     DateTime?               @db.Timestamp(6)
+  timeSlotEnd       DateTime?               @db.Timestamp(6)
+  fulfillmentMethod String?                 @db.VarChar
+  order             Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  providerService   ProviderService         @relation(fields: [providerId, serviceId], references: [providerId, serviceId], onDelete: Cascade)
+  service           Service                 @relation("ServiceToOrderItems", fields: [serviceId], references: [id], onDelete: Cascade)
+  prescriptions     PrescriptionOrderItem[] @relation("OrderItemToPrescriptions")
 
   @@unique([orderId, providerId, serviceId])
+}
+
+model PrescriptionOrderItem {
+  prescriptionId Int
+  orderItemId    Int
+  createdAt      DateTime     @default(now())
+  orderItem      OrderItem    @relation("OrderItemToPrescriptions", fields: [orderItemId], references: [id], onDelete: Cascade)
+  prescription   Prescription @relation("PrescriptionToOrderItems", fields: [prescriptionId], references: [id], onDelete: Cascade)
+
+  @@id([prescriptionId, orderItemId])
 }
 
 model ProviderUser {
@@ -243,6 +257,7 @@ enum OrderStatus {
   result_ready
   completed
   pending_testorder
+  partially_completed
 }
 
 enum PaymentStatus {
