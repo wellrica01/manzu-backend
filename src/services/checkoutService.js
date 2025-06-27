@@ -5,7 +5,7 @@ const { normalizePhone } = require('../utils/validation');
 const { recalculateOrderTotal } = require('../utils/orderUtils');
 const prisma = new PrismaClient();
 
-async function initiateCheckout({ name, email, phone, address, deliveryMethod, userId, file, timeSlotStart, timeSlotEnd }) {
+async function initiateCheckout({ name, email, phone, address, fulfillmentMethod, userId, file, timeSlotStart, timeSlotEnd }) {
   const patientIdentifier = userId;
   const normalizedPhone = normalizePhone(phone);
 
@@ -137,8 +137,8 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
             patientIdentifier,
             providerId: parseInt(providerId),
             status: orderStatus,
-            deliveryMethod,
-            address: deliveryMethod === 'delivery' ? address : null,
+            fulfillmentMethod,
+            address: fulfillmentMethod === 'delivery' ? address : null,
             email,
             phone: normalizedPhone,
             totalPrice,
@@ -193,8 +193,8 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
             patientIdentifier,
             providerId: parseInt(providerId),
             status: orderStatus,
-            deliveryMethod,
-            address: deliveryMethod === 'delivery' ? address : null,
+            fulfillmentMethod,
+            address: fulfillmentMethod === 'delivery' ? address : null,
             email,
             phone: normalizedPhone,
             totalPrice,
@@ -249,8 +249,8 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
             patientIdentifier,
             providerId: parseInt(providerId),
             status: orderStatus,
-            deliveryMethod,
-            address: deliveryMethod === 'delivery' ? address : null,
+            fulfillmentMethod,
+            address: fulfillmentMethod === 'delivery' ? address : null,
             email,
             phone: normalizedPhone,
             totalPrice,

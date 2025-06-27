@@ -155,7 +155,7 @@ function validateUpdateOrderDetails(data) {
   const schema = Joi.object({
     itemId: Joi.number().integer().required(),
     timeSlotStart: Joi.string().isoDate().optional(),
-    fulfillmentType: Joi.string().valid('lab_visit', 'delivery').optional(), // Unified with Order deliveryMethod
+    fulfillmentType: Joi.string().valid('lab_visit', 'home_collection', 'home_delivery', 'pick_up').optional(), // Unified with Order fulfillmentMethod
     userId: Joi.string().required(),
   });
   return schema.validate(data, { abortEarly: false });
@@ -220,12 +220,12 @@ function validateCheckout(data) {
       }
       return value;
     }, 'phone validation').required(),
-    address: Joi.string().when('deliveryMethod', {
-      is: 'delivery',
+    address: Joi.string().when('fulfillmentMethod', {
+      is: ['home_collection', 'home_delivery'],
       then: Joi.string().required(),
       otherwise: Joi.string().allow(null, ''),
     }),
-    deliveryMethod: Joi.string().valid('delivery', 'pickup', 'lab_visit').required(),
+    fulfillmentMethod: Joi.string().valid('lab_visit', 'home_collection', 'home_delivery', 'pick_up').required(),
     userId: Joi.string().required(),
   });
   return schema.validate(data, { abortEarly: false });

@@ -70,7 +70,7 @@ async function main() {
       pharmacyId: 1,
       prescriptionId: prescription.id,
       status: 'pending',
-      deliveryMethod: 'pickup',
+      fulfillmentMethod: 'pickup',
       address: '123 Lagos St, Lagos',
       email: 'order1@gmail.com',
       phone: '09031211109',

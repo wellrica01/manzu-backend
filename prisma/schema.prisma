@@ -8,30 +8,30 @@ datasource db {
 }
 
 model Service {
-  id                  Int                  @id @default(autoincrement())
-  type                String               // "medication", "diagnostic", or "diagnostic_package"
-  name                String
-  genericName         String?              // Medication-specific
-  category            String?
-  description         String?
-  manufacturer        String?              // Medication-specific
-  form                String?              // Medication-specific
-  dosage              String?              // Medication-specific
-  nafdacCode          String?              @unique // Medication-specific
-  testType            String?              // Diagnostic-specific
-  testCode            String?              @unique // Diagnostic-specific
-  sampleType          String?              // Diagnostic-specific
-  prepInstructions    String?              // Diagnostic-specific
-  resultFormat        String?              // Diagnostic-specific
-  prescriptionRequired Boolean              @default(false)
-  createdAt           DateTime             @default(now())
-  imageUrl            String?
-  providerServices    ProviderService[]
-  orderItems          OrderItem[]          @relation("ServiceToOrderItems")
-  prescriptionItems   PrescriptionItem[]
-  results             Result[]             @relation("ServiceToResults")
-  packageServices     ServicePackage[]     @relation("PackageToServices")
-  includedInPackages  ServicePackage[]     @relation("ServicesToPackage")
+  id                   Int                @id @default(autoincrement())
+  type                 String
+  name                 String
+  genericName          String?
+  category             String?
+  description          String?
+  manufacturer         String?
+  form                 String?
+  dosage               String?
+  nafdacCode           String?            @unique
+  testType             String?
+  testCode             String?            @unique
+  sampleType           String?
+  prepInstructions     String?
+  resultFormat         String?
+  prescriptionRequired Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  imageUrl             String?
+  orderItems           OrderItem[]        @relation("ServiceToOrderItems")
+  prescriptionItems    PrescriptionItem[]
+  providerServices     ProviderService[]
+  results              Result[]           @relation("ServiceToResults")
+  packageServices      ServicePackage[]   @relation("PackageToServices")
+  includedInPackages   ServicePackage[]   @relation("ServicesToPackage")
 
   @@index([name], map: "idx_service_name")
   @@index([genericName], map: "idx_service_genericname")
@@ -39,24 +39,24 @@ model Service {
 }
 
 model Provider {
-  id                      Int              @id @default(autoincrement())
-  type                    String           // "pharmacy" or "lab"
+  id                      Int                      @id @default(autoincrement())
+  type                    String
   name                    String
   location                Unsupported("geometry")?
   address                 String
   lga                     String
   state                   String
   phone                   String
-  licenseNumber           String           @unique
-  status                  ProviderStatus   @default(pending)
-  createdAt               DateTime         @default(now())
+  licenseNumber           String                   @unique
+  status                  ProviderStatus           @default(pending)
+  createdAt               DateTime                 @default(now())
   verifiedAt              DateTime?
   logoUrl                 String?
-  isActive                Boolean          @default(true)
-  ward                    String?          @db.VarChar(100)
-  devicetoken             String?          @db.VarChar(255)
-  operatingHours          String?          // Lab-specific
-  homeCollectionAvailable Boolean?         // Lab-specific
+  isActive                Boolean                  @default(true)
+  ward                    String?                  @db.VarChar(100)
+  devicetoken             String?                  @db.VarChar(255)
+  operatingHours          String?
+  homeCollectionAvailable Boolean?
   orders                  Order[]
   providerServices        ProviderService[]
   providerUsers           ProviderUser[]
@@ -65,34 +65,34 @@ model Provider {
 }
 
 model ProviderService {
-  providerId          Int
-  serviceId           Int
-  stock               Int?              // Medication-specific
-  price               Float
-  receivedDate        DateTime?         // Medication-specific
-  expiryDate          DateTime?         // Medication-specific
-  available           Boolean           @default(true) // Lab-specific
-  resultTurnaroundHours Int?            // Lab-specific
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  provider            Provider          @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  service             Service           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  orderItems          OrderItem[]
+  providerId            Int
+  serviceId             Int
+  stock                 Int?
+  price                 Float
+  receivedDate          DateTime?
+  expiryDate            DateTime?
+  available             Boolean     @default(true)
+  resultTurnaroundHours Int?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  orderItems            OrderItem[]
+  provider              Provider    @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  service               Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@id([providerId, serviceId])
 }
 
 model Prescription {
-  id                     Int                      @id @default(autoincrement())
+  id                     Int                @id @default(autoincrement())
   patientIdentifier      String
   fileUrl                String
-  status                 PrescriptionStatus       @default(pending)
-  verified               Boolean                  @default(false)
-  createdAt              DateTime                 @default(now())
-  email                  String?                  @db.VarChar(255)
-  phone                  String?                  @db.VarChar(20)
-  referringPhysicianName String?                  // Lab-specific
-  priority               String?                  // Lab-specific
+  status                 PrescriptionStatus @default(pending)
+  verified               Boolean            @default(false)
+  createdAt              DateTime           @default(now())
+  email                  String?            @db.VarChar(255)
+  phone                  String?            @db.VarChar(20)
+  referringPhysicianName String?
+  priority               String?
   orders                 Order[]
   prescriptionItems      PrescriptionItem[]
 
@@ -105,7 +105,6 @@ model Order {
   providerId        Int?
   prescriptionId    Int?
   status            OrderStatus   @default(cart)
-  deliveryMethod    String?       // "pickup", "delivery", "lab_visit"
   address           String?
   email             String?
   phone             String?
@@ -113,16 +112,14 @@ model Order {
   trackingCode      String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  appointmentTime   DateTime?     // Lab-specific
-  timeSlotStart     DateTime?     // Lab-specific
-  timeSlotEnd       DateTime?     // Lab-specific
+  appointmentTime   DateTime?
   cancelledAt       DateTime?
   cancelReason      String?
   paymentReference  String?       @unique
   paymentStatus     PaymentStatus @default(pending)
   checkoutSessionId String?
-  provider          Provider?     @relation(fields: [providerId], references: [id], onDelete: Restrict)
   prescription      Prescription? @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  provider          Provider?     @relation(fields: [providerId], references: [id], onDelete: Restrict)
   items             OrderItem[]
   results           Result[]
 
@@ -130,15 +127,18 @@ model Order {
 }
 
 model OrderItem {
-  id              Int             @id @default(autoincrement())
-  orderId         Int
-  providerId      Int
-  serviceId       Int
-  quantity        Int
-  price           Float
-  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  providerService ProviderService @relation(fields: [providerId, serviceId], references: [providerId, serviceId], onDelete: Cascade)
-  service         Service         @relation("ServiceToOrderItems", fields: [serviceId], references: [id], onDelete: Cascade)
+  id                Int             @id @default(autoincrement())
+  orderId           Int
+  providerId        Int
+  serviceId         Int
+  quantity          Int
+  price             Float
+  timeSlotStart     DateTime?       @db.Timestamp(6)
+  timeSlotEnd       DateTime?       @db.Timestamp(6)
+  fulfillmentMethod String?         @db.VarChar
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  providerService   ProviderService @relation(fields: [providerId, serviceId], references: [providerId, serviceId], onDelete: Cascade)
+  service           Service         @relation("ServiceToOrderItems", fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@unique([orderId, providerId, serviceId])
 }
@@ -152,8 +152,8 @@ model ProviderUser {
   providerId Int
   lastLogin  DateTime?
   createdAt  DateTime         @default(now())
-  provider   Provider         @relation(fields: [providerId], references: [id], onDelete: Cascade)
   Consent    Consent[]
+  provider   Provider         @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
   @@index([email], map: "idx_provideruser_email")
 }
@@ -180,8 +180,8 @@ model PrescriptionItem {
   prescriptionId Int
   serviceId      Int
   quantity       Int?
-  service        Service      @relation(fields: [serviceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  service        Service      @relation(fields: [serviceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model Consent {
@@ -205,26 +205,26 @@ model TransactionReference {
 }
 
 model Result {
-  id                Int              @id @default(autoincrement())
+  id                Int          @id @default(autoincrement())
   orderId           Int
   serviceId         Int
   patientIdentifier String
   fileUrl           String?
   value             String?
-  status            ResultStatus     @default(pending)
-  uploadedAt        DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  order             Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  service           Service          @relation("ServiceToResults", fields: [serviceId], references: [id], onDelete: Cascade)
+  status            ResultStatus @default(pending)
+  uploadedAt        DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  order             Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  service           Service      @relation("ServiceToResults", fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@index([patientIdentifier], map: "idx_result_patientidentifier")
 }
 
 model ServicePackage {
-  packageId     Int
-  serviceId     Int
-  package       Service @relation("PackageToServices", fields: [packageId], references: [id], onDelete: Cascade)
-  service       Service @relation("ServicesToPackage", fields: [serviceId], references: [id], onDelete: Cascade)
+  packageId Int
+  serviceId Int
+  package   Service @relation("PackageToServices", fields: [packageId], references: [id], onDelete: Cascade)
+  service   Service @relation("ServicesToPackage", fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@id([packageId, serviceId])
 }

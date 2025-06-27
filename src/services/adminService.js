@@ -479,7 +479,7 @@ async function getOrder(id) {
       patientIdentifier: true,
       status: true,
       totalPrice: true,
-      deliveryMethod: true,
+      fulfillmentMethod: true,
       address: true,
       email: true,
       phone: true,

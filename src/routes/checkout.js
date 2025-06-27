@@ -10,11 +10,11 @@ console.log('Loaded checkout.js version: 2025-06-25-v1');
 // POST /checkout - Initiate checkout
 router.post('/', upload.single('prescription'), requireConsent, async (req, res) => {
   try {
-    const { name, email, phone, address, deliveryMethod } = req.body;
+    const { name, email, phone, address, fulfillmentMethod } = req.body;
     const userId = req.headers['x-guest-id'];
 
     // Validate input
-    const { error } = validateCheckout({ name, email, phone, address, deliveryMethod, userId });
+    const { error } = validateCheckout({ name, email, phone, address, fulfillmentMethod, userId });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
@@ -25,7 +25,7 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
       email,
       phone,
       address,
-      deliveryMethod,
+      fulfillmentMethod,
       userId,
       file: req.file,
     });

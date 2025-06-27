@@ -208,7 +208,7 @@ async function confirmOrder({ reference, session, userId }) {
         id: order.id,
         totalPrice: order.totalPrice,
         status: order.status,
-        deliveryMethod: order.deliveryMethod,
+        fulfillmentMethod: order.fulfillmentMethod,
         address: order.address,
         paymentReference: order.paymentReference,
         prescription: order.prescription

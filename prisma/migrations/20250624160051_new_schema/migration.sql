@@ -106,7 +106,7 @@ CREATE TABLE "Order" (
     "providerId" INTEGER,
     "prescriptionId" INTEGER,
     "status" "OrderStatus" NOT NULL DEFAULT 'cart',
-    "deliveryMethod" TEXT,
+    "fulfillmentMethod" TEXT,
     "address" TEXT,
     "email" TEXT,
     "phone" TEXT,

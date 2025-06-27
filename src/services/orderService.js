@@ -32,18 +32,19 @@ async function addToOrder({ serviceId, providerId, quantity, userId }) {
       data: { status: 'cart', providerId: parseInt(providerId) },
     });
   } else if (!order) {
-    order = await prisma.order.create({
-      data: {
-        patientIdentifier: userId,
-        status: 'cart',
-        totalPrice: 0,
-        providerId: parseInt(providerId),
-        deliveryMethod: 'unspecified',
-        paymentStatus: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    });
+      order = await prisma.order.create({
+        data: {
+          patientIdentifier: userId,
+          status: 'cart',
+          totalPrice: 0,
+          provider: {
+            connect: { id: parseInt(providerId) },
+          },
+          paymentStatus: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
   }
 
   const providerService = await prisma.providerService.findFirst({
@@ -144,11 +145,15 @@ async function getOrder(userId) {
         description: service?.description,
         prepInstructions: service?.prepInstructions,
         prescriptionRequired: service?.prescriptionRequired ?? false,
+        type: service?.type,
       },
       quantity: item.quantity,
       price: item.price,
       serviceId: item.serviceId,
       providerId: item.providerId,
+      timeSlotStart: item.timeSlotStart, // Include time slot
+      timeSlotEnd: item.timeSlotEnd,     // Include time slot
+      fulfillmentMethod: item.fulfillmentMethod, // Include fulfillment type
     });
 
     acc[providerId].subtotal += item.quantity * item.price;
@@ -287,11 +292,15 @@ async function getTimeSlots({ providerId, serviceId, fulfillmentType, date }) {
         existingOrders = await prisma.order.count({
           where: {
             providerId: parseInt(providerId),
-            timeSlotStart: { lte: slotEnd },
-            timeSlotEnd: { gte: slotStart },
             status: { not: 'cancelled' },
-            ...(serviceId && { items: { some: { serviceId: parseInt(serviceId) } } }),
-            ...(fulfillmentType && { deliveryMethod: fulfillmentType }),
+            items: {
+              some: {
+                ...(serviceId && { serviceId: parseInt(serviceId) }),
+                ...(fulfillmentType && { fulfillmentMethod: fulfillmentType }),
+                timeSlotStart: { lte: slotEnd },
+                timeSlotEnd: { gte: slotStart },
+              },
+            },
           },
         });
       } catch (err) {
@@ -325,62 +334,48 @@ async function updateOrderDetails({ itemId, timeSlotStart, fulfillmentType, user
     throw new Error('Invalid item ID or user ID');
   }
 
-  // 🔍 Resolve orderId from itemId
-  const item = await prisma.orderItem.findUnique({
+  const orderItem = await prisma.orderItem.findUnique({
     where: { id: parseInt(itemId) },
-    select: { orderId: true },
+    include: { order: true, providerService: { include: { provider: true } } },
   });
 
-  if (!item) {
+  if (!orderItem) {
     throw new Error('Order item not found');
   }
 
-  const orderId = item.orderId;
-
-  const order = await prisma.order.findFirst({
-    where: { id: orderId, patientIdentifier: userId },
-    include: { items: true },
-  });
-
-  if (!order) {
-    throw new Error('Order not found');
+  if (orderItem.order.patientIdentifier !== userId) {
+    throw new Error('Unauthorized: Order does not belong to this user');
   }
 
-  // ⏰ Slot + fulfillment logic
   const updates = {};
   if (timeSlotStart) {
     const start = new Date(timeSlotStart);
-    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const end = new Date(start.getTime() + 30 * 60 * 1000); // 30-minute slot
     updates.timeSlotStart = start;
     updates.timeSlotEnd = end;
   }
 
   if (fulfillmentType) {
-    if (!['lab_visit', 'delivery'].includes(fulfillmentType)) {
+    if (!['lab_visit', 'home_collection', 'pick_up', 'home_delivery'].includes(fulfillmentType)) {
       throw new Error('Invalid fulfillment type');
     }
 
-    if (fulfillmentType === 'delivery') {
-      const providerId = order.items[0]?.providerId;
-      const provider = await prisma.provider.findFirst({
-        where: { id: providerId },
-        select: { homeCollectionAvailable: true },
-      });
-
+    if (fulfillmentType === 'home_collection') {
+      const provider = orderItem.providerService.provider;
       if (!provider?.homeCollectionAvailable) {
         throw new Error('Delivery not available for this provider');
       }
     }
 
-    updates.deliveryMethod = fulfillmentType;
+    updates.fulfillmentMethod = fulfillmentType;
   }
 
-  const updatedOrder = await prisma.order.update({
-    where: { id: orderId },
+  const updatedOrderItem = await prisma.orderItem.update({
+    where: { id: parseInt(itemId) },
     data: updates,
   });
 
-  return { message: 'Order details updated', order: updatedOrder };
+  return { message: 'Order item details updated', orderItem: updatedOrderItem };
 }
 
 
