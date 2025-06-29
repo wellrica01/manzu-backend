@@ -205,7 +205,7 @@ async function updateOrderItem({ orderItemId, quantity, userId }) {
   }
 
   const order = await prisma.order.findFirst({
-    where: { patientIdentifier: userId, status: 'cart' },
+    where: { patientIdentifier: userId, status: { in: ['cart', 'pending', 'pending_prescription', 'partially_completed'] } },
   });
   if (!order) {
     throw new Error('Order not found');
@@ -256,15 +256,40 @@ async function updateOrderItem({ orderItemId, quantity, userId }) {
 
 async function removeFromOrder({ orderItemId, userId }) {
   const order = await prisma.order.findFirst({
-    where: { patientIdentifier: userId, status: 'cart' },
+    where: {
+      patientIdentifier: userId,
+      status: {
+        in: ['cart', 'pending', 'pending_prescription', 'partially_completed'],
+      },
+    },
   });
+
   if (!order) {
     throw new Error('Order not found');
   }
 
+  const orderItem = await prisma.orderItem.findFirst({
+    where: {
+      id: orderItemId,
+      orderId: order.id,
+    },
+  });
+
+      console.log('User ID:', userId);
+    console.log('Order found:', order);
+    console.log('Looking for OrderItem with:', {
+      id: orderItemId,
+      orderId: order?.id,
+    });
+
+
+  if (!orderItem) {
+    throw new Error('Order item not found or does not belong to the order');
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.orderItem.delete({
-      where: { id: orderItemId, orderId: order.id },
+      where: { id: orderItemId },
     });
 
     await recalculateOrderTotal(order.id);
