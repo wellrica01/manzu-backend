@@ -17,7 +17,7 @@ async function addToOrder({ serviceId, providerId, quantity, userId, type }) {
     throw new Error('Invalid or missing service type');
   }
   if (type === 'diagnostic' || type === 'diagnostic_package') {
-    quantity = 1; // Enforce quantity = 1 for diagnostics
+    quantity = 1;
   } else if (!quantity || quantity < 1) {
     throw new Error('Invalid quantity');
   }
@@ -32,16 +32,11 @@ async function addToOrder({ serviceId, providerId, quantity, userId, type }) {
   let order = await prisma.order.findFirst({
     where: {
       patientIdentifier: userId,
-      status: { in: ['pending_prescription', 'pending', 'cart'] },
+      status: 'cart',
     },
   });
 
-  if (order && order.status !== 'cart') {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: 'cart' },
-    });
-  } else if (!order) {
+  if (!order) {
     order = await prisma.order.create({
       data: {
         patientIdentifier: userId,
@@ -97,7 +92,6 @@ async function addToOrder({ serviceId, providerId, quantity, userId, type }) {
 
     console.log(`OrderItem ${orderItem.id} upserted: quantity=${orderItem.quantity}, price=${orderItem.price}`);
 
-    // Pass tx to recalculateOrderTotal to use the same transaction
     const { updatedOrder } = await recalculateOrderTotal(order.id, tx);
 
     return { orderItem, order: updatedOrder };
@@ -108,10 +102,14 @@ async function addToOrder({ serviceId, providerId, quantity, userId, type }) {
   return { orderItem: result.orderItem, order: result.order, userId };
 }
 
+async function getOrder(userId, orderId = null) {
+  const where = {
+    patientIdentifier: userId,
+    ...(orderId ? { id: orderId } : { status: { in: ['cart', 'pending', 'pending_prescription', 'partially_completed'] } }),
+  };
 
-async function getOrder(userId) {
-  const order = await prisma.order.findFirst({
-    where: { patientIdentifier: userId, status: { in: ['cart', 'pending_prescription', 'partially_completed'] } },
+  const orders = await prisma.order.findMany({
+    where,
     include: {
       items: {
         include: {
@@ -132,72 +130,73 @@ async function getOrder(userId) {
     },
   });
 
-  if (!order) {
-    return { providers: [], totalPrice: 0, prescriptionId: null, items: [], orderId: null };
-  }
+  const formattedOrders = orders.map((order) => {
+    const providerGroups = order.items.reduce((acc, item) => {
+      const providerId = item.providerService?.provider?.id;
+      if (!providerId) return acc;
 
-  const providerGroups = order.items.reduce((acc, item) => {
-    const providerId = item.providerService?.provider?.id;
-    if (!providerId) return acc;
+      if (!acc[providerId]) {
+        acc[providerId] = {
+          provider: {
+            id: providerId,
+            name: item.providerService?.provider?.name ?? 'Unknown Provider',
+            address: item.providerService?.provider?.address ?? 'No address',
+            homeCollectionAvailable: item.providerService?.provider?.homeCollectionAvailable ?? false,
+          },
+          items: [],
+          subtotal: 0,
+        };
+      }
 
-    if (!acc[providerId]) {
-      acc[providerId] = {
-        provider: {
-          id: providerId,
-          name: item.providerService?.provider?.name ?? 'Unknown Provider',
-          address: item.providerService?.provider?.address ?? 'No address',
-          homeCollectionAvailable: item.providerService?.provider?.homeCollectionAvailable ?? false,
+      const service = item.providerService?.service;
+      acc[providerId].items.push({
+        id: item.id,
+        service: {
+          id: service?.id,
+          name: service?.name ?? 'Unknown',
+          displayName: service?.type === 'medication'
+            ? `${service?.name}${service?.dosage ? ` ${service.dosage}` : ''}${service?.form ? ` (${service.form})` : ''}`
+            : service?.name,
+          category: service?.category,
+          description: service?.description,
+          prepInstructions: service?.prepInstructions,
+          prescriptionRequired: service?.prescriptionRequired ?? false,
+          type: service?.type,
         },
-        items: [],
-        subtotal: 0,
-      };
-    }
+        quantity: item.quantity,
+        price: item.price,
+        serviceId: item.serviceId,
+        providerId: item.providerId,
+        timeSlotStart: item.timeSlotStart,
+        timeSlotEnd: item.timeSlotEnd,
+        fulfillmentMethod: item.fulfillmentMethod,
+        prescriptions: item.prescriptions.map(p => ({
+          id: p.prescription.id,
+          status: p.prescription.status,
+          rejectReason: p.prescription.rejectReason,
+        })),
+      });
 
-    const service = item.providerService?.service;
-    acc[providerId].items.push({
-      id: item.id,
-      service: {
-        id: service?.id,
-        name: service?.name ?? 'Unknown',
-        displayName: service?.type === 'medication'
-          ? `${service?.name}${service?.dosage ? ` ${service.dosage}` : ''}${service?.form ? ` (${service.form})` : ''}`
-          : service?.name,
-        category: service?.category,
-        description: service?.description,
-        prepInstructions: service?.prepInstructions,
-        prescriptionRequired: service?.prescriptionRequired ?? false,
-        type: service?.type,
-      },
-      quantity: item.quantity,
-      price: item.price,
-      serviceId: item.serviceId,
-      providerId: item.providerId,
-      timeSlotStart: item.timeSlotStart,
-      timeSlotEnd: item.timeSlotEnd,
-      fulfillmentMethod: item.fulfillmentMethod,
-      prescriptions: item.prescriptions.map(p => ({
-        id: p.prescription.id,
-        status: p.prescription.status,
-        rejectReason: p.prescription.rejectReason,
-      })),
-    });
+      acc[providerId].subtotal += item.quantity * item.price;
+      return acc;
+    }, {});
 
-    acc[providerId].subtotal += item.quantity * item.price;
-    return acc;
-  }, {});
+    const providers = Object.values(providerGroups);
+    const totalPrice = providers.reduce((sum, p) => sum + p.subtotal, 0);
 
-  const providers = Object.values(providerGroups);
-  const totalPrice = providers.reduce((sum, p) => sum + p.subtotal, 0);
+    return {
+      providers,
+      totalPrice,
+      prescriptionId: order.prescriptionId ?? order.prescription?.id ?? null,
+      items: order.items,
+      orderId: order.id,
+      status: order.status,
+    };
+  });
 
-  console.log('GET /api/orders response:', { providers, totalPrice });
+  console.log('GET /api/orders response:', formattedOrders);
 
-  return {
-    providers,
-    totalPrice,
-    prescriptionId: order.prescriptionId ?? order.prescription?.id ?? null,
-    items: order.items,
-    orderId: order.id,
-  };
+  return formattedOrders;
 }
 
 async function updateOrderItem({ orderItemId, quantity, userId }) {

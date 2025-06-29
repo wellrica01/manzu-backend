@@ -14,15 +14,20 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalName));
+    cb(null, uniqueSuffix + path.extname(file.originalname)); // ✅ fixed here
   },
 });
+
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // Limit to 10MB
   fileFilter: (req, file, cb) => {
+    if (!file || !file.originalname) {
+      return cb(new Error('No file uploaded or invalid file.'), false);
+    }
+
     const filetypes = /pdf|jpg|jpeg|png/;
-    const extname = filetypes.test(path.extname(file.originalName).toLowerCase());
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase()); // ✅ fixed here
     const mimetype = filetypes.test(file.mimetype);
     if (extname && mimetype) {
       return cb(null, true);

@@ -37,7 +37,6 @@ async function uploadPrescription({ patientIdentifier, email, phone, fileUrl, or
         status: 'pending',
         verified: false,
         createdAt: new Date(),
-        updatedAt: new Date(),
         orders: { connect: { id: Number(orderId) } },
       },
     });
@@ -152,7 +151,6 @@ async function verifyPrescription(prescriptionId, status, rejectReason) {
         status,
         verified: status === 'verified',
         rejectReason: status === 'rejected' ? rejectReason : null,
-        updatedAt: new Date(),
       },
     });
 
@@ -373,21 +371,24 @@ async function getPrescriptionStatuses({ patientIdentifier, serviceIds }) {
       return Object.fromEntries(serviceIds.map(id => [id, 'none']));
     }
 
-    // Fetch the latest prescription for the patient
-    const prescription = await prisma.prescription.findFirst({
-      where: {
-        patientIdentifier,
-        status: { in: ['pending', 'verified'] },
-      },
-      orderBy: { createdAt: 'desc' },
+// Fetch the latest prescription for the patient
+const prescription = await prisma.prescription.findFirst({
+  where: {
+    patientIdentifier,
+    status: { in: ['pending', 'verified'] },
+  },
+  orderBy: { createdAt: 'desc' },
+  include: {
+    prescriptionItems: {
       include: {
-        prescriptionServices: {
-          include: {
-            service: { select: { id: true } },
-          },
+        service: {
+          select: { id: true },
         },
       },
-    });
+    },
+  },
+});
+
 
     // Initialize statuses as 'none' for all requested serviceIds
     const statuses = Object.fromEntries(
@@ -400,8 +401,9 @@ async function getPrescriptionStatuses({ patientIdentifier, serviceIds }) {
     }
 
     // Map serviceIds covered by the prescription
-    const coveredServiceIds = prescription.prescriptionServices
-      .map(ps => ps.serviceId.toString());
+    const coveredServiceIds = prescription.prescriptionItems
+    .map(item => item.service.id.toString());
+
 
     for (const serviceId of validServiceIds) {
       if (coveredServiceIds.includes(serviceId)) {

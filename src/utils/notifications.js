@@ -1,55 +1,51 @@
+const isValidEmail = require('./validation').isValidEmail;
 const sgMail = require('@sendgrid/mail');
 const twilio = require('twilio');
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-// Configure SendGrid
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 async function sendVerificationNotification(prescription, status, order) {
+  const { email, phone } = prescription;
+  if (!email && !phone) {
+    console.warn('No contact information provided for notification', { prescriptionId: prescription.id });
+    return;
+  }
+
+  const message = status === 'verified'
+    ? `Your order #${order.id} has been confirmed! Track it with code: ${order.trackingCode}. Visit ${process.env.NEXT_PUBLIC_API_URL}/track?trackingCode=${encodeURIComponent(order.trackingCode)}`
+    : `Your prescription for order #${order.id} was rejected. Reason: ${prescription.rejectReason || 'Invalid prescription'}. Please re-upload at ${process.env.NEXT_PUBLIC_API_URL}/status-check`;
+
   try {
-    const email = prescription.email || order?.email;
-    const phone = prescription.phone || order?.phone;
-    if (!email && !phone) {
-      console.warn('No contact details for prescription:', { prescriptionId: prescription.id });
-      return;
-    }
-    let guestLink = `${process.env.FRONTEND_URL}/status-check?patientIdentifier=${prescription.patientIdentifier}`;
-    if (order && order.totalPrice > 0) {
-      guestLink += `&orderId=${order.id}`;
-    }
-    let msg = {};
-    if (status === 'verified') {
-      msg = {
+    if (email && isValidEmail(email)) {
+      const msg = {
         to: email,
-        from: process.env.SENDGRID_FROM_EMAIL,
-        subject: 'Your Prescription is Ready',
-        text: `Your prescription #${prescription.id} has been verified. ${order && order.totalPrice > 0 ? 'Complete your order payment' : 'View your medications and select pharmacies'}: ${guestLink}`,
+        from: process.env.SENDGRID_FROM_EMAIL || 'no-reply@manzu.example.com',
+        subject: status === 'verified' ? 'Order Confirmation' : 'Prescription Verification Update',
+        text: message,
+        html: `
+          <div style="font-family: Arial, sans-serif; color: #225F91; padding: 20px;">
+            <h2>${status === 'verified' ? 'Order Confirmed!' : 'Prescription Update'}</h2>
+            <p>${message}</p>
+            <a href="${process.env.NEXT_PUBLIC_API_URL}/track?trackingCode=${encodeURIComponent(order.trackingCode)}" style="background: #225F91; color: white; padding: 10px 20px; text-decoration: none; border-radius: 9999px;">Track Order</a>
+          </div>
+        `,
       };
-    } else {
-      msg = {
-        to: email,
-        from: process.env.SENDGRID_FROM_EMAIL,
-        subject: 'Prescription Rejected',
-        text: `Your prescription #${prescription.id} was rejected. Please upload a clearer image or contact support.`,
-      };
-    }
-    if (email) {
       await sgMail.send(msg);
-      console.log('Email sent:', { email, status, prescriptionId: prescription.id });
+      console.log('Email sent:', { to: email, orderId: order.id });
     }
 
     if (phone) {
-      const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-      await twilioClient.messages.create({
-        body: status === 'verified'
-          ? `Prescription #${prescription.id} verified. ${order && order.totalPrice > 0 ? 'Pay for your order' : 'Select pharmacies'}: ${guestLink}`
-          : `Prescription #${prescription.id} rejected. Upload again or contact support.`,
+      await client.messages.create({
+        body: message,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: phone,
       });
-      console.log('SMS sent:', { phone, status, prescriptionId: prescription.id });
+      console.log('SMS sent:', { to: phone, orderId: order.id });
     }
   } catch (error) {
-    console.error('Notification error:', { message: error.message, prescriptionId: prescription.id });
+    console.error('Notification error:', { error: error.message, prescriptionId: prescription.id });
+    throw new Error('Failed to send notification');
   }
 }
 

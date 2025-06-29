@@ -1,4 +1,5 @@
 const express = require('express');
+const { sendVerificationNotification } = require('../utils/notifications');
 const router = express.Router();
 
 router.post('/', async (req, res) => {
@@ -12,16 +13,10 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Invalid status' });
     }
 
-    // Placeholder for notification logic (e.g., email, SMS)
-    console.log('Sending notification:', { prescriptionId, status, orderId, contact });
+    const prescription = { id: prescriptionId, email: contact.email, phone: contact.phone, rejectReason: contact.rejectReason };
+    const order = { id: orderId };
 
-    // Example: Send notification via email or phone (to be implemented with actual service)
-    const message = status === 'verified'
-      ? 'Your prescription has been verified. You can now proceed to checkout.'
-      : 'Your prescription was rejected. Please re-upload a valid prescription.';
-    
-    // TODO: Integrate with email/SMS service (e.g., SendGrid, Twilio)
-    // await sendEmailOrSMS(contact, message);
+    await sendVerificationNotification(prescription, status, order);
 
     res.status(200).json({ message: 'Notification sent successfully' });
   } catch (error) {
