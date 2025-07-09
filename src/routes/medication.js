@@ -1,6 +1,6 @@
 const express = require('express');
-const medicationService = require('../../services/med/medicationService');
-const { validateMedications, validateMedicationSuggestions, validateMedicationSearch } = require('../../utils/validation');
+const medicationService = require('../services/medicationService');
+const { validateMedications, validateMedicationSuggestions, validateMedicationSearch } = require('../utils/validation');
 const router = express.Router();
 
 console.log('Loaded medication.js version: 2025-06-19-v1');

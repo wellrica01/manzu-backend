@@ -1,5 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
-const { formatDisplayName } = require('../../utils/med/medicationUtils');
+const { formatDisplayName } = require('../utils/medicationUtils'); 
 const prisma = new PrismaClient();
 
 async function getSampleMedication() {

@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
-const { isValidOrderReference } = require('../../utils/validation');
-const { generateTrackingCode } = require('../../utils/tracking');
+const { isValidOrderReference } = require('../utils/validation');
+const { generateTrackingCode } = require('../utils/tracking');
 const prisma = new PrismaClient();
 
 async function confirmOrder({ reference, session, userId }) {

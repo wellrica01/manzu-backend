@@ -1,10 +1,10 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const testOrderService = require('../../services/test/testOrderService');
-const { isValidEmail, validateTestOrderUpload, validateAddTest, validateVerifyTestOrder, validateGuestTestOrder } = require('../../utils/validation');
-const { authenticate, authenticateAdmin } = require('../../middleware/auth');
-const requireConsent = require('../../middleware/requireConsent');
+const prescriptionService = require('../services/prescriptionService');
+const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validateGuestOrder } = require('../utils/validation');
+const { authenticate, authenticateAdmin } = require('../middleware/auth');
+const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
 
 // Multer setup
@@ -31,10 +31,10 @@ const upload = multer({
   },
 });
 
-console.log('Loaded testOrder.js version: 2025-06-21-v1');
+console.log('Loaded prescription.js version: 2025-06-19-v2');
 
-// POST /testorders/upload - Upload a test order
-router.post('/upload', upload.single('testOrderFile'), requireConsent, async (req, res) => {
+// POST /prescription/upload - Upload a prescription
+router.post('/upload', upload.single('prescriptionFile'), requireConsent, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
@@ -43,7 +43,7 @@ router.post('/upload', upload.single('testOrderFile'), requireConsent, async (re
     const { contact } = req.body;
 
     // Validate input
-    const { error } = validateTestOrderUpload({ patientIdentifier, contact });
+    const { error } = validatePrescriptionUpload({ patientIdentifier, contact });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
@@ -54,109 +54,109 @@ router.post('/upload', upload.single('testOrderFile'), requireConsent, async (re
     const email = isEmail ? contact : null;
     const phone = !isEmail && contact ? contact : null;
 
-    const testOrder = await testOrderService.uploadTestOrder({
+    const prescription = await prescriptionService.uploadPrescription({
       patientIdentifier,
       email,
       phone,
       fileUrl: `/uploads/${req.file.filename}`,
     });
-    res.status(201).json({ message: 'Test order uploaded successfully. You will be notified when it’s ready.', testOrder });
+    res.status(201).json({ message: 'Prescription uploaded successfully. You will be notified when it’s ready.', prescription });
   } catch (error) {
     console.error('Upload error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// POST /testorders/:id/tests - Add tests to a test order
-router.post('/:id/tests', authenticate, authenticateAdmin, async (req, res) => {
+// POST /prescription/:id/medications - Add medications to a prescription
+router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { tests } = req.body;
+    const { medications } = req.body;
 
     // Validate input
-    const { error } = validateAddTest({ id, tests });
+    const { error } = validateAddMedications({ id, medications });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    const result = await testOrderService.addTests(Number(id), tests);
-    res.status(201).json({ message: 'Tests added', testOrderTests: result.testOrderTests });
+    const result = await prescriptionService.addMedications(Number(id), medications);
+    res.status(201).json({ message: 'Medications added', prescriptionMedications: result.prescriptionMedications });
   } catch (error) {
-    console.error('Add tests error:', { message: error.message });
+    console.error('Add medications error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// PATCH /testorders/:id/verify - Verify or reject a test order
+// PATCH /prescription/:id/verify - Verify or reject a prescription
 router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
     // Validate input
-    const { error } = validateVerifyTestOrder({ id, status });
+    const { error } = validateVerifyPrescription({ id, status });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    const testOrder = await testOrderService.verifyTestOrder(Number(id), status);
-    res.status(200).json({ message: 'Test order updated', testOrder });
+    const prescription = await prescriptionService.verifyPrescription(Number(id), status);
+    res.status(200).json({ message: 'Prescription updated', prescription });
   } catch (error) {
     console.error('Verification error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// GET /testorders/guest-order/:patientIdentifier - Retrieve guest test order details
-router.get('/guest-test/:patientIdentifier', requireConsent, async (req, res) => {
+// GET /prescription/guest-order/:patientIdentifier - Retrieve guest order details
+router.get('/guest-med/:patientIdentifier', requireConsent, async (req, res) => {
   try {
     const { patientIdentifier } = req.params;
     const { lat, lng, radius } = req.query;
 
     // Validate input
-    const { error, value } = validateGuestTestOrder({ patientIdentifier, lat, lng, radius });
+    const { error, value } = validateGuestOrder({ patientIdentifier, lat, lng, radius });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    const result = await testOrderService.getGuestTestOrder(value);
+    const result = await prescriptionService.getGuestOrder(value);
     res.status(200).json(result);
   } catch (error) {
-    console.error('Guest test order retrieval error:', { message: error.message });
-    const statusCode = error.message.includes('Test order not found') || 
+    console.error('Guest order retrieval error:', { message: error.message });
+    const statusCode = error.message.includes('Prescription not found') || 
                       error.message.includes('Invalid latitude or longitude') ? 400 : 500;
     res.status(statusCode).json({ message: error.message });
   }
 });
 
-// GET /testorders/status - Get test order statuses for tests
+// GET /prescription/status - Get prescription statuses for medications
 router.get('/status', requireConsent, async (req, res) => {
   try {
     const patientIdentifier = req.headers['x-guest-id'];
-    const { testIds } = req.query;
+    const { medicationIds } = req.query;
 
     if (!patientIdentifier) {
       return res.status(400).json({ message: 'Patient identifier is required' });
     }
-    if (!testIds) {
-      return res.status(400).json({ message: 'Test IDs are required' });
+    if (!medicationIds) {
+      return res.status(400).json({ message: 'Medication IDs are required' });
     }
 
-    const testIdArray = testIds.split(',').map(id => id.trim());
-    if (testIdArray.length === 0) {
-      return res.status(400).json({ message: 'Invalid test IDs' });
+    const medicationIdArray = medicationIds.split(',').map(id => id.trim());
+    if (medicationIdArray.length === 0) {
+      return res.status(400).json({ message: 'Invalid medication IDs' });
     }
 
-    const statuses = await testOrderService.getTestOrderStatuses({
+    const statuses = await prescriptionService.getPrescriptionStatuses({
       patientIdentifier,
-      testIds: testIdArray,
+      medicationIds: medicationIdArray,
     });
     res.status(200).json(statuses);
   } catch (error) {
-    console.error('Test order status error:', { message: error.message });
+    console.error('Prescription status error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

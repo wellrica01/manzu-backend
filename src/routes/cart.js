@@ -1,6 +1,6 @@
 const express = require('express');
-const { validateAddToCart, validateUpdateCart, validateRemoveFromCart } = require('../../utils/validation');
-const cartService = require('../../services/med/cartService');
+const { validateAddToCart, validateUpdateCart, validateRemoveFromCart } = require('../utils/validation');
+const cartService = require('../services/cartService');
 const router = express.Router();
 
 // Add item to cart

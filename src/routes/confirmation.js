@@ -1,6 +1,6 @@
 const express = require('express');
-const confirmationService = require('../../services/med/confirmationService');
-const { validateOrderConfirmation } = require('../../utils/validation');
+const confirmationService = require('../services/confirmationService');
+const { validateOrderConfirmation } = require('../utils/validation');
 const router = express.Router();
 
 console.log('Loaded confirmation.js version: 2025-06-18-v1');
