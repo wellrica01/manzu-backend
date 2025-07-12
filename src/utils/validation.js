@@ -108,11 +108,11 @@ function validateCheckout(data) {
   const schema = Joi.object({
     name: Joi.string().required(),
     email: Joi.string().custom((value, helpers) => {
-      if (!isValidEmail(value)) {
+      if (value && !isValidEmail(value)) {
         return helpers.error('any.invalid');
       }
       return value;
-    }, 'email validation').required(),
+    }, 'email validation').optional().allow(''),
     phone: Joi.string().custom((value, helpers) => {
       if (!isValidPhone(value)) {
         return helpers.error('any.invalid', { message: 'Invalid phone number format (e.g., 09031615501 or +2349031615501)' });
@@ -153,11 +153,11 @@ function validateResume(data) {
   const schema = Joi.object({
     orderId: Joi.number().integer().required(),
     email: Joi.string().custom((value, helpers) => {
-      if (!isValidEmail(value)) {
+      if (value && !isValidEmail(value)) {
         return helpers.error('any.invalid');
       }
       return value;
-    }, 'email validation').required(),
+    }, 'email validation').optional().allow(''),
     userId: Joi.string().required(),
   });
   return schema.validate(data, { abortEarly: false });

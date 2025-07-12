@@ -298,10 +298,13 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
 
     console.log('Initiating Paystack for payable orders:', { totalPayableAmount, transactionReference });
 
+    // Paystack requires an email, so we'll use a placeholder if none provided
+    const paystackEmail = email || `guest-${patientIdentifier}@manzu.com`;
+    
     const paystackResponse = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       {
-        email,
+        email: paystackEmail,
         amount: totalPayableAmount,
         reference: transactionReference,
         callback_url: `${process.env.PAYSTACK_CALLBACK_URL}?session=${checkoutSessionId}`,
@@ -561,10 +564,13 @@ async function resumeCheckout({ orderId, email, userId }) {
   const transactionReference = `session_${order.checkoutSessionId}_${Date.now()}`;
   const paymentReferences = [];
 
+  // Paystack requires an email, so we'll use a placeholder if none provided
+  const paystackEmail = email || `guest-${userId}@manzu.com`;
+  
   const paystackResponse = await axios.post(
     'https://api.paystack.co/transaction/initialize',
     {
-      email,
+      email: paystackEmail,
       amount: totalAmount,
       reference: transactionReference,
       callback_url: `${process.env.PAYSTACK_CALLBACK_URL}?session=${order.checkoutSessionId}`,

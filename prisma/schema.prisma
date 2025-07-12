@@ -43,6 +43,7 @@ model Pharmacy {
   isActive            Boolean                 @default(true)
   ward                String?                 @db.VarChar(100)
   devicetoken         String?                 @db.VarChar(255)
+  operatingHours      String?
   orders              Order[]
   pharmacyMedications PharmacyMedication[]
   users               PharmacyUser[]
