@@ -9,14 +9,14 @@ async function uploadPrescription({ patientIdentifier, email, phone, fileUrl }) 
   const prescription = await prisma.prescription.create({
     data: {
       patientIdentifier,
-      email,
+      email: email || null,
       phone: normalizedPhone,
       fileUrl,
       status: 'pending',
       verified: false,
     },
   });
-  console.log('Prescription uploaded:', { prescriptionId: prescription.id });
+  console.log('Prescription uploaded:', { prescriptionId: prescription.id, email, phone: normalizedPhone });
   return prescription;
 }
 
@@ -96,37 +96,24 @@ async function verifyPrescription(prescriptionId, status) {
     if (prescription.orders && prescription.orders.length > 0) {
       if (status === 'rejected') {
         for (const order of prescription.orders) {
+          // For rejected prescriptions, keep order in pending_prescription status
+          // so user can upload new prescription
           await tx.order.update({
             where: { id: order.id },
             data: {
-              status: 'cancelled',
-              cancelReason: 'Prescription rejected',
-              cancelledAt: new Date(),
+              status: 'pending_prescription',
+              updatedAt: new Date(),
             },
           });
-
-          if (order.items && order.items.length > 0) {
-            for (const item of order.items) {
-              await tx.pharmacyMedication.update({
-                where: {
-                  pharmacyId_medicationId: {
-                    pharmacyId: item.pharmacyMedicationPharmacyId,
-                    medicationId: item.pharmacyMedicationMedicationId,
-                  },
-                },
-                data: {
-                  stock: { increment: item.quantity },
-                },
-              });
-            }
-          }
         }
       } else if (status === 'verified') {
         for (const order of prescription.orders) {
+          // For verified prescriptions, update order to pending for checkout
           await tx.order.update({
             where: { id: order.id },
             data: {
               status: 'pending',
+              updatedAt: new Date(),
             },
           });
         }

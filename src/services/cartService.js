@@ -13,25 +13,81 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
     throw new Error('Pharmacy not found');
   }
 
-  // Check if an order already exists for this user
-  let order = await prisma.order.findFirst({
+  // Check if medication requires prescription
+  const medication = await prisma.medication.findUnique({ 
+    where: { id: medicationId },
+    select: { prescriptionRequired: true }
+  });
+
+  if (!medication) {
+    throw new Error('Medication not found');
+  }
+
+  // Check if a cart order already exists for this user
+  let cartOrder = await prisma.order.findFirst({
     where: {
       patientIdentifier: userId,
-      status: { in: ['pending_prescription', 'pending', 'cart'] },
+      status: 'cart',
     },
   });
 
-  // If order exists and isn't in 'cart' status, update it
-  if (order) {
-    if (order.status !== 'cart') {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { status: 'cart' },
+  // Check if there's a pending_prescription order for this user
+  const prescriptionOrder = await prisma.order.findFirst({
+    where: {
+      patientIdentifier: userId,
+      status: 'pending_prescription',
+    },
+  });
+
+  // Determine which order to use based on medication type
+  let targetOrder;
+  
+  if (medication.prescriptionRequired) {
+    // Prescription medication - check if existing prescription covers this medication
+    if (prescriptionOrder) {
+      // Check if the existing prescription covers this medication
+      const isCovered = await checkPrescriptionCoverage(prescriptionOrder.prescriptionId, medicationId);
+      
+      if (isCovered) {
+        // Medication is covered by existing prescription - add to prescription order
+        targetOrder = prescriptionOrder;
+      } else {
+        // Medication is not covered - add to cart order for new prescription upload
+        if (!cartOrder) {
+          cartOrder = await prisma.order.create({
+            data: {
+              patientIdentifier: userId,
+              status: 'cart',
+              totalPrice: 0,
+              deliveryMethod: 'unspecified',
+              paymentStatus: 'pending',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          });
+        }
+        targetOrder = cartOrder;
+      }
+    } else if (cartOrder) {
+      targetOrder = cartOrder;
+    } else {
+      // Create new cart order for prescription items
+      targetOrder = await prisma.order.create({
+        data: {
+          patientIdentifier: userId,
+          status: 'cart',
+          totalPrice: 0,
+          deliveryMethod: 'unspecified',
+          paymentStatus: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       });
     }
   } else {
-    // If no order exists, create a new one
-    order = await prisma.order.create({
+    // OTC medication - always use cart order
+    if (!cartOrder) {
+      cartOrder = await prisma.order.create({
       data: {
         patientIdentifier: userId,
         status: 'cart',
@@ -43,6 +99,11 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       },
     });
   }
+    targetOrder = cartOrder;
+  }
+
+  // Use the target order for adding items
+  const order = targetOrder;
 
   // Check if the medication is available at the selected pharmacy with sufficient stock
   const pharmacyMedication = await prisma.pharmacyMedication.findFirst({
@@ -78,6 +139,9 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
 
     const { updatedOrder } = await recalculateOrderTotal(tx, order.id);
 
+    // Clean up empty orders (except the one we just added to)
+    await cleanupEmptyOrders(tx, userId, order.id);
+
     return { orderItem, order: updatedOrder };
   });
 
@@ -85,9 +149,53 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   return { orderItem: result.orderItem, userId };
 }
 
+async function checkPrescriptionCoverage(prescriptionId, medicationId) {
+  try {
+    // Check if the prescription covers this specific medication
+    const prescriptionMedication = await prisma.prescriptionMedication.findFirst({
+      where: {
+        prescriptionId: prescriptionId,
+        medicationId: Number(medicationId),
+      },
+    });
+
+    return !!prescriptionMedication;
+  } catch (error) {
+    console.error('Error checking prescription coverage:', error);
+    return false;
+  }
+}
+
+async function cleanupEmptyOrders(tx, userId, excludeOrderId) {
+  // Find all orders for this user
+  const orders = await tx.order.findMany({
+    where: {
+      patientIdentifier: userId,
+      status: { in: ['cart', 'pending_prescription'] },
+    },
+    include: {
+      items: true,
+    },
+  });
+
+  // Delete empty orders (except the excluded one)
+  for (const order of orders) {
+    if (order.id !== excludeOrderId && order.items.length === 0) {
+      await tx.order.delete({
+        where: { id: order.id },
+      });
+      console.log('Cleaned up empty order:', order.id);
+    }
+  }
+}
+
 async function getCart(userId) {
-  const order = await prisma.order.findFirst({
-    where: { patientIdentifier: userId, status: 'cart' },
+  // Fetch orders that should be displayed in cart (cart status + pending_prescription + pending for verified prescriptions)
+  const orders = await prisma.order.findMany({
+    where: { 
+      patientIdentifier: userId, 
+      status: { in: ['cart', 'pending_prescription', 'pending'] }
+    },
     include: {
       items: {
         include: {
@@ -101,13 +209,46 @@ async function getCart(userId) {
       },
       prescription: true,
     },
+    orderBy: { createdAt: 'desc' },
   });
 
-  if (!order) {
-    return { items: [], totalPrice: 0, pharmacies: [] };
+  if (!orders || orders.length === 0) {
+    return { items: [], totalPrice: 0, pharmacies: [], orderStatus: null };
   }
 
-  const pharmacyGroups = order.items.reduce((acc, item) => {
+  // Merge all orders into a single cart view with order information
+  const allItems = [];
+  let totalPrice = 0;
+  let prescriptionId = null;
+  let orderStatus = null;
+
+  for (const order of orders) {
+    // Add order information to each item
+    const itemsWithOrderInfo = order.items.map(item => ({
+      ...item,
+      orderInfo: {
+        orderId: order.id,
+        orderStatus: order.status,
+        prescriptionId: order.prescriptionId,
+      }
+    }));
+    
+    allItems.push(...itemsWithOrderInfo);
+    totalPrice += order.totalPrice;
+    if (order.prescriptionId) {
+      prescriptionId = order.prescriptionId;
+    }
+    // Track the most relevant status for display
+    if (order.status === 'pending_prescription') {
+      orderStatus = 'pending_prescription';
+    } else if (order.status === 'pending' && orderStatus !== 'pending_prescription') {
+      orderStatus = 'pending';
+    } else if (order.status === 'cart' && orderStatus !== 'pending_prescription' && orderStatus !== 'pending') {
+      orderStatus = 'cart';
+    }
+  }
+
+  const pharmacyGroups = allItems.reduce((acc, item) => {
     const pharmacyId = item.pharmacyMedication?.pharmacy?.id;
     if (!pharmacyId) return acc; // Skip if data is incomplete
 
@@ -135,6 +276,10 @@ async function getCart(userId) {
       price: item.price,
       pharmacyMedicationMedicationId: item.pharmacyMedicationMedicationId,
       pharmacyMedicationPharmacyId: item.pharmacyMedicationPharmacyId,
+      // Add prescription status based on order status
+      prescriptionStatus: item.orderInfo.prescriptionId && item.pharmacyMedication?.medication?.prescriptionRequired 
+        ? (item.orderInfo.orderStatus === 'pending' ? 'verified' : item.orderInfo.orderStatus === 'pending_prescription' ? 'pending' : 'none')
+        : 'none',
     });
 
     acc[pharmacyId].subtotal += item.quantity * item.price;
@@ -142,32 +287,140 @@ async function getCart(userId) {
   }, {});
 
   const pharmacies = Object.values(pharmacyGroups);
-  const totalPrice = pharmacies.reduce((sum, p) => sum + p.subtotal, 0);
+  const calculatedTotalPrice = pharmacies.reduce((sum, p) => sum + p.subtotal, 0);
 
-  console.log('GET /api/cart response:', { pharmacies, totalPrice });
+  console.log('GET /api/cart response:', { pharmacies, totalPrice: calculatedTotalPrice, orderStatus });
 
   return {
     pharmacies,
-    totalPrice,
-    prescriptionId: order.prescriptionId ?? order.prescription?.id ?? null,
+    totalPrice: calculatedTotalPrice,
+    prescriptionId: prescriptionId,
+    orderStatus: orderStatus,
+    orderId: orders[0]?.id, // Return the first order ID for compatibility
   };
 }
 
+async function createMixedOrder({ userId, readyItems, prescriptionItems }) {
+  // Create separate orders for ready items and prescription items
+  const result = await prisma.$transaction(async (tx) => {
+    // Create order for ready items (immediate checkout)
+    const readyOrder = await tx.order.create({
+      data: {
+        patientIdentifier: userId,
+        status: 'pending',
+        totalPrice: 0,
+        deliveryMethod: 'unspecified',
+        paymentStatus: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
 
-async function updateCartItem({ orderItemId, quantity, userId }) {
-  const order = await prisma.order.findFirst({
-    where: { patientIdentifier: userId, status: 'cart' },
+    // Create order for prescription items (pending verification)
+    const prescriptionOrder = await tx.order.create({
+      data: {
+        patientIdentifier: userId,
+        status: 'pending_prescription',
+        totalPrice: 0,
+        deliveryMethod: 'unspecified',
+        paymentStatus: 'pending',
+        prescriptionId: prescriptionItems.prescriptionId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    // Move ready items to ready order
+    for (const item of readyItems) {
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: { orderId: readyOrder.id },
+      });
+    }
+
+    // Move prescription items to prescription order
+    for (const item of prescriptionItems.items) {
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: { orderId: prescriptionOrder.id },
+      });
+    }
+
+    // Recalculate totals for both orders
+    const { updatedOrder: updatedReadyOrder } = await recalculateOrderTotal(tx, readyOrder.id);
+    const { updatedOrder: updatedPrescriptionOrder } = await recalculateOrderTotal(tx, prescriptionOrder.id);
+
+    return {
+      readyOrder: updatedReadyOrder,
+      prescriptionOrder: updatedPrescriptionOrder,
+    };
   });
-  if (!order) {
-    throw new Error('Cart not found');
+
+  return result;
+}
+
+async function handlePrescriptionVerification({ prescriptionId, status }) {
+  // When prescription is verified, update the associated order status
+  const prescription = await prisma.prescription.findUnique({
+    where: { id: prescriptionId },
+    include: {
+      orders: {
+        where: { status: 'pending_prescription' },
+        include: {
+          items: {
+            include: {
+              pharmacyMedication: {
+                include: { medication: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!prescription) {
+    throw new Error('Prescription not found');
   }
 
+  if (status === 'verified') {
+    // Update prescription order to ready for checkout
+    for (const order of prescription.orders) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { 
+          status: 'pending',
+          updatedAt: new Date(),
+        },
+      });
+    }
+  } else if (status === 'rejected') {
+    // Keep prescription order as pending_prescription for re-upload
+    // User can upload new prescription
+  }
+
+  return prescription;
+}
+
+async function updateCartItem({ orderItemId, quantity, userId }) {
+  // Find the order that contains this item
   const orderItem = await prisma.orderItem.findFirst({
-    where: { id: orderItemId, orderId: order.id },
-    include: { pharmacyMedication: true },
+    where: { id: orderItemId },
+    include: { 
+      order: true,
+      pharmacyMedication: true 
+    },
   });
+  
   if (!orderItem) {
     throw new Error('Item not found');
+  }
+
+  const order = orderItem.order;
+  
+  // Check if the order belongs to this user and has appropriate status
+  if (order.patientIdentifier !== userId || !['cart', 'pending_prescription', 'pending'].includes(order.status)) {
+    throw new Error('Cart not found');
   }
 
   const pharmacyMedication = await prisma.pharmacyMedication.findFirst({
@@ -190,6 +443,9 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
 
     await recalculateOrderTotal(tx, order.id);
 
+    // Clean up empty orders
+    await cleanupEmptyOrders(tx, userId, order.id);
+
     return item;
   });
 
@@ -197,21 +453,396 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
 }
 
 async function removeFromCart({ orderItemId, userId }) {
-  const order = await prisma.order.findFirst({
-    where: { patientIdentifier: userId, status: 'cart' },
+  // Find the order that contains this item
+  const orderItem = await prisma.orderItem.findFirst({
+    where: { id: orderItemId },
+    include: { order: true },
   });
-  if (!order) {
+  
+  if (!orderItem) {
+    throw new Error('Item not found');
+  }
+
+  const order = orderItem.order;
+  
+  // Check if the order belongs to this user and has appropriate status
+  if (order.patientIdentifier !== userId || !['cart', 'pending_prescription'].includes(order.status)) {
     throw new Error('Cart not found');
   }
 
-  // Perform order item deletion and total recalculation in a transaction
+  // Perform order item deletion, total recalculation, and cleanup in a transaction
   await prisma.$transaction(async (tx) => {
     await tx.orderItem.delete({
       where: { id: orderItemId, orderId: order.id },
     });
 
     await recalculateOrderTotal(tx, order.id);
+
+    // Check if order is now empty and delete it if so
+    const remainingItems = await tx.orderItem.count({
+      where: { orderId: order.id },
+    });
+
+    if (remainingItems === 0) {
+      await tx.order.delete({
+        where: { id: order.id },
+      });
+      console.log('Deleted empty order:', order.id);
+    }
   });
+}
+
+async function linkPrescriptionToCart({ prescriptionId, userId }) {
+  const order = await prisma.order.findFirst({
+    where: { 
+      patientIdentifier: userId, 
+      status: { in: ['cart', 'pending_prescription'] }
+    },
+  });
+  
+  if (!order) {
+    throw new Error('Cart not found');
+  }
+
+  const prescription = await prisma.prescription.findUnique({
+    where: { id: prescriptionId },
+  });
+
+  if (!prescription) {
+    throw new Error('Prescription not found');
+  }
+
+  // Get all items in the cart
+  const orderItems = await prisma.orderItem.findMany({
+    where: { orderId: order.id },
+    include: {
+      pharmacyMedication: {
+        include: { medication: true },
+      },
+    },
+  });
+
+  const otcItems = orderItems.filter(item => !item.pharmacyMedication.medication.prescriptionRequired);
+  const prescriptionItems = orderItems.filter(item => item.pharmacyMedication.medication.prescriptionRequired);
+
+  // If we have both OTC and prescription items, create separate orders
+  if (otcItems.length > 0 && prescriptionItems.length > 0) {
+    return await prisma.$transaction(async (tx) => {
+      // Create new order for OTC items (keep as cart) - no contact info needed
+      const otcOrder = await tx.order.create({
+        data: {
+          patientIdentifier: userId,
+          status: 'cart',
+          totalPrice: 0,
+          deliveryMethod: 'unspecified',
+          paymentStatus: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Create new order for prescription items - with contact info
+      const prescriptionOrder = await tx.order.create({
+        data: {
+          patientIdentifier: userId,
+          status: 'pending_prescription',
+          totalPrice: 0,
+          deliveryMethod: 'unspecified',
+          paymentStatus: 'pending',
+          prescriptionId: prescriptionId,
+          email: prescription.email || order.email,
+          phone: prescription.phone || order.phone,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Move OTC items to OTC order
+      for (const item of otcItems) {
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: { orderId: otcOrder.id },
+        });
+      }
+
+      // Move prescription items to prescription order
+      for (const item of prescriptionItems) {
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: { orderId: prescriptionOrder.id },
+        });
+      }
+
+      // Recalculate totals for both orders
+      const { updatedOrder: updatedOtcOrder } = await recalculateOrderTotal(tx, otcOrder.id);
+      const { updatedOrder: updatedPrescriptionOrder } = await recalculateOrderTotal(tx, prescriptionOrder.id);
+
+      // Delete the original mixed order
+      await tx.order.delete({
+        where: { id: order.id },
+      });
+
+      return {
+        otcOrder: updatedOtcOrder,
+        prescriptionOrder: updatedPrescriptionOrder,
+      };
+    });
+  } else {
+    // Single type cart - just link prescription to existing order
+    const updateData = { 
+      prescriptionId: prescriptionId,
+    };
+
+    if (prescriptionItems.length > 0) {
+      updateData.status = 'pending_prescription';
+      updateData.updatedAt = new Date();
+      // Only add contact info for prescription orders
+      updateData.email = prescription.email || order.email;
+      updateData.phone = prescription.phone || order.phone;
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: order.id },
+      data: updateData,
+    });
+
+    return updatedOrder;
+  }
+}
+
+async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
+  try {
+    // Get all cart orders (including pending_prescription status)
+    const orders = await prisma.order.findMany({
+      where: { 
+        patientIdentifier: userId, 
+        status: { in: ['cart', 'pending_prescription'] }
+      },
+      include: {
+        prescription: {
+          include: {
+            PrescriptionMedication: {
+              include: {
+                Medication: {
+                  select: { id: true },
+                },
+              },
+            },
+          },
+        },
+        items: {
+          include: {
+            pharmacyMedication: {
+              include: { medication: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!orders || orders.length === 0) {
+      // No orders found, return all as 'none'
+      return Object.fromEntries(medicationIds.map(id => [id, 'none']));
+    }
+
+    const statuses = Object.fromEntries(medicationIds.map(id => [id, 'none']));
+
+    // Check each order for prescription coverage
+    for (const order of orders) {
+      if (order.prescription) {
+        const prescription = order.prescription;
+        
+        // Get medication IDs in this order
+        const orderMedicationIds = order.items.map(item => 
+          item.pharmacyMedication.medication.id.toString()
+        );
+
+        // Map medicationIds covered by the prescription
+        const coveredMedicationIds = prescription.PrescriptionMedication
+          .map(pm => pm.medicationId.toString());
+
+        // Update statuses for medications in this order that are covered by prescription
+        for (const medId of medicationIds) {
+          if (orderMedicationIds.includes(medId) && coveredMedicationIds.includes(medId)) {
+            statuses[medId] = prescription.status; // 'verified' or 'pending'
+          }
+        }
+      }
+    }
+
+    return statuses;
+  } catch (error) {
+    console.error('Error fetching prescription statuses for cart:', error);
+    throw new Error('Failed to fetch prescription statuses');
+  }
+}
+
+async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicationIds }) {
+  // Find the cart order that contains the specified medications
+  const cartOrder = await prisma.order.findFirst({
+    where: {
+      patientIdentifier: userId,
+      status: 'cart',
+    },
+    include: {
+      items: {
+        include: {
+          pharmacyMedication: {
+            include: { medication: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!cartOrder) {
+    throw new Error('Cart not found');
+  }
+
+  // Check if the cart order contains the specified medications
+  const orderMedicationIds = cartOrder.items.map(item => 
+    item.pharmacyMedication.medication.id.toString()
+  );
+
+  const hasSpecifiedMedications = medicationIds.some(medId => 
+    orderMedicationIds.includes(medId)
+  );
+
+  if (medicationIds.length === 0) {
+    throw new Error('No medication IDs provided');
+  }
+
+  if (!hasSpecifiedMedications) {
+    throw new Error('Specified medications not found in cart');
+  }
+
+  // Get prescription contact info
+  const prescription = await prisma.prescription.findUnique({
+    where: { id: prescriptionId },
+  });
+
+  if (!prescription) {
+    throw new Error('Prescription not found');
+  }
+
+  // Separate OTC and prescription items
+  const otcItems = cartOrder.items.filter(item => 
+    !item.pharmacyMedication.medication.prescriptionRequired
+  );
+  
+  const prescriptionItems = cartOrder.items.filter(item => 
+    item.pharmacyMedication.medication.prescriptionRequired
+  );
+
+  // Check if the specified medications are prescription items
+  const specifiedPrescriptionItems = prescriptionItems.filter(item => 
+    medicationIds.includes(item.pharmacyMedication.medication.id.toString())
+  );
+
+  if (specifiedPrescriptionItems.length === 0) {
+    throw new Error('Specified medications are not prescription items');
+  }
+
+  // Use transaction to handle order separation
+  const result = await prisma.$transaction(async (tx) => {
+    // If we have both OTC and prescription items, create separate orders
+    if (otcItems.length > 0 && prescriptionItems.length > 0) {
+      // Create new order for OTC items (keep as cart)
+      const otcOrder = await tx.order.create({
+        data: {
+          patientIdentifier: userId,
+          status: 'cart',
+          totalPrice: 0,
+          deliveryMethod: 'unspecified',
+          paymentStatus: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Create new order for prescription items (pending verification)
+      const prescriptionOrder = await tx.order.create({
+        data: {
+          patientIdentifier: userId,
+          status: 'pending_prescription',
+          totalPrice: 0,
+          deliveryMethod: 'unspecified',
+          paymentStatus: 'pending',
+          prescriptionId: prescriptionId,
+          email: prescription.email,
+          phone: prescription.phone,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Move OTC items to OTC order
+      for (const item of otcItems) {
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: { orderId: otcOrder.id },
+        });
+      }
+
+      // Move prescription items to prescription order
+      for (const item of prescriptionItems) {
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: { orderId: prescriptionOrder.id },
+        });
+      }
+
+      // Recalculate totals for both orders
+      const { updatedOrder: updatedOtcOrder } = await recalculateOrderTotal(tx, otcOrder.id);
+      const { updatedOrder: updatedPrescriptionOrder } = await recalculateOrderTotal(tx, prescriptionOrder.id);
+
+      // Delete the original mixed order
+      await tx.order.delete({
+        where: { id: cartOrder.id },
+      });
+
+      console.log('Separated orders after prescription upload:', {
+        otcOrderId: updatedOtcOrder.id,
+        prescriptionOrderId: updatedPrescriptionOrder.id,
+        prescriptionId: prescriptionId,
+        medicationIds: medicationIds,
+        email: prescription.email,
+        phone: prescription.phone
+      });
+
+      return {
+        otcOrder: updatedOtcOrder,
+        prescriptionOrder: updatedPrescriptionOrder,
+      };
+    } else if (prescriptionItems.length > 0) {
+      // Only prescription items - update existing order
+      const updatedOrder = await tx.order.update({
+        where: { id: cartOrder.id },
+        data: {
+          prescriptionId: prescriptionId,
+          status: 'pending_prescription',
+          email: prescription.email,
+          phone: prescription.phone,
+          updatedAt: new Date(),
+        },
+      });
+
+      console.log('Updated prescription order:', {
+        orderId: updatedOrder.id,
+        prescriptionId: prescriptionId,
+        medicationIds: medicationIds,
+        email: prescription.email,
+        phone: prescription.phone
+      });
+
+      return updatedOrder;
+    } else {
+      // Only OTC items - this shouldn't happen but handle gracefully
+      throw new Error('No prescription items found in cart');
+    }
+  });
+
+  return result;
 }
 
 module.exports = {
@@ -219,4 +850,11 @@ module.exports = {
   getCart,
   updateCartItem,
   removeFromCart,
+  linkPrescriptionToCart,
+  linkPrescriptionToSpecificOrder,
+  getPrescriptionStatusesForCart,
+  createMixedOrder,
+  handlePrescriptionVerification,
+  cleanupEmptyOrders,
+  checkPrescriptionCoverage,
 };
