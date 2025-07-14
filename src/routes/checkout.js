@@ -1,14 +1,13 @@
 const express = require('express');
-const { upload } = require('../utils/upload');
 const requireConsent = require('../middleware/requireConsent');
 const checkoutService = require('../services/checkoutService');
 const { validateCheckout, validateSessionRetrieve, validateResume } = require('../utils/validation');
 const router = express.Router();
 
-console.log('Loaded checkout.js version: 2025-06-18-v2');
+console.log('Loaded checkout.js version: 2025-06-18-v3');
 
 // POST /checkout - Initiate checkout
-router.post('/', upload.single('prescription'), requireConsent, async (req, res) => {
+router.post('/', requireConsent, async (req, res) => {
   try {
     const { name, email, phone, address, deliveryMethod } = req.body;
     const userId = req.headers['x-guest-id'];
@@ -27,7 +26,6 @@ router.post('/', upload.single('prescription'), requireConsent, async (req, res)
       address,
       deliveryMethod,
       userId,
-      file: req.file,
     });
 
     res.status(200).json(result);
@@ -53,19 +51,6 @@ router.post('/session/retrieve', requireConsent, async (req, res) => {
     res.status(200).json({ guestId });
   } catch (error) {
     console.error('Session retrieval error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// GET /prescription/validate - Validate prescription for medications
-router.get('/prescription/validate', async (req, res) => {
-  try {
-    const { patientIdentifier, medicationIds } = req.query;
-
-    const requiresUpload = await checkoutService.validatePrescription({ patientIdentifier, medicationIds });
-    res.status(200).json({ requiresUpload });
-  } catch (error) {
-    console.error('Prescription validation error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

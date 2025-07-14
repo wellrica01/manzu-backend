@@ -22,7 +22,7 @@ function isValidPhone(phone) {
 }
 
 function isValidOrderReference(reference) {
-  return typeof reference === 'string' && reference.startsWith('order_') && reference.length > 10;
+  return typeof reference === 'string' && (reference.startsWith('order_') || reference.startsWith('session_')) && reference.length > 10;
 }
 
 function isValidBookingReference(reference) {
