@@ -133,7 +133,7 @@ async function verifyPrescription(prescriptionId, status) {
   return updatedPrescription;
 }
 
-async function getGuestOrder({ patientIdentifier, lat, lng, radius }) {
+async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state, lga, ward }) {
   const userLat = parseFloat(lat);
   const userLng = parseFloat(lng);
   const radiusKm = parseFloat(radius);
@@ -209,24 +209,47 @@ async function getGuestOrder({ patientIdentifier, lat, lng, radius }) {
   const medications = await Promise.all(
     prescription.PrescriptionMedication.map(async prescriptionMed => {
       const medication = prescriptionMed.Medication;
-      const availability = await prisma.pharmacyMedication.findMany({
-        where: {
-          medicationId: medication.id,
-          stock: { gte: prescriptionMed.quantity },
-          pharmacy: {
-            status: 'verified',
-            isActive: true,
-            ...(hasValidCoordinates && {
-              id: {
-                in: pharmacyIdsWithDistance.length > 0
-                  ? pharmacyIdsWithDistance.map(p => p.id)
-                  : [-1],
-              },
-            }),
-          },
+      // Build pharmacy filter (like in searchMedications)
+      let pharmacyFilter = {
+        medicationId: medication.id,
+        stock: { gte: prescriptionMed.quantity },
+        pharmacy: {
+          status: 'verified',
+          isActive: true,
         },
+      };
+      if (state) {
+        pharmacyFilter.pharmacy.state = { equals: state, mode: 'insensitive' };
+      }
+      if (lga) {
+        pharmacyFilter.pharmacy.lga = { equals: lga, mode: 'insensitive' };
+      }
+      if (ward) {
+        pharmacyFilter.pharmacy.ward = { equals: ward, mode: 'insensitive' };
+      }
+      if (hasValidCoordinates) {
+        pharmacyFilter.pharmacy.id = {
+          in: pharmacyIdsWithDistance.length > 0
+            ? pharmacyIdsWithDistance.map(p => p.id)
+            : [-1],
+        };
+      }
+      const availability = await prisma.pharmacyMedication.findMany({
+        where: pharmacyFilter,
         include: {
-          pharmacy: { select: { id: true, name: true, address: true } },
+          pharmacy: { select: {
+            id: true,
+            name: true,
+            address: true,
+            phone: true,
+            licenseNumber: true,
+            status: true,
+            isActive: true,
+            ward: true,
+            lga: true,
+            state: true,
+            operatingHours: true,
+          } },
         },
       });
 
@@ -235,6 +258,10 @@ async function getGuestOrder({ patientIdentifier, lat, lng, radius }) {
         displayName: formatDisplayName(medication),
         quantity: prescriptionMed.quantity,
         genericName: medication.genericName,
+        description: medication.description,
+        manufacturer: medication.manufacturer,
+        form: medication.form,
+        dosage: medication.dosage,
         prescriptionRequired: medication.prescriptionRequired,
         nafdacCode: medication.nafdacCode,
         imageUrl: medication.imageUrl,
@@ -242,10 +269,22 @@ async function getGuestOrder({ patientIdentifier, lat, lng, radius }) {
           pharmacyId: avail.pharmacy.id,
           pharmacyName: avail.pharmacy.name,
           address: avail.pharmacy.address,
+          phone: avail.pharmacy.phone || null,
+          licenseNumber: avail.pharmacy.licenseNumber || null,
+          status: avail.pharmacy.status,
+          isActive: avail.pharmacy.isActive,
+          ward: avail.pharmacy.ward,
+          lga: avail.pharmacy.lga,
+          state: avail.pharmacy.state,
+          operatingHours: avail.pharmacy.operatingHours,
+          stock: avail.stock,
           price: avail.price,
+          expiryDate: avail.expiryDate || null,
           distance_km: distanceMap.has(avail.pharmacy.id)
             ? distanceMap.get(avail.pharmacy.id)
             : null,
+          latitude: avail.pharmacy.latitude || null,
+          longitude: avail.pharmacy.longitude || null,
         })),
       };
     })
@@ -329,4 +368,4 @@ async function getPrescriptionStatuses({ patientIdentifier, medicationIds }) {
   }
 }
 
-module.exports = { uploadPrescription, addMedications, verifyPrescription, getGuestOrder, getPrescriptionStatuses };
+module.exports = { uploadPrescription, addMedications, verifyPrescription, getPrescriptionOrder, getPrescriptionStatuses };

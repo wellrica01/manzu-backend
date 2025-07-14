@@ -14,6 +14,7 @@ async function trackOrders(trackingCode) {
     select: {
       id: true,
       patientIdentifier: true,
+      name: true,
       totalPrice: true,
       address: true,
       deliveryMethod: true,
@@ -80,6 +81,7 @@ async function trackOrders(trackingCode) {
     message: 'Orders found',
     orders: orders.map(order => ({
       id: order.id,
+      name: order.name,
       patientIdentifier: order.patientIdentifier,
       totalPrice: order.totalPrice,
       address: order.address,

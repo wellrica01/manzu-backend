@@ -277,6 +277,12 @@ async function confirmOrder({ reference, session, userId }) {
           id: pharmacyId,
           name: order.pharmacy?.name || 'Unknown',
           address: order.pharmacy?.address || '',
+          logoUrl: order.pharmacy?.logoUrl || '',
+          phone: order.pharmacy?.phone || '',
+          operatingHours: order.pharmacy?.operatingHours || '',
+          ward: order.pharmacy?.ward || '',
+          lga: order.pharmacy?.lga || '',
+          state: order.pharmacy?.state || '',
         },
         orders: [],
         subtotal: 0,
@@ -284,6 +290,7 @@ async function confirmOrder({ reference, session, userId }) {
     }
     acc[pharmacyId].orders.push({
       id: order.id,
+      name: order.name,
       totalPrice: order.totalPrice,
       status: order.status,
       deliveryMethod: order.deliveryMethod,

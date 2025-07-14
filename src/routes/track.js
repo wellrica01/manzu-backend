@@ -21,6 +21,9 @@ router.get('/', async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Track error:', { message: error.message, stack: error.stack });
+    if (error.message === 'Orders not found or not ready for tracking') {
+      return res.status(404).json({ message: error.message });
+    }
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

@@ -113,6 +113,7 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
           status: orderStatus,
           deliveryMethod,
           address: deliveryMethod === 'delivery' ? address : null,
+          name,
           email,
           phone: normalizedPhone,
           totalPrice,

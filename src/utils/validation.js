@@ -380,7 +380,8 @@ function validateVerifyPrescription(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
-function validateGuestOrder(data) {
+// Rename validateGuestOrder to validatePrescriptionOrder
+function validatePrescriptionOrder(data) {
   const schema = Joi.object({
     patientIdentifier: Joi.string().required(),
     lat: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
@@ -554,7 +555,7 @@ module.exports = {
   validatePrescriptionUpload,
   validateAddMedications,
   validateVerifyPrescription,
-  validateGuestOrder,
+  validatePrescriptionOrder,
   validateTestOrderUpload,
   validateAddTest,
   validateVerifyTestOrder,

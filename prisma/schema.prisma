@@ -98,6 +98,7 @@ model Order {
   paymentReference  String?       @unique
   paymentStatus     PaymentStatus @default(pending)
   checkoutSessionId String?       @db.VarChar
+  name              String?
   pharmacy          Pharmacy?     @relation(fields: [pharmacyId], references: [id], onDelete: Restrict)
   prescription      Prescription? @relation(fields: [prescriptionId], references: [id])
   items             OrderItem[]

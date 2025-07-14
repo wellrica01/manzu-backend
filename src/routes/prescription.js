@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const prescriptionService = require('../services/prescriptionService');
-const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validateGuestOrder } = require('../utils/validation');
+const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validatePrescriptionOrder } = require('../utils/validation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
@@ -109,23 +109,29 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
   }
 });
 
-// GET /prescription/guest-order/:patientIdentifier - Retrieve guest order details
-router.get('/guest-med/:patientIdentifier', requireConsent, async (req, res) => {
+// GET /prescriptions/:patientIdentifier - Retrieve prescription order details (for guest or user)
+router.get('/prescriptions/:patientIdentifier', requireConsent, async (req, res) => {
   try {
     const { patientIdentifier } = req.params;
-    const { lat, lng, radius } = req.query;
+    const { lat, lng, radius, state, lga, ward } = req.query;
 
     // Validate input
-    const { error, value } = validateGuestOrder({ patientIdentifier, lat, lng, radius });
+    const { error, value } = validatePrescriptionOrder({ patientIdentifier, lat, lng, radius });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    const result = await prescriptionService.getGuestOrder(value);
+    // Pass all filters to the service
+    const result = await prescriptionService.getPrescriptionOrder({
+      ...value,
+      state,
+      lga,
+      ward,
+    });
     res.status(200).json(result);
   } catch (error) {
-    console.error('Guest order retrieval error:', { message: error.message });
+    console.error('Prescription order retrieval error:', { message: error.message });
     const statusCode = error.message.includes('Prescription not found') || 
                       error.message.includes('Invalid latitude or longitude') ? 400 : 500;
     res.status(statusCode).json({ message: error.message });

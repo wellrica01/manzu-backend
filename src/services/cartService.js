@@ -39,15 +39,53 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
     },
   });
 
+  // --- NEW LOGIC: Check for verified prescription for this user/medication ---
+  let verifiedPrescription = null;
+  if (medication.prescriptionRequired) {
+    verifiedPrescription = await prisma.prescription.findFirst({
+      where: {
+        patientIdentifier: userId,
+        status: 'verified',
+        PrescriptionMedication: {
+          some: { medicationId: medicationId }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  // --- END NEW LOGIC ---
+
   // Determine which order to use based on medication type
   let targetOrder;
-  
   if (medication.prescriptionRequired) {
-    // Prescription medication - check if existing prescription covers this medication
-    if (prescriptionOrder) {
+    // If verified prescription exists, create order with status 'pending' and link prescriptionId
+    if (verifiedPrescription) {
+      // Check if a 'pending' order with this prescription already exists
+      let pendingOrder = await prisma.order.findFirst({
+        where: {
+          patientIdentifier: userId,
+          status: 'pending',
+          prescriptionId: verifiedPrescription.id,
+        },
+      });
+      if (!pendingOrder) {
+        pendingOrder = await prisma.order.create({
+          data: {
+            patientIdentifier: userId,
+            status: 'pending',
+            totalPrice: 0,
+            deliveryMethod: 'unspecified',
+            paymentStatus: 'pending',
+            prescriptionId: verifiedPrescription.id,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      }
+      targetOrder = pendingOrder;
+    } else if (prescriptionOrder) {
       // Check if the existing prescription covers this medication
       const isCovered = await checkPrescriptionCoverage(prescriptionOrder.prescriptionId, medicationId);
-      
       if (isCovered) {
         // Medication is covered by existing prescription - add to prescription order
         targetOrder = prescriptionOrder;
@@ -88,17 +126,17 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
     // OTC medication - always use cart order
     if (!cartOrder) {
       cartOrder = await prisma.order.create({
-      data: {
-        patientIdentifier: userId,
-        status: 'cart',
-        totalPrice: 0,
-        deliveryMethod: 'unspecified',
-        paymentStatus: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    });
-  }
+        data: {
+          patientIdentifier: userId,
+          status: 'cart',
+          totalPrice: 0,
+          deliveryMethod: 'unspecified',
+          paymentStatus: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    }
     targetOrder = cartOrder;
   }
 
