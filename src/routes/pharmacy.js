@@ -175,4 +175,50 @@ router.post('/notifications/register', authenticate, async (req, res) => {
   }
 });
 
+// GET /pharmacy/profile - Get pharmacy profile details
+router.get('/profile', authenticate, async (req, res) => {
+  try {
+    const { userId, pharmacyId } = req.user;
+    const { user, pharmacy } = await pharmacyService.getProfile(userId, pharmacyId);
+    res.status(200).json({
+      message: 'Profile fetched successfully',
+      user,
+      pharmacy,
+    });
+  } catch (error) {
+    console.error('Fetch profile error:', { message: error.message, stack: error.stack });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message || 'Server error', error: error.message });
+  }
+});
+
+// PATCH /pharmacy/profile - Edit pharmacy profile (manager only)
+router.patch('/profile', authenticate, authenticateManager, async (req, res) => {
+  try {
+    const { user, pharmacy } = require('../utils/adminValidation').editProfileSchema.parse(req.body);
+    const { userId, pharmacyId } = req.user;
+    const { updatedUser, updatedPharmacy } = await pharmacyService.editProfile({ user, pharmacy }, userId, pharmacyId);
+    res.status(200).json({
+      message: 'Profile updated successfully',
+      user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role },
+      pharmacy: {
+        id: updatedPharmacy.id,
+        name: updatedPharmacy.name,
+        address: updatedPharmacy.address,
+        lga: updatedPharmacy.lga,
+        state: updatedPharmacy.state,
+        ward: updatedPharmacy.ward,
+        phone: updatedPharmacy.phone,
+        licenseNumber: updatedPharmacy.licenseNumber,
+        logoUrl: updatedPharmacy.logoUrl,
+      },
+    });
+  } catch (error) {
+    console.error('Edit profile error:', { message: error.message, stack: error.stack });
+    if (error instanceof require('zod').ZodError) {
+      return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    }
+    res.status(error.status === 400 ? 400 : 500).json({ message: error.message || 'Server error', error: error.message });
+  }
+});
+
 module.exports = router;

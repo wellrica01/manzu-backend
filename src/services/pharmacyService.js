@@ -1,5 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { validateLocation } = require('../utils/location');
+const { ZodError } = require('zod');
 
 async function fetchOrders(pharmacyId) {
   const orders = await prisma.order.findMany({
@@ -15,6 +17,7 @@ async function fetchOrders(pharmacyId) {
     },
     select: {
       id: true,
+      name: true,
       createdAt: true,
       trackingCode: true,
       patientIdentifier: true,
@@ -22,6 +25,13 @@ async function fetchOrders(pharmacyId) {
       address: true,
       status: true,
       totalPrice: true,
+      prescription: {
+        select: {
+          id: true,
+          fileUrl: true,
+          status: true,
+        },
+      },
       items: {
         select: {
           id: true,
@@ -41,6 +51,7 @@ async function fetchOrders(pharmacyId) {
 
   return orders.map(order => ({
     id: order.id,
+    name: order.name,
     createdAt: order.createdAt,
     trackingCode: order.trackingCode,
     patientIdentifier: order.patientIdentifier,
@@ -48,6 +59,13 @@ async function fetchOrders(pharmacyId) {
     address: order.address,
     status: order.status,
     totalPrice: order.totalPrice,
+    prescription: order.prescription
+      ? {
+          id: order.prescription.id,
+          fileUrl: order.prescription.fileUrl,
+          status: order.prescription.status,
+        }
+      : null,
     items: order.items
       .filter(item => item.pharmacyMedication.pharmacyId === pharmacyId)
       .map(item => ({
@@ -108,6 +126,8 @@ async function fetchMedications(pharmacyId) {
       name: m.medication.name,
       stock: m.stock,
       price: m.price,
+      expiryDate: m.expiryDate,
+      receivedDate: m.receivedDate,
     })),
     availableMedications: allMedications.map(m => ({
       id: m.id,
@@ -212,6 +232,82 @@ async function registerDevice(pharmacyId, deviceToken) {
   console.log('Device registered:', { pharmacyId });
 }
 
+async function getProfile(userId, pharmacyId) {
+  const user = await prisma.pharmacyUser.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true, role: true },
+  });
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = 404;
+    throw error;
+  }
+
+  const pharmacy = await prisma.pharmacy.findUnique({
+    where: { id: pharmacyId },
+    select: { id: true, name: true, address: true, lga: true, state: true, ward: true, phone: true, licenseNumber: true, status: true, logoUrl: true },
+  });
+  if (!pharmacy) {
+    const error = new Error('Pharmacy not found');
+    error.status = 404;
+    throw error;
+  }
+
+  console.log('Profile fetched:', { userId, pharmacyId });
+
+  return { user, pharmacy };
+}
+
+async function editProfile({ user, pharmacy }, userId, pharmacyId) {
+  validateLocation(pharmacy.state, pharmacy.lga, pharmacy.ward, pharmacy.latitude, pharmacy.longitude);
+
+  const existingUser = await prisma.pharmacyUser.findUnique({
+    where: { id: userId },
+  });
+  if (user.email !== existingUser.email) {
+    const emailConflict = await prisma.pharmacyUser.findUnique({
+      where: { email: user.email },
+    });
+    if (emailConflict) {
+      const error = new Error('Email already registered');
+      error.status = 400;
+      throw error;
+    }
+  }
+
+  const result = await prisma.$transaction(async (prisma) => {
+    const updatedUser = await prisma.pharmacyUser.update({
+      where: { id: userId },
+      data: { name: user.name, email: user.email },
+    });
+
+    const updatedPharmacy = await prisma.pharmacy.update({
+      where: { id: pharmacyId },
+      data: {
+        name: pharmacy.name,
+        address: pharmacy.address,
+        lga: pharmacy.lga,
+        state: pharmacy.state,
+        ward: pharmacy.ward,
+        phone: pharmacy.phone,
+        logoUrl: pharmacy.logoUrl || null,
+      },
+    });
+
+    await prisma.$queryRaw`
+      UPDATE "Pharmacy"
+      SET location = ST_SetSRID(ST_MakePoint(${pharmacy.longitude}, ${pharmacy.latitude}), 4326)
+      WHERE id = ${pharmacyId}
+    `;
+
+    return { user: updatedUser, pharmacy: updatedPharmacy };
+  });
+
+  console.log('Profile updated:', { userId, pharmacyId });
+
+  return { updatedUser: result.user, updatedPharmacy: result.pharmacy };
+}
+
 module.exports = {
   fetchOrders,
   updateOrderStatus,
@@ -221,4 +317,6 @@ module.exports = {
   deleteMedication,
   fetchUsers,
   registerDevice,
+  getProfile,
+  editProfile,
 };

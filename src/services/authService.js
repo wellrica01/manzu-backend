@@ -435,32 +435,6 @@ async function deleteLabUser(userId, managerId, labId) {
   console.log('Lab user deleted:', { userId, labId });
 }
 
-async function getProfile(userId, pharmacyId) {
-  const user = await prisma.pharmacyUser.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true, email: true, role: true },
-  });
-  if (!user) {
-    const error = new Error('User not found');
-    error.status = 404;
-    throw error;
-  }
-
-  const pharmacy = await prisma.pharmacy.findUnique({
-    where: { id: pharmacyId },
-    select: { id: true, name: true, address: true, lga: true, state: true, ward: true, phone: true, licenseNumber: true, status: true, logoUrl: true },
-  });
-  if (!pharmacy) {
-    const error = new Error('Pharmacy not found');
-    error.status = 404;
-    throw error;
-  }
-
-  console.log('Profile fetched:', { userId, pharmacyId });
-
-  return { user, pharmacy };
-}
-
 async function getLabProfile(userId, labId) {
   const user = await prisma.labUser.findUnique({
     where: { id: userId },
@@ -485,56 +459,6 @@ async function getLabProfile(userId, labId) {
   console.log('Lab profile fetched:', { userId, labId });
 
   return { user, lab };
-}
-
-async function editProfile({ user, pharmacy }, userId, pharmacyId) {
-  validateLocation(pharmacy.state, pharmacy.lga, pharmacy.ward, pharmacy.latitude, pharmacy.longitude);
-
-  const existingUser = await prisma.pharmacyUser.findUnique({
-    where: { id: userId },
-  });
-  if (user.email !== existingUser.email) {
-    const emailConflict = await prisma.pharmacyUser.findUnique({
-      where: { email: user.email },
-    });
-    if (emailConflict) {
-      const error = new Error('Email already registered');
-      error.status = 400;
-      throw error;
-    }
-  }
-
-  const result = await prisma.$transaction(async (prisma) => {
-    const updatedUser = await prisma.pharmacyUser.update({
-      where: { id: userId },
-      data: { name: user.name, email: user.email },
-    });
-
-    const updatedPharmacy = await prisma.pharmacy.update({
-      where: { id: pharmacyId },
-      data: {
-        name: pharmacy.name,
-        address: pharmacy.address,
-        lga: pharmacy.lga,
-        state: pharmacy.state,
-        ward: pharmacy.ward,
-        phone: pharmacy.phone,
-        logoUrl: pharmacy.logoUrl || null,
-      },
-    });
-
-    await prisma.$queryRaw`
-      UPDATE "Pharmacy"
-      SET location = ST_SetSRID(ST_MakePoint(${pharmacy.longitude}, ${pharmacy.latitude}), 4326)
-      WHERE id = ${pharmacyId}
-    `;
-
-    return { user: updatedUser, pharmacy: updatedPharmacy };
-  });
-
-  console.log('Profile updated:', { userId, pharmacyId });
-
-  return { updatedUser: result.user, updatedPharmacy: result.pharmacy };
 }
 
 async function editLabProfile({ user, lab }, userId, labId) {
@@ -587,6 +511,21 @@ async function editLabProfile({ user, lab }, userId, labId) {
   return { updatedUser: result.user, updatedLab: result.lab };
 }
 
+async function changePharmacyUserPassword(userId, currentPassword, newPassword) {
+  const user = await prisma.pharmacyUser.findUnique({ where: { id: userId } });
+  if (!user) {
+    return { success: false, message: 'User not found' };
+  }
+  const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+  if (!isPasswordValid) {
+    return { success: false, message: 'Current password is incorrect' };
+  }
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
+  await prisma.pharmacyUser.update({ where: { id: userId }, data: { password: hashedPassword } });
+  return { success: true };
+}
+
 module.exports = {
   registerPharmacyAndUser,
   registerLabAndUser,
@@ -600,8 +539,5 @@ module.exports = {
   editLabUser,
   deletePharmacyUser,
   deleteLabUser,
-  getProfile,
-  getLabProfile,
-  editProfile,
-  editLabProfile,
+  changePharmacyUserPassword,
 };
