@@ -11,10 +11,16 @@ const express = require('express');
      const consentRoutes = require('./routes/consent');
      require('./jobs/cron');
      require('dotenv').config();
+     console.log("oPENCAGE:", process.env.OPENCAGE_API_KEY);
      const app = express();
      const cors = require('cors');
 
-     app.use(cors());
+     // Allow all origins for development (Expo/React Native mobile testing)
+     const corsOptions = {
+       origin: true, // ⚠️ Allow all origins for development only. Restrict in production!
+       credentials: true,
+     };
+     app.use(cors(corsOptions));
      app.use(express.json());
      app.use('/uploads', express.static('uploads'));
      app.use('/api', medicationRoutes);

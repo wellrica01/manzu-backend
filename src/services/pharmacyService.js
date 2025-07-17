@@ -3,7 +3,24 @@ const prisma = new PrismaClient();
 const { validateLocation } = require('../utils/location');
 const { ZodError } = require('zod');
 
-async function fetchOrders(pharmacyId) {
+async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
+  const skip = (page - 1) * limit;
+  // Get total count
+  const total = await prisma.order.count({
+    where: {
+      items: {
+        some: {
+          pharmacyMedication: {
+            pharmacyId,
+          },
+        },
+      },
+      status: { 
+        notIn: ['cart', 'pending', 'pending_prescription'] 
+      },
+    },
+  });
+  // Get paginated orders
   const orders = await prisma.order.findMany({
     where: {
       items: {
@@ -13,7 +30,9 @@ async function fetchOrders(pharmacyId) {
           },
         },
       },
-      status: { not: 'cart' },
+      status: { 
+        notIn: ['cart', 'pending', 'pending_prescription'] 
+      },
     },
     select: {
       id: true,
@@ -47,38 +66,44 @@ async function fetchOrders(pharmacyId) {
         },
       },
     },
+    orderBy: { createdAt: 'desc' },
+    skip,
+    take: limit,
   });
 
-  return orders.map(order => ({
-    id: order.id,
-    name: order.name,
-    createdAt: order.createdAt,
-    trackingCode: order.trackingCode,
-    patientIdentifier: order.patientIdentifier,
-    deliveryMethod: order.deliveryMethod,
-    address: order.address,
-    status: order.status,
-    totalPrice: order.totalPrice,
-    prescription: order.prescription
-      ? {
-          id: order.prescription.id,
-          fileUrl: order.prescription.fileUrl,
-          status: order.prescription.status,
-        }
-      : null,
-    items: order.items
-      .filter(item => item.pharmacyMedication.pharmacyId === pharmacyId)
-      .map(item => ({
-        id: item.id,
-        medication: { name: item.pharmacyMedication.medication.name },
-        pharmacy: {
-          name: item.pharmacyMedication.pharmacy.name,
-          address: item.pharmacyMedication.pharmacy.address,
-        },
-        quantity: item.quantity,
-        price: item.price,
-      })),
-  }));
+  return {
+    orders: orders.map(order => ({
+      id: order.id,
+      name: order.name,
+      createdAt: order.createdAt,
+      trackingCode: order.trackingCode,
+      patientIdentifier: order.patientIdentifier,
+      deliveryMethod: order.deliveryMethod,
+      address: order.address,
+      status: order.status,
+      totalPrice: order.totalPrice,
+      prescription: order.prescription
+        ? {
+            id: order.prescription.id,
+            fileUrl: order.prescription.fileUrl,
+            status: order.prescription.status,
+          }
+        : null,
+      items: order.items
+        .filter(item => item.pharmacyMedication.pharmacyId === pharmacyId)
+        .map(item => ({
+          id: item.id,
+          medication: { name: item.pharmacyMedication.medication.name },
+          pharmacy: {
+            name: item.pharmacyMedication.pharmacy.name,
+            address: item.pharmacyMedication.pharmacy.address,
+          },
+          quantity: item.quantity,
+          price: item.price,
+        })),
+    })),
+    total,
+  };
 }
 
 async function updateOrderStatus(orderId, status, pharmacyId) {
@@ -308,6 +333,53 @@ async function editProfile({ user, pharmacy }, userId, pharmacyId) {
   return { updatedUser: result.user, updatedPharmacy: result.pharmacy };
 }
 
+async function getDashboardData(pharmacyId) {
+  // Orders placed today
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
+  // Orders today - only count orders with status confirmed and above
+  const ordersToday = await prisma.order.count({
+    where: {
+      items: { some: { pharmacyMedication: { pharmacyId } } },
+      status: { 
+        notIn: ['cart', 'pending', 'pending_prescription'] 
+      },
+      createdAt: { gte: startOfDay, lte: endOfDay },
+    },
+  });
+
+  // Pending orders - count confirmed orders (shown as pending in UI)
+  const pendingOrders = await prisma.order.count({
+    where: {
+      items: { some: { pharmacyMedication: { pharmacyId } } },
+      status: 'confirmed',
+    },
+  });
+
+  // Inventory alerts (stock < 10)
+  const inventoryAlerts = await prisma.pharmacyMedication.count({
+    where: { pharmacyId, stock: { lt: 10 } },
+  });
+
+  // Revenue today - only count orders with status confirmed and above
+  const revenueTodayResult = await prisma.order.aggregate({
+    _sum: { totalPrice: true },
+    where: {
+      items: { some: { pharmacyMedication: { pharmacyId } } },
+      status: { 
+        notIn: ['cart', 'pending', 'pending_prescription'] 
+      },
+      createdAt: { gte: startOfDay, lte: endOfDay },
+    },
+  });
+  const revenueToday = revenueTodayResult._sum.totalPrice || 0;
+
+  return { ordersToday, pendingOrders, inventoryAlerts, revenueToday };
+}
+
 module.exports = {
   fetchOrders,
   updateOrderStatus,
@@ -319,4 +391,5 @@ module.exports = {
   registerDevice,
   getProfile,
   editProfile,
+  getDashboardData,
 };

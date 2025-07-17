@@ -8,50 +8,60 @@ const geocoder = NodeGeocoder({
 });
 
 async function getDashboardOverview() {
-  const [pharmacyCount, labCount, medicationCount, testCount, prescriptionCount, orderCount, bookingCount, userCount, labUserCount, pendingPrescriptions, pendingBookings, verifiedPharmacies, verifiedLabs, recentOrders, recentBookings] = await prisma.$transaction([
+  const [
+    pharmacyCount,
+    medicationCount,
+    prescriptionCount,
+    userCount,
+    pendingPrescriptions,
+    verifiedPharmaciesCount,
+    orderCount,
+    recentOrders
+  ] = await prisma.$transaction([
     prisma.pharmacy.count(),
-    prisma.lab.count(),
     prisma.medication.count(),
-    prisma.test.count(),
     prisma.prescription.count(),
-    prisma.booking.count(),
-    prisma.pharmacyUser.count(),
-    prisma.labUser.count(),
+    prisma.pharmacyUser.count(), // ← userCount now correctly placed
     prisma.prescription.count({ where: { status: 'pending' } }),
-    prisma.booking.count({ where: { status: 'pending' } }),
     prisma.pharmacy.count({ where: { status: 'verified' } }),
-    prisma.lab.count({ where: { status: 'verified' } }),
+    prisma.order.count(), // ← This was missing!
     prisma.order.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },
-      select: { id: true, trackingCode: true, patientIdentifier: true, totalPrice: true, status: true, createdAt: true },
-    }),
-    prisma.booking.findMany({
-      take: 5,
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, trackingCode: true, patientIdentifier: true, totalPrice: true, status: true, createdAt: true },
-    }),
+      select: {
+        id: true,
+        trackingCode: true,
+        patientIdentifier: true,
+        totalPrice: true,
+        status: true,
+        createdAt: true
+      }
+    })
   ]);
+
   const summary = {
-    pharmacies: { total: pharmacyCount, verified: verifiedPharmacies },
-    labs: { total: labCount, verified: verifiedLabs },
+    pharmacies: { total: pharmacyCount, verified: verifiedPharmaciesCount },
     medications: { total: medicationCount },
-    tests: { total: testCount },
     prescriptions: { total: prescriptionCount, pending: pendingPrescriptions },
-    bookings: { total: bookingCount, pending: pendingBookings },
-    users: { total: userCount + labUserCount },
-    orders: { total: orderCount, recent: recentOrders },
-    bookings: { total: bookingCount, recent: recentBookings },
+    users: { total: userCount },
+    orders: { total: orderCount, recent: recentOrders }
   };
-  console.log('Dashboard data fetched:', summary);
+
+  console.log('Dashboard summary:', summary);
   return summary;
 }
 
-async function getPharmacies({ page = 1, limit = 10 }) {
+
+async function getPharmacies({ page = 1, limit = 10, status, state, name }) {
   const skip = (page - 1) * limit;
+  const where = {};
+  if (status && status !== "all") where.status = status;
+  if (state) where.state = state;
+  if (name) where.name = { contains: name, mode: "insensitive" };
 
   const [pharmacies, total] = await prisma.$transaction([
     prisma.pharmacy.findMany({
+      where,
       select: {
         id: true,
         name: true,
@@ -69,46 +79,11 @@ async function getPharmacies({ page = 1, limit = 10 }) {
       take: limit,
       skip,
     }),
-    prisma.pharmacy.count(),
+    prisma.pharmacy.count({ where }),
   ]);
 
   return {
     pharmacies,
-    pagination: {
-      page,
-      limit,
-      total,
-      pages: Math.ceil(total / limit),
-    },
-  };
-}
-
-async function getLabs({ page = 1, limit = 10 }) {
-  const skip = (page - 1) * limit;
-
-  const [labs, total] = await prisma.$transaction([
-    prisma.lab.findMany({
-      select: {
-        id: true,
-        name: true,
-        address: true,
-        lga: true,
-        state: true,
-        phone: true,
-        status: true,
-        logoUrl: true,
-        isActive: true,
-        createdAt: true,
-        verifiedAt: true,
-      },
-      take: limit,
-      skip,
-    }),
-    prisma.lab.count(),
-  ]);
-
-  return {
-    labs,
     pagination: {
       page,
       limit,
@@ -127,17 +102,6 @@ async function getSimplePharmacies() {
   });
   console.log('Pharmacies fetched for filter:', { count: simplePharmacies.length });
   return simplePharmacies;
-}
-
-async function getSimpleLabs() {
-  const simpleLabs = await prisma.lab.findMany({
-    select: {
-      id: true,
-      name: true,
-    },
-  });
-  console.log('Labs fetched for filter:', { count: simpleLabs.length });
-  return simpleLabs;
 }
 
 async function getPharmacy(id) {
@@ -167,31 +131,6 @@ async function getPharmacy(id) {
   return pharmacy;
 }
 
-async function getLab(id) {
-  const lab = await prisma.lab.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      address: true,
-      lga: true,
-      state: true,
-      phone: true,
-      status: true,
-      logoUrl: true,
-      isActive: true,
-      createdAt: true,
-      verifiedAt: true,
-    },
-  });
-  if (!lab) {
-    const error = new Error('Lab not found');
-    error.status = 404;
-    throw error;
-  }
-  console.log('Lab fetched:', { labId: id });
-  return lab;
-}
 
 async function updatePharmacy(id, data) {
   const existingPharmacy = await prisma.pharmacy.findUnique({
@@ -260,60 +199,6 @@ async function updatePharmacy(id, data) {
   };
 }
 
-async function updateLab(id, data) {
-  const existingLab = await prisma.lab.findUnique({
-    where: { id },
-  });
-  if (!existingLab) {
-    const error = new Error('Lab not found');
-    error.status = 404;
-    throw error;
-  }
-  const addressString = `${data.address}, ${data.lga}, ${data.state}, Nigeria`;
-  const geoResult = await geocoder.geocode(addressString);
-  if (!geoResult.length) {
-    const error = new Error('Invalid address: unable to geocode');
-    error.status = 400;
-    throw error;
-  }
-  const { latitude, longitude } = geoResult[0];
-  const updatedLab = await prisma.$transaction(async (prisma) => {
-    const lab = await prisma.lab.update({
-      where: { id },
-      data: {
-        name: data.name,
-        address: data.address,
-        lga: data.lga,
-        state: data.state,
-        phone: data.phone,
-        status: data.status,
-        logoUrl: data.logoUrl,
-        isActive: data.isActive,
-        verifiedAt: data.status === 'verified' ? new Date() : data.status === 'rejected' ? null : existingLab.verifiedAt,
-      },
-    });
-    await prisma.$queryRaw`
-      UPDATE "Lab"
-      SET location = ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)
-      WHERE id = ${id}
-    `;
-    return lab;
-  });
-  console.log('Lab updated:', { labId: id });
-  return {
-    id: updatedLab.id,
-    name: updatedLab.name,
-    address: updatedLab.address,
-    lga: updatedLab.lga,
-    state: updatedLab.state,
-    phone: updatedLab.phone,
-    status: updatedLab.status,
-    logoUrl: updatedLab.logoUrl,
-    isActive: updatedLab.isActive,
-    createdAt: updatedLab.createdAt,
-    verifiedAt: updatedLab.verifiedAt,
-  };
-}
 
 async function deletePharmacy(id) {
   const existingPharmacy = await prisma.pharmacy.findUnique({
@@ -330,20 +215,6 @@ async function deletePharmacy(id) {
   console.log('Pharmacy deleted:', { pharmacyId: id });
 }
 
-async function deleteLab(id) {
-  const existingLab = await prisma.lab.findUnique({
-    where: { id },
-  });
-  if (!existingLab) {
-    const error = new Error('Lab not found');
-    error.status = 404;
-    throw error;
-  }
-  await prisma.lab.delete({
-    where: { id },
-  });
-  console.log('Lab deleted:', { labId: id });
-}
 
 async function getMedications({ page, limit, name, genericName, category, prescriptionRequired, pharmacyId }) {
   const skip = (page - 1) * limit;
@@ -389,40 +260,6 @@ async function getMedications({ page, limit, name, genericName, category, prescr
   };
 }
 
-async function getTests({ page, limit, name, orderRequired, labId }) {
-  const skip = (page - 1) * limit;
-  const where = {};
-  if (name) where.name = { contains: name, mode: 'insensitive' };
-  if (orderRequired !== undefined) where.orderRequired = orderRequired;
-  if (labId) where.labTests = { some: { labId } };
-  const [tests, total] = await prisma.$transaction([
-    prisma.test.findMany({
-      where,
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        orderRequired: true,
-        imageUrl: true,
-        createdAt: true,
-        labTests: {
-          select: {
-            price: true,
-            lab: { select: { id: true, name: true } },
-          },
-        },
-      },
-      take: limit,
-      skip,
-    }),
-    prisma.test.count({ where }),
-  ]);
-  console.log('Tests fetched:', { count: tests.length, total });
-  return {
-    tests,
-    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-  };
-}
 
 async function getMedication(id) {
   const medication = await prisma.medication.findUnique({
@@ -458,33 +295,6 @@ async function getMedication(id) {
   return medication;
 }
 
-async function getTest(id) {
-  const test = await prisma.test.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      orderRequired: true,
-      imageUrl: true,
-      createdAt: true,
-      labTests: {
-        select: {
-          price: true,
-          lab: { select: { id: true, name: true } },
-        },
-      },
-    },
-  });
-  if (!test) {
-    const error = new Error('Test not found');
-    error.status = 404;
-    throw error;
-  }
-  console.log('Test fetched:', { testId: id });
-  return test;
-}
-
 async function createMedication(data) {
   const medication = await prisma.medication.create({
     data: {
@@ -510,24 +320,6 @@ async function createMedication(data) {
   return medication;
 }
 
-async function createTest(data) {
-  const test = await prisma.test.create({
-    data: {
-      ...data,
-      createdAt: new Date(),
-    },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      orderRequired: true,
-      imageUrl: true,
-      createdAt: true,
-    },
-  });
-  console.log('Test created:', { testId: test.id });
-  return test;
-}
 
 async function updateMedication(id, data) {
   try {
@@ -568,37 +360,6 @@ async function updateMedication(id, data) {
   }
 }
 
-async function updateTest(id, data) {
-  try {
-    const test = await prisma.test.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        orderRequired: true,
-        imageUrl: true,
-        createdAt: true,
-        labTests: {
-          select: {
-            price: true,
-            lab: { select: { id: true, name: true } },
-          },
-        },
-      },
-    });
-    console.log('Test updated:', { testId: id });
-    return test;
-  } catch (error) {
-    if (error.code === 'P2025') {
-      const err = new Error('Test not found');
-      err.status = 404;
-      throw err;
-    }
-    throw error;
-  }
-}
 
 async function deleteMedication(id) {
   try {
@@ -624,29 +385,6 @@ async function deleteMedication(id) {
   }
 }
 
-async function deleteTest(id) {
-  try {
-    await prisma.$transaction(async (prisma) => {
-      await prisma.bookingItem.deleteMany({
-        where: { labTestTestId: id },
-      });
-      await prisma.labTest.deleteMany({
-        where: { testId: id },
-      });
-      await prisma.test.delete({
-        where: { id },
-      });
-    });
-    console.log('Test, related LabTest, and BookingItem records deleted:', { testId: id });
-  } catch (error) {
-    if (error.code === 'P2025') {
-      const err = new Error('Test not found');
-      err.status = 404;
-      throw err;
-    }
-    throw error;
-  }
-}
 
 async function getPrescriptions({ page, limit, status, patientIdentifier }) {
   const skip = (page - 1) * limit;
@@ -797,82 +535,6 @@ async function getOrder(id) {
   return order;
 }
 
-async function getBookings({ page, limit, status, patientIdentifier }) {
-  const skip = (page - 1) * limit;
-  const where = {};
-  if (status) where.status = status;
-  if (patientIdentifier) where.patientIdentifier = { contains: patientIdentifier, mode: 'insensitive' };
-  const [bookings, total] = await prisma.$transaction([
-    prisma.booking.findMany({
-      where,
-      select: {
-        id: true,
-        patientIdentifier: true,
-        status: true,
-        totalPrice: true,
-        createdAt: true,
-      },
-      take: limit,
-      skip,
-    }),
-    prisma.booking.count({ where }),
-  ]);
-  console.log('Bookings fetched:', { count: bookings.length, total });
-  return {
-    bookings,
-    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-  };
-}
-
-async function getBooking(id) {
-  const booking = await prisma.booking.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      patientIdentifier: true,
-      status: true,
-      totalPrice: true,
-      deliveryMethod: true,
-      address: true,
-      email: true,
-      phone: true,
-      trackingCode: true,
-      cancelledAt: true,
-      cancelReason: true,
-      paymentReference: true,
-      paymentStatus: true,
-      createdAt: true,
-      updatedAt: true,
-      lab: {
-        select: { id: true, name: true },
-      },
-      items: {
-        select: {
-          labTest: {
-            select: {
-              test: {
-                select: { id: true, name: true },
-              },
-              lab: {
-                select: { id: true, name: true },
-              },
-            },
-          },
-          quantity: true,
-          price: true,
-        },
-      },
-    },
-  });
-  if (!booking) {
-    const error = new Error('Booking not found');
-    error.status = 404;
-    throw error;
-  }
-  console.log('Booking fetched:', { bookingId: id });
-  return booking;
-}
-
 async function getAdminUsers({ page, limit, role, email }) {
   const skip = (page - 1) * limit;
   const where = {};
@@ -975,93 +637,25 @@ async function getPharmacyUser(id) {
   return user;
 }
 
-async function getLabUsers({ page, limit, role, email, labId }) {
-  const skip = (page - 1) * limit;
-  const where = {};
-  if (role) where.role = role;
-  if (email) where.email = { contains: email, mode: 'insensitive' };
-  if (labId) where.labId = labId;
-  const [users, total] = await prisma.$transaction([
-    prisma.labUser.findMany({
-      where,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        lab: {
-          select: { id: true, name: true },
-        },
-      },
-      take: limit,
-      skip,
-    }),
-    prisma.labUser.count({ where }),
-  ]);
-  console.log('Lab users fetched:', { count: users.length, total });
-  return {
-    users,
-    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-  };
-}
-
-async function getLabUser(id) {
-  const user = await prisma.labUser.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      createdAt: true,
-      lastLogin: true,
-      lab: {
-        select: { id: true, name: true },
-      },
-    },
-  });
-  if (!user) {
-    const error = new Error('Lab user not found');
-    error.status = 404;
-    throw error;
-  }
-  console.log('Lab user fetched:', { userId: id });
-  return user;
-}
 
 module.exports = {
   getDashboardOverview,
   getPharmacies,
-  getLabs,
   getSimplePharmacies,
-  getSimpleLabs,
   getPharmacy,
-  getLab,
   updatePharmacy,
-  updateLab,
   deletePharmacy,
-  deleteLab,
   getMedications,
-  getTests,
   getMedication,
-  getTest,
   createMedication,
-  createTest,
   updateMedication,
-  updateTest,
   deleteMedication,
-  deleteTest,
   getPrescriptions,
   getPrescription,
   getOrders,
   getOrder,
-  getBookings,
-  getBooking,
   getAdminUsers,
   getAdminUser,
   getPharmacyUsers,
   getPharmacyUser,
-  getLabUsers,
-  getLabUser,
 };

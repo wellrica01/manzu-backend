@@ -9,6 +9,9 @@ console.log('Loaded pharmacy.js version: 2025-06-19-v1');
 // GET /pharmacy/orders - Fetch orders for pharmacy
 router.get('/orders', authenticate, async (req, res) => {
   try {
+    // Parse pagination params
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
     // Validate input (no query params to validate, but ensure user context)
     const { error } = validateFetchOrders({});
     if (error) {
@@ -16,8 +19,8 @@ router.get('/orders', authenticate, async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    const orders = await pharmacyService.fetchOrders(req.user.pharmacyId);
-    res.status(200).json({ message: 'Orders fetched', orders });
+    const { orders, total } = await pharmacyService.fetchOrders(req.user.pharmacyId, { page, limit });
+    res.status(200).json({ message: 'Orders fetched', orders, total, page, limit });
   } catch (error) {
     console.error('Pharmacy orders error:', { message: error.message, stack: error.stack });
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -218,6 +221,17 @@ router.patch('/profile', authenticate, authenticateManager, async (req, res) => 
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
     res.status(error.status === 400 ? 400 : 500).json({ message: error.message || 'Server error', error: error.message });
+  }
+});
+
+// GET /pharmacy/dashboard - Dashboard summary for pharmacy
+router.get('/dashboard', authenticate, async (req, res) => {
+  try {
+    const data = await pharmacyService.getDashboardData(req.user.pharmacyId);
+    res.status(200).json({ message: 'Dashboard data fetched', ...data });
+  } catch (error) {
+    console.error('Dashboard error:', { message: error.message, stack: error.stack });
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
