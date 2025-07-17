@@ -1,4 +1,5 @@
 const express = require('express');
+require('dotenv').config();
      const medicationRoutes = require('./routes/medication');
      const prescriptionRoutes = require('./routes/prescription');
      const cartRoutes = require('./routes/cart');
@@ -10,7 +11,6 @@ const express = require('express');
      const adminRoutes = require('./routes/admin');
      const consentRoutes = require('./routes/consent');
      require('./jobs/cron');
-     require('dotenv').config();
      const app = express();
      const cors = require('cors');
 
