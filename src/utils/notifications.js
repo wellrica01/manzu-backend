@@ -12,7 +12,7 @@ async function sendVerificationNotification(prescription, status, order) {
       console.warn('No contact details for prescription:', { prescriptionId: prescription.id });
       return;
     }
-    let guestLink = `${process.env.FRONTEND_URL}/status-check?patientIdentifier=${prescription.patientIdentifier}`;
+    let guestLink = `${process.env.FRONTEND_URL}/status-check?userIdentifier=${prescription.userIdentifier}`;
     if (order && order.totalPrice > 0) {
       guestLink += `&orderId=${order.id}`;
     }

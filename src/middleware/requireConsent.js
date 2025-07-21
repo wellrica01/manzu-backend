@@ -11,7 +11,7 @@ const requireConsent = async (req, res, next) => {
 
     console.log('Checking consent for userIdentifier =', userIdentifier);
 
-    const consent = await prisma.patientConsent.findFirst({
+    const consent = await prisma.userConsent.findFirst({
       where: {
         userIdentifier: {
           equals: userIdentifier,

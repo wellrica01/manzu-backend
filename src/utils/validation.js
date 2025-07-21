@@ -120,11 +120,11 @@ function validateCheckout(data) {
       return value;
     }, 'phone validation').required(),
     address: Joi.string().when('deliveryMethod', {
-      is: 'delivery',
+      is: 'COURIER',
       then: Joi.string().required(),
       otherwise: Joi.string().allow(null, ''),
     }),
-    deliveryMethod: Joi.string().valid('delivery', 'pickup').required(),
+    deliveryMethod: Joi.string().valid('PICKUP', 'COURIER', 'UNSPECIFIED').required(),
     userId: Joi.string().required(),
   });
   return schema.validate(data, { abortEarly: false });
@@ -394,7 +394,7 @@ function validatePrescriptionOrder(data) {
 
 function validateTestOrderUpload(data) {
   const schema = Joi.object({
-    patientIdentifier: Joi.string().required(),
+    userIdentifier: Joi.string().required(),
     contact: Joi.string().required().min(1),
   });
   return schema.validate(data, { abortEarly: false });
@@ -423,7 +423,7 @@ function validateVerifyTestOrder(data) {
 
 function validateGuestTestOrder(data) {
   const schema = Joi.object({
-    patientIdentifier: Joi.string().required(),
+    userIdentifier: Joi.string().required(),
     lat: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
     lng: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
     radius: Joi.string().pattern(/^\d+(\.\d+)?$/).optional(),

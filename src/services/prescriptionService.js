@@ -256,8 +256,6 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
             lga: true,
             state: true,
             operatingHours: true,
-            latitude: true,
-            longitude: true,
           } },
         },
       });

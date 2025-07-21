@@ -415,11 +415,11 @@ async function deleteMedication(id) {
 }
 
 
-async function getPrescriptions({ page, limit, status, patientIdentifier }) {
+async function getPrescriptions({ page, limit, status, userIdentifier }) {
   const skip = (page - 1) * limit;
   const where = {};
   if (status) where.status = status.toUpperCase();
-  if (patientIdentifier) where.userIdentifier = { contains: patientIdentifier, mode: 'insensitive' };
+  if (userIdentifier) where.userIdentifier = { contains: userIdentifier, mode: 'insensitive' };
   const [prescriptions, total] = await prisma.$transaction([
     prisma.prescription.findMany({
       where,
@@ -478,11 +478,11 @@ async function getPrescription(id) {
   return prescription;
 }
 
-async function getOrders({ page, limit, status, patientIdentifier }) {
+async function getOrders({ page, limit, status, userIdentifier }) {
   const skip = (page - 1) * limit;
   const where = {};
   if (status) where.status = status.toUpperCase();
-  if (patientIdentifier) where.userIdentifier = { contains: patientIdentifier, mode: 'insensitive' };
+  if (userIdentifier) where.userIdentifier = { contains: userIdentifier, mode: 'insensitive' };
   const [orders, total] = await prisma.$transaction([
     prisma.order.findMany({
       where,

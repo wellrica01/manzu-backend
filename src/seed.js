@@ -56,7 +56,7 @@ async function main() {
 
   const prescription = await prisma.prescription.create({
     data: {
-      patientIdentifier: 'GUEST_123456',
+      userIdentifier: 'GUEST_123456',
       fileUrl: 'http://s3.example.com/prescription1.pdf',
       status: 'pending',
       verified: false,
@@ -66,7 +66,7 @@ async function main() {
 
   const order = await prisma.order.create({
     data: {
-      patientIdentifier: 'GUEST_123456',
+      userIdentifier: 'GUEST_123456',
       pharmacyId: 1,
       prescriptionId: prescription.id,
       status: 'pending',

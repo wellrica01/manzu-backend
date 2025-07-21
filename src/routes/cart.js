@@ -115,10 +115,10 @@ router.post('/prescription/upload', upload.single('prescriptionFile'), requireCo
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    const patientIdentifier = req.headers['x-guest-id'];
+    const userIdentifier = req.headers['x-guest-id'];
     const { medicationIds } = req.body;
 
-    if (!patientIdentifier) {
+    if (!userIdentifier) {
       return res.status(400).json({ message: 'Patient identifier is required' });
     }
 
@@ -131,7 +131,7 @@ router.post('/prescription/upload', upload.single('prescriptionFile'), requireCo
     
     // Create prescription record
     const prescription = await prescriptionService.uploadPrescription({
-      patientIdentifier,
+      userIdentifier,
       email: email || null,
       phone: phone || null,
       fileUrl: `/uploads/${req.file.filename}`,
@@ -159,7 +159,7 @@ router.post('/prescription/upload', upload.single('prescriptionFile'), requireCo
     // Link prescription to specific cart order containing these medications
     await cartService.linkPrescriptionToSpecificOrder({
       prescriptionId: prescription.id,
-      userId: patientIdentifier,
+      userId: userIdentifier,
       medicationIds: medicationIdArray
     });
 
@@ -176,10 +176,10 @@ router.post('/prescription/upload', upload.single('prescriptionFile'), requireCo
 // Get prescription statuses for cart items
 router.get('/prescription/status', requireConsent, async (req, res) => {
   try {
-    const patientIdentifier = req.headers['x-guest-id'];
+    const userIdentifier = req.headers['x-guest-id'];
     const { medicationIds } = req.query;
 
-    if (!patientIdentifier) {
+    if (!userIdentifier) {
       return res.status(400).json({ message: 'Patient identifier is required' });
     }
     if (!medicationIds) {
@@ -192,7 +192,7 @@ router.get('/prescription/status', requireConsent, async (req, res) => {
     }
 
     const statuses = await cartService.getPrescriptionStatusesForCart({
-      userId: patientIdentifier,
+      userId: userIdentifier,
       medicationIds: medicationIdArray,
     });
     
