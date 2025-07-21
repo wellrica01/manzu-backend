@@ -4,22 +4,20 @@ const { sendVerificationNotification } = require('../utils/notifications');
 const { formatDisplayName } = require('../utils/medicationUtils');
 const prisma = new PrismaClient();
 
-async function uploadPrescription({ patientIdentifier, email, phone, fileUrl }) {
+async function uploadPrescription({ userIdentifier, email, phone, fileUrl }) {
   const normalizedPhone = phone ? normalizePhone(phone) : phone;
   const prescription = await prisma.prescription.create({
     data: {
-      patientIdentifier,
+      userIdentifier,
       email: email || null,
       phone: normalizedPhone,
       fileUrl,
-      status: 'pending',
-      verified: false,
+      status: 'PENDING',
     },
   });
   console.log('Prescription uploaded:', { prescriptionId: prescription.id, email, phone: normalizedPhone });
   return prescription;
 }
-
 
 async function addMedications(prescriptionId, medications) {
   const prescription = await prisma.prescription.findUnique({
@@ -28,14 +26,14 @@ async function addMedications(prescriptionId, medications) {
   if (!prescription) {
     throw new Error('Prescription not found');
   }
-  if (prescription.status !== 'pending') {
+  if (prescription.status !== 'PENDING') {
     throw new Error('Prescription is already processed');
   }
 
   const result = await prisma.$transaction(async (tx) => {
     const prescriptionMedications = [];
     for (const med of medications) {
-      const { medicationId, quantity } = med;
+      const { medicationId, quantity, dosageInstructions } = med;
       const medication = await tx.medication.findUnique({
         where: { id: Number(medicationId) },
       });
@@ -47,6 +45,7 @@ async function addMedications(prescriptionId, medications) {
           prescriptionId,
           medicationId: Number(medicationId),
           quantity,
+          dosageInstructions: dosageInstructions || null,
         },
       });
       prescriptionMedications.push(prescriptionMedication);
@@ -60,6 +59,7 @@ async function addMedications(prescriptionId, medications) {
 }
 
 async function verifyPrescription(prescriptionId, status) {
+  const upperStatus = status.toUpperCase();
   const prescription = await prisma.prescription.findUnique({
     where: { id: prescriptionId },
     include: {
@@ -68,7 +68,7 @@ async function verifyPrescription(prescriptionId, status) {
           pharmacy: true,
           items: {
             include: {
-              pharmacyMedication: {
+              medicationAvailability: {
                 include: { medication: true },
               },
             },
@@ -80,7 +80,7 @@ async function verifyPrescription(prescriptionId, status) {
   if (!prescription) {
     throw new Error('Prescription not found');
   }
-  if (prescription.status !== 'pending') {
+  if (prescription.status !== 'PENDING') {
     throw new Error('Prescription is already processed');
   }
 
@@ -88,31 +88,27 @@ async function verifyPrescription(prescriptionId, status) {
     const prescriptionUpdate = await tx.prescription.update({
       where: { id: prescriptionId },
       data: {
-        status,
-        verified: status === 'verified',
+        status: upperStatus,
       },
     });
 
     if (prescription.orders && prescription.orders.length > 0) {
-      if (status === 'rejected') {
+      if (upperStatus === 'REJECTED') {
         for (const order of prescription.orders) {
-          // For rejected prescriptions, keep order in pending_prescription status
-          // so user can upload new prescription
           await tx.order.update({
             where: { id: order.id },
             data: {
-              status: 'pending_prescription',
+              status: 'PENDING_PRESCRIPTION',
               updatedAt: new Date(),
             },
           });
         }
-      } else if (status === 'verified') {
+      } else if (upperStatus === 'VERIFIED') {
         for (const order of prescription.orders) {
-          // For verified prescriptions, update order to pending for checkout
           await tx.order.update({
             where: { id: order.id },
             data: {
-              status: 'pending',
+              status: 'PENDING',
               updatedAt: new Date(),
             },
           });
@@ -125,15 +121,15 @@ async function verifyPrescription(prescriptionId, status) {
 
   if (prescription.orders && prescription.orders.length > 0) {
     for (const order of prescription.orders) {
-      await sendVerificationNotification(updatedPrescription, status, order);
+      await sendVerificationNotification(updatedPrescription, upperStatus, order);
     }
   }
 
-  console.log('Prescription updated:', { prescriptionId: updatedPrescription.id, status });
+  console.log('Prescription updated:', { prescriptionId: updatedPrescription.id, status: upperStatus });
   return updatedPrescription;
 }
 
-async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state, lga, ward }) {
+async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, lga, ward }) {
   const userLat = parseFloat(lat);
   const userLng = parseFloat(lng);
   const radiusKm = parseFloat(radius);
@@ -144,13 +140,26 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
   }
 
   const prescription = await prisma.prescription.findFirst({
-    where: { patientIdentifier, status: { in: ['pending', 'verified'] } },
+    where: { userIdentifier, status: { in: ['PENDING', 'VERIFIED'] } },
     orderBy: { createdAt: 'desc' },
     include: {
-      PrescriptionMedication: {
+      prescriptionMedications: {
         include: {
-          Medication: {
-            select: { id: true, name: true, dosage: true, form: true, genericName: true, prescriptionRequired: true, nafdacCode: true, imageUrl: true },
+          medication: {
+            select: {
+              id: true,
+              brandName: true,
+              form: true,
+              strengthValue: true,
+              strengthUnit: true,
+              route: true,
+              packSizeQuantity: true,
+              packSizeUnit: true,
+              prescriptionRequired: true,
+              nafdacCode: true,
+              imageUrl: true,
+              genericMedication: { select: { name: true } },
+            },
           },
         },
       },
@@ -161,8 +170,7 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
     throw new Error('Prescription not found or not verified');
   }
 
-  // For pending prescriptions, return metadata without medications or order details
-  if (prescription.status === 'pending') {
+  if (prescription.status === 'PENDING') {
     return {
       medications: [],
       prescriptionId: prescription.id,
@@ -192,7 +200,7 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
         ST_SetSRID(ST_MakePoint(${userLng}, ${userLat}), 4326),
         ${radiusKm} * 1000
       )
-      AND status = 'verified'
+      AND status = 'VERIFIED'
       AND "isActive" = true
     `.then(results =>
       results.map(r => ({
@@ -207,14 +215,13 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
   );
 
   const medications = await Promise.all(
-    prescription.PrescriptionMedication.map(async prescriptionMed => {
-      const medication = prescriptionMed.Medication;
-      // Build pharmacy filter (like in searchMedications)
+    prescription.prescriptionMedications.map(async prescriptionMed => {
+      const medication = prescriptionMed.medication;
       let pharmacyFilter = {
         medicationId: medication.id,
         stock: { gte: prescriptionMed.quantity },
         pharmacy: {
-          status: 'verified',
+          status: 'VERIFIED',
           isActive: true,
         },
       };
@@ -234,7 +241,7 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
             : [-1],
         };
       }
-      const availability = await prisma.pharmacyMedication.findMany({
+      const availability = await prisma.medicationAvailability.findMany({
         where: pharmacyFilter,
         include: {
           pharmacy: { select: {
@@ -249,6 +256,8 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
             lga: true,
             state: true,
             operatingHours: true,
+            latitude: true,
+            longitude: true,
           } },
         },
       });
@@ -257,11 +266,13 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
         id: medication.id,
         displayName: formatDisplayName(medication),
         quantity: prescriptionMed.quantity,
-        genericName: medication.genericName,
-        description: medication.description,
-        manufacturer: medication.manufacturer,
+        genericName: medication.genericMedication?.name,
         form: medication.form,
-        dosage: medication.dosage,
+        strengthValue: medication.strengthValue,
+        strengthUnit: medication.strengthUnit,
+        route: medication.route,
+        packSizeQuantity: medication.packSizeQuantity,
+        packSizeUnit: medication.packSizeUnit,
         prescriptionRequired: medication.prescriptionRequired,
         nafdacCode: medication.nafdacCode,
         imageUrl: medication.imageUrl,
@@ -292,9 +303,9 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
 
   const order = await prisma.order.findFirst({
     where: {
-      patientIdentifier,
+      userIdentifier,
       prescriptionId: prescription.id,
-      status: { in: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled'] },
+      status: { in: ['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED'] },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -313,26 +324,24 @@ async function getPrescriptionOrder({ patientIdentifier, lat, lng, radius, state
   };
 }
 
-async function getPrescriptionStatuses({ patientIdentifier, medicationIds }) {
+async function getPrescriptionStatuses({ userIdentifier, medicationIds }) {
   try {
-    // Validate medicationIds
     const validMedicationIds = medicationIds.filter(id => id && !isNaN(parseInt(id))).map(id => id.toString());
     if (validMedicationIds.length === 0) {
-      console.warn('No valid medication IDs provided:', { patientIdentifier, medicationIds });
-      return Object.fromEntries(medicationIds.map(id => [id, 'none']));
+      console.warn('No valid medication IDs provided:', { userIdentifier, medicationIds });
+      return Object.fromEntries(medicationIds.map(id => [id, 'NONE']));
     }
 
-    // Fetch the latest prescription for the patient
     const prescription = await prisma.prescription.findFirst({
       where: { 
-        patientIdentifier, 
-        status: { in: ['pending', 'verified'] } 
+        userIdentifier, 
+        status: { in: ['PENDING', 'VERIFIED'] } 
       },
       orderBy: { createdAt: 'desc' },
       include: {
-        PrescriptionMedication: {
+        prescriptionMedications: {
           include: {
-            Medication: {
+            medication: {
               select: { id: true },
             },
           },
@@ -340,27 +349,25 @@ async function getPrescriptionStatuses({ patientIdentifier, medicationIds }) {
       },
     });
 
-    // Initialize statuses as 'none' for all requested medicationIds
     const statuses = Object.fromEntries(
-      validMedicationIds.map(id => [id, 'none'])
+      validMedicationIds.map(id => [id, 'NONE'])
     );
 
     if (!prescription) {
-      console.log('No prescription found for patient:', { patientIdentifier });
+      console.log('No prescription found for user:', { userIdentifier });
       return statuses;
     }
 
-    // Map medicationIds covered by the prescription
-    const coveredMedicationIds = prescription.PrescriptionMedication
+    const coveredMedicationIds = prescription.prescriptionMedications
       .map(pm => pm.medicationId.toString());
 
     for (const medId of validMedicationIds) {
       if (coveredMedicationIds.includes(medId)) {
-        statuses[medId] = prescription.status; // 'verified' or 'pending'
+        statuses[medId] = prescription.status; // 'VERIFIED' or 'PENDING'
       }
     }
 
-    console.log('Prescription statuses retrieved:', { patientIdentifier, statuses });
+    console.log('Prescription statuses retrieved:', { userIdentifier, statuses });
     return statuses;
   } catch (error) {
     console.error('Error fetching prescription statuses:', error);

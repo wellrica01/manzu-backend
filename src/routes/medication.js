@@ -3,9 +3,9 @@ const medicationService = require('../services/medicationService');
 const { validateMedications, validateMedicationSuggestions, validateMedicationSearch } = require('../utils/validation');
 const router = express.Router();
 
-console.log('Loaded medication.js version: 2025-06-19-v1');
+console.log('Loaded medication.js version: 2025-06-19-v2 (new schema)');
 
-// GET /medications - Fetch a sample medication
+// GET /medications - Fetch a sample medication (new schema)
 router.get('/medications', async (req, res) => {
   try {
     // No input validation needed for this endpoint
@@ -17,7 +17,7 @@ router.get('/medications', async (req, res) => {
   }
 });
 
-// GET /medication-suggestions - Fetch autocomplete suggestions
+// GET /medication-suggestions - Fetch autocomplete suggestions (new schema)
 router.get('/medication-suggestions', async (req, res) => {
   try {
     const { q } = req.query;
@@ -37,7 +37,7 @@ router.get('/medication-suggestions', async (req, res) => {
   }
 });
 
-// GET /search - Search medications with filtering and sorting
+// GET /search - Search medications with filtering and sorting (new schema)
 router.get('/search', async (req, res) => {
   try {
     const { q, medicationId, page, limit, lat, lng, radius, state, lga, ward, sortBy } = req.query;

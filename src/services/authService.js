@@ -31,17 +31,19 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
   const result = await prisma.$transaction(async (prisma) => {
     const logoUrl = pharmacy.logoUrl || null;
     const [newPharmacy] = await prisma.$queryRaw`
-      INSERT INTO "Pharmacy" (name, location, address, lga, state, ward, phone, "licenseNumber", status, "logoUrl")
+      INSERT INTO "Pharmacy" (name, location, latitude, longitude, address, lga, state, ward, phone, "licenseNumber", status, "logoUrl")
       VALUES (
         ${pharmacy.name},
         ST_SetSRID(ST_MakePoint(${pharmacy.longitude}, ${pharmacy.latitude}), 4326),
+        ${pharmacy.latitude},
+        ${pharmacy.longitude},
         ${pharmacy.address},
         ${pharmacy.lga},
         ${pharmacy.state},
         ${pharmacy.ward},
         ${pharmacy.phone},
         ${pharmacy.licenseNumber},
-        'pending',
+        'PENDING',
         ${logoUrl}
       )
       RETURNING id, name
@@ -52,7 +54,7 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
         email: user.email,
         password: hashedPassword,
         name: user.name,
-        role: 'manager',
+        role: 'MANAGER',
         pharmacyId: newPharmacy.id,
       },
     });
@@ -204,7 +206,7 @@ async function registerAdmin({ name, email, password }) {
       name,
       email,
       password: hashedPassword,
-      role: 'admin',
+      role: 'ADMIN',
     },
   });
 
@@ -265,7 +267,7 @@ async function addPharmacyUser({ name, email, password, role, pharmacyId }) {
       name,
       email,
       password: hashedPassword,
-      role,
+      role: role.toUpperCase(),
       pharmacyId,
     },
   });
@@ -303,7 +305,7 @@ async function addLabUser({ name, email, password, role, labId }) {
   return newUser;
 }
 
-async function editPharmacyUser(userId, { name, email, password }, managerId, pharmacyId) {
+async function editPharmacyUser(userId, { name, email, password, role }, managerId, pharmacyId) {
   if (userId === managerId) {
     const error = new Error('Cannot edit your own account');
     error.status = 403;
@@ -334,6 +336,10 @@ async function editPharmacyUser(userId, { name, email, password }, managerId, ph
   if (password) {
     const salt = await bcrypt.genSalt(10);
     updateData.password = await bcrypt.hash(password, salt);
+  }
+  // If role is present in the update, uppercase it
+  if (typeof role !== 'undefined') {
+    updateData.role = role.toUpperCase();
   }
 
   const updatedUser = await prisma.pharmacyUser.update({

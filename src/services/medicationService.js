@@ -4,7 +4,17 @@ const prisma = new PrismaClient();
 
 async function getSampleMedication() {
   const medication = await prisma.medication.findFirst({
-    select: { id: true, name: true, genericName: true, form: true, dosage: true, nafdacCode: true, imageUrl: true },
+    select: {
+      id: true,
+      brandName: true,
+      form: true,
+      strengthValue: true,
+      strengthUnit: true,
+      nafdacCode: true,
+      imageUrl: true,
+      genericMedication: { select: { name: true } },
+      manufacturer: { select: { name: true } },
+    },
   });
   return {
     status: 'ok',
@@ -17,15 +27,23 @@ async function getMedicationSuggestions(searchTerm) {
   if (!searchTerm || searchTerm.trim().length === 0) {
     return [];
   }
-  const normalizedTerm = `${searchTerm.trim()}%`;
+  const normalizedTerm = searchTerm.trim();
+  // Search by brandName and genericMedication.name
   const medications = await prisma.medication.findMany({
     where: {
       OR: [
-        { name: { startsWith: normalizedTerm, mode: 'insensitive' } },
-        { genericName: { startsWith: normalizedTerm, mode: 'insensitive' } },
+        { brandName: { startsWith: normalizedTerm, mode: 'insensitive' } },
+        { genericMedication: { name: { startsWith: normalizedTerm, mode: 'insensitive' } } },
       ],
     },
-    select: { id: true, name: true, dosage: true, form: true },
+    select: {
+      id: true,
+      brandName: true,
+      form: true,
+      strengthValue: true,
+      strengthUnit: true,
+      genericMedication: { select: { name: true } },
+    },
     take: 10,
   });
   return medications.map(med => ({
@@ -43,7 +61,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
   // Build pharmacy filter
   let pharmacyFilter = {
     pharmacy: {
-      status: 'verified',
+      status: 'VERIFIED',
       isActive: true,
     },
     stock: { gt: 0 },
@@ -85,7 +103,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
         ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326),
         ${radiusKm} * 1000
       )
-      AND status = 'verified'
+      AND status = 'VERIFIED'
       AND "isActive" = true
       ORDER BY distance_km
     `;
@@ -105,21 +123,26 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
     whereClause = { id: parseInt(medicationId, 10) };
   } else if (q) {
     const query = q.trim();
-    const nameMatch = query.match(/^([^0-9(]+)/)?.[1]?.trim() || query;
-    const dosageMatch = query.match(/(\d+\w*)\s*\(/)?.[1]?.trim();
+    // Try to extract brand, generic, strength, form from query
+    // e.g. "Panadol 500MG (TABLET)" or "Paracetamol"
+    const brandMatch = query.match(/^([^0-9(]+)/)?.[1]?.trim() || query;
+    const strengthMatch = query.match(/(\d+(?:\.\d+)?)(MG|ML|G|MCG|IU|NG|MMOL|PERCENT)?/i);
     const formMatch = query.match(/\((\w+)\)/)?.[1]?.trim();
 
     whereClause = {
       OR: [
-        { name: { contains: `%${nameMatch}%`, mode: 'insensitive' } },
-        { genericName: { contains: `%${nameMatch}%`, mode: 'insensitive' } },
+        { brandName: { contains: brandMatch, mode: 'insensitive' } },
+        { genericMedication: { name: { contains: brandMatch, mode: 'insensitive' } } },
       ],
     };
-    if (dosageMatch) {
-      whereClause.dosage = { equals: dosageMatch, mode: 'insensitive' };
+    if (strengthMatch && strengthMatch[1]) {
+      whereClause.strengthValue = parseFloat(strengthMatch[1]);
+      if (strengthMatch[2]) {
+        whereClause.strengthUnit = strengthMatch[2].toUpperCase();
+      }
     }
     if (formMatch) {
-      whereClause.form = { equals: formMatch, mode: 'insensitive' };
+      whereClause.form = formMatch.toUpperCase();
     }
   }
 
@@ -127,15 +150,15 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
     where: whereClause,
     select: {
       id: true,
-      name: true,
-      genericName: true,
-      description: true,
-      manufacturer: true,
+      brandName: true,
       form: true,
-      dosage: true,
+      strengthValue: true,
+      strengthUnit: true,
       nafdacCode: true,
       imageUrl: true,
-      pharmacyMedications: {
+      genericMedication: { select: { name: true } },
+      manufacturer: { select: { name: true } },
+      availabilities: {
         where: pharmacyFilter,
         select: {
           stock: true,
@@ -169,26 +192,24 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
   );
 
   const result = medications.map(med => {
-    let availability = med.pharmacyMedications.map(pm => ({
-      pharmacyId: pm.pharmacyId,
-      pharmacyName: pm.pharmacy.name,
-      address: pm.pharmacy.address,
-      phone: pm.pharmacy.phone,
-      licenseNumber: pm.pharmacy.licenseNumber,
-      status: pm.pharmacy.status,
-      isActive: pm.pharmacy.isActive,
-      ward: pm.pharmacy.ward,
-      lga: pm.pharmacy.lga,
-      state: pm.pharmacy.state,
-      operatingHours: pm.pharmacy.operatingHours,
-      stock: pm.stock,
-      price: pm.price,
-      expiryDate: pm.expiryDate,
-      distance_km: distanceMap.get(pm.pharmacyId) ? parseFloat(distanceMap.get(pm.pharmacyId).toFixed(2)) : null,
-      // For now, we'll set coordinates to null since we can't easily extract them from the geometry
-      // In a production environment, you might want to add a separate query to get coordinates
-      latitude: pharmacyCoordinates.get(pm.pharmacyId)?.latitude || null,
-      longitude: pharmacyCoordinates.get(pm.pharmacyId)?.longitude || null,
+    let availability = med.availabilities.map(av => ({
+      pharmacyId: av.pharmacyId,
+      pharmacyName: av.pharmacy.name,
+      address: av.pharmacy.address,
+      phone: av.pharmacy.phone,
+      licenseNumber: av.pharmacy.licenseNumber,
+      status: av.pharmacy.status,
+      isActive: av.pharmacy.isActive,
+      ward: av.pharmacy.ward,
+      lga: av.pharmacy.lga,
+      state: av.pharmacy.state,
+      operatingHours: av.pharmacy.operatingHours,
+      stock: av.stock,
+      price: av.price,
+      expiryDate: av.expiryDate,
+      distance_km: distanceMap.get(av.pharmacyId) ? parseFloat(distanceMap.get(av.pharmacyId).toFixed(2)) : null,
+      latitude: pharmacyCoordinates.get(av.pharmacyId)?.latitude || null,
+      longitude: pharmacyCoordinates.get(av.pharmacyId)?.longitude || null,
     }));
 
     // Sort availability
@@ -201,11 +222,11 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
     return {
       id: med.id,
       displayName: formatDisplayName(med),
-      genericName: med.genericName,
-      description: med.description,
-      manufacturer: med.manufacturer,
+      genericName: med.genericMedication?.name || null,
+      manufacturer: med.manufacturer?.name || null,
       form: med.form,
-      dosage: med.dosage,
+      strengthValue: med.strengthValue,
+      strengthUnit: med.strengthUnit,
       nafdacCode: med.nafdacCode,
       imageUrl: med.imageUrl,
       availability,

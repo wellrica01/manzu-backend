@@ -60,7 +60,7 @@ router.get('/debug', async (req, res) => {
       ordersFound: orders.length,
       orders: orders.map(o => ({
         id: o.id,
-        patientIdentifier: o.patientIdentifier,
+        userIdentifier: o.userIdentifier,
         paymentReference: o.paymentReference,
         checkoutSessionId: o.checkoutSessionId,
         status: o.status,
@@ -129,8 +129,8 @@ router.post('/webhook', async (req, res) => {
           await tx.order.updateMany({
             where: { paymentReference: orderRef },
             data: { 
-              paymentStatus: 'paid',
-              status: 'confirmed',
+              paymentStatus: 'PAID',
+              status: 'CONFIRMED',
               updatedAt: new Date()
             },
           });

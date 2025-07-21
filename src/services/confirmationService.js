@@ -52,19 +52,24 @@ async function confirmOrder({ reference, session, userId }) {
       });
       orders = await prisma.order.findMany({
         where: {
-          patientIdentifier: userId,
+          userIdentifier: userId,
           paymentReference: { in: transactionRef.orderReferences },
         },
         include: {
           items: {
             include: {
-              pharmacyMedication: {
-                include: { medication: true, pharmacy: true },
+              medicationAvailability: {
+                include: {
+                  medication: {
+                    include: { genericMedication: true },
+                  },
+                  pharmacy: true,
+                },
               },
             },
           },
           prescription: {
-            include: { PrescriptionMedication: true },
+            include: { prescriptionMedications: true },
           },
           pharmacy: true,
         },
@@ -73,20 +78,25 @@ async function confirmOrder({ reference, session, userId }) {
       console.log('Looking up orders by session:', { userId, session });
       orders = await prisma.order.findMany({
         where: {
-          patientIdentifier: userId,
+          userIdentifier: userId,
           checkoutSessionId: session,
-          status: { in: ['pending', 'confirmed', 'paid'] },
+          status: { in: ['PENDING', 'CONFIRMED', 'PAID'] },
         },
         include: {
           items: {
             include: {
-              pharmacyMedication: {
-                include: { medication: true, pharmacy: true },
+              medicationAvailability: {
+                include: {
+                  medication: {
+                    include: { genericMedication: true },
+                  },
+                  pharmacy: true,
+                },
               },
             },
           },
           prescription: {
-            include: { PrescriptionMedication: true },
+            include: { prescriptionMedications: true },
           },
           pharmacy: true,
         },
@@ -104,20 +114,25 @@ async function confirmOrder({ reference, session, userId }) {
     // Fallback: try to find orders by session only
     orders = await prisma.order.findMany({
       where: {
-        patientIdentifier: userId,
+        userIdentifier: userId,
         checkoutSessionId: session,
-        status: { in: ['pending', 'confirmed', 'paid'] },
+        status: { in: ['PENDING', 'CONFIRMED', 'PAID'] },
       },
       include: {
         items: {
           include: {
-            pharmacyMedication: {
-              include: { medication: true, pharmacy: true },
+            medicationAvailability: {
+              include: {
+                medication: {
+                  include: { genericMedication: true },
+                },
+                pharmacy: true,
+              },
             },
           },
         },
         prescription: {
-          include: { PrescriptionMedication: true },
+          include: { prescriptionMedications: true },
         },
         pharmacy: true,
       },
@@ -186,10 +201,10 @@ async function confirmOrder({ reference, session, userId }) {
   // Check for verified prescriptions
   const verifiedPrescription = await prisma.prescription.findFirst({
     where: {
-      patientIdentifier: userId,
-      status: 'verified',
+      userIdentifier: userId,
+      status: 'VERIFIED',
     },
-    include: { PrescriptionMedication: true },
+    include: { prescriptionMedications: true },
     orderBy: [{ createdAt: 'desc' }],
   });
 
@@ -205,28 +220,28 @@ async function confirmOrder({ reference, session, userId }) {
       let newPrescriptionId = order.prescriptionId;
 
       const requiresPrescription = order.items.some(
-        item => item.pharmacyMedication.medication.prescriptionRequired
+        item => item.medicationAvailability.medication.prescriptionRequired
       );
 
       if (requiresPrescription && verifiedPrescription) {
         const orderMedicationIds = order.items
-          .filter(item => item.pharmacyMedication.medication.prescriptionRequired)
-          .map(item => item.pharmacyMedication.medicationId);
-        const prescriptionMedicationIds = verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId);
+          .filter(item => item.medicationAvailability.medication.prescriptionRequired)
+          .map(item => item.medicationAvailability.medicationId);
+        const prescriptionMedicationIds = verifiedPrescription.prescriptionMedications.map(pm => pm.medicationId);
         const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
 
         if (isPrescriptionValid && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
-          newStatus = 'confirmed';
-          newPaymentStatus = 'paid';
+          newStatus = 'CONFIRMED';
+          newPaymentStatus = 'PAID';
           newPrescriptionId = verifiedPrescription.id;
-        } else if (order.status === 'pending_prescription') {
-          status = 'pending_prescription';
+        } else if (order.status === 'PENDING_PRESCRIPTION') {
+          status = 'PENDING_PRESCRIPTION';
         }
       } else if (!requiresPrescription && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
-        newStatus = 'confirmed';
-        newPaymentStatus = 'paid';
-      } else if (order.status === 'pending_prescription') {
-        status = 'pending_prescription';
+        newStatus = 'CONFIRMED';
+        newPaymentStatus = 'PAID';
+      } else if (order.status === 'PENDING_PRESCRIPTION') {
+        status = 'PENDING_PRESCRIPTION';
       }
 
       console.log('Updating order with:', { newStatus, newPaymentStatus, trackingCode });
@@ -243,8 +258,13 @@ async function confirmOrder({ reference, session, userId }) {
         include: {
           items: {
             include: {
-              pharmacyMedication: {
-                include: { medication: true, pharmacy: true },
+              medicationAvailability: {
+                include: {
+                  medication: {
+                    include: { genericMedication: true },
+                  },
+                  pharmacy: true,
+                },
               },
             },
           },
@@ -268,7 +288,7 @@ async function confirmOrder({ reference, session, userId }) {
 
   // Format response with orders grouped by pharmacy
   const ordersByPharmacy = updatedOrders
-  .filter(order => order.status === 'confirmed' && order.paymentStatus === 'paid')
+  .filter(order => order.status === 'CONFIRMED' && order.paymentStatus === 'PAID')
   .reduce((acc, order) => {
     const pharmacyId = order.pharmacyId;
     if (!acc[pharmacyId]) {
@@ -306,8 +326,9 @@ async function confirmOrder({ reference, session, userId }) {
       items: order.items.map(item => ({
         id: item.id,
         medication: {
-          name: item.pharmacyMedication.medication.name,
-          prescriptionRequired: item.pharmacyMedication.medication.prescriptionRequired,
+          brandName: item.medicationAvailability.medication.brandName,
+          genericName: item.medicationAvailability.medication.genericMedication?.name,
+          prescriptionRequired: item.medicationAvailability.medication.prescriptionRequired,
         },
         quantity: item.quantity,
         price: item.price,

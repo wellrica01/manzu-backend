@@ -3,21 +3,21 @@ const prisma = new PrismaClient();
 
 const requireConsent = async (req, res, next) => {
   try {
-    const patientIdentifier = req.headers['x-guest-id'];
+    const userIdentifier = req.headers['x-guest-id'];
 
-    if (!patientIdentifier) {
-      return res.status(400).json({ message: 'patientIdentifier is required for consent check' });
+    if (!userIdentifier) {
+      return res.status(400).json({ message: 'userIdentifier is required for consent check' });
     }
 
-    console.log('Checking consent for patientIdentifier =', patientIdentifier);
+    console.log('Checking consent for userIdentifier =', userIdentifier);
 
-    const consent = await prisma.consent.findFirst({
+    const consent = await prisma.patientConsent.findFirst({
       where: {
-        patientidentifier: {
-          equals: patientIdentifier,
+        userIdentifier: {
+          equals: userIdentifier,
           mode: 'insensitive',
         },
-        consenttype: 'data_collection',
+        consentType: 'DATA_SHARING', // Update to match your required consent type
         granted: true,
       },
     });
@@ -25,7 +25,7 @@ const requireConsent = async (req, res, next) => {
     console.log('Consent found:', consent);
 
     if (!consent) {
-      return res.status(403).json({ message: 'User consent required for data collection' });
+      return res.status(403).json({ message: 'User consent required for data sharing' });
     }
 
     next();

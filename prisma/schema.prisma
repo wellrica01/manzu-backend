@@ -47,6 +47,7 @@ model Pharmacy {
   orders              Order[]
   pharmacyMedications PharmacyMedication[]
   users               PharmacyUser[]
+  Sale                Sale[]
 
   @@index([location], map: "idx_pharmacy_location", type: Gist)
 }
@@ -177,173 +178,14 @@ model TransactionReference {
   createdAt            DateTime @default(now()) @db.Timestamptz(6)
 }
 
-model Booking {
-  id                Int           @id @default(autoincrement())
-  patientIdentifier String
-  labId             Int?
-  testOrderId       Int?
-  status            OrderStatus   @default(cart)
-  fulfillmentType   String?       @default("Lab Visit")
-  address           String?
-  email             String?
-  phone             String?
-  totalPrice        Float         @default(0)
-  trackingCode      String?
-  createdAt         DateTime      @default(now()) @db.Timestamp(6)
-  updatedAt         DateTime      @default(now()) @db.Timestamp(6)
-  appointmentTime   DateTime?     @db.Timestamp(6)
-  timeSlotStart     DateTime?     @db.Timestamp(6)
-  timeSlotEnd       DateTime?     @db.Timestamp(6)
-  cancelledAt       DateTime?     @db.Timestamp(6)
-  cancelReason      String?
-  paymentReference  String?       @unique
-  paymentStatus     PaymentStatus @default(pending)
-  checkoutSessionId String?
-  Lab               Lab?          @relation(fields: [labId], references: [id], onDelete: Restrict)
-  TestOrder         TestOrder?    @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
-  BookingItem       BookingItem[]
-  TestResult        TestResult[]
-}
-
-model BookingItem {
-  id            Int     @id @default(autoincrement())
-  bookingId     Int
-  labTestLabId  Int
-  labTestTestId Int
-  price         Float
-  Booking       Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  LabTest       LabTest @relation(fields: [labTestLabId, labTestTestId], references: [labId, testId], onDelete: Cascade)
-
-  @@unique([bookingId, labTestLabId, labTestTestId])
-}
-
-model Lab {
-  id                      Int                      @id @default(autoincrement())
-  name                    String
-  location                Unsupported("geometry")?
-  address                 String
-  lga                     String
-  state                   String
-  phone                   String
-  licenseNumber           String                   @unique
-  status                  PharmacyStatus           @default(pending)
-  createdAt               DateTime                 @default(now()) @db.Timestamp(6)
-  verifiedAt              DateTime?                @db.Timestamp(6)
-  logoUrl                 String?
-  isActive                Boolean                  @default(true)
-  ward                    String?                  @db.VarChar(100)
-  devicetoken             String?                  @db.VarChar(255)
-  operatingHours          String?
-  homeCollectionAvailable Boolean?
-  Booking                 Booking[]
-  LabTest                 LabTest[]
-  LabUser                 LabUser[]
-
-  @@index([location], map: "idx_lab_location", type: Gist)
-}
-
-model LabTest {
-  labId                 Int
-  testId                Int
-  price                 Float
-  available             Boolean       @default(true)
-  createdAt             DateTime      @default(now()) @db.Timestamp(6)
-  updatedAt             DateTime      @default(now()) @db.Timestamp(6)
-  resultTurnaroundHours Int?
-  BookingItem           BookingItem[]
-  Lab                   Lab           @relation(fields: [labId], references: [id], onDelete: Cascade)
-  Test                  Test          @relation(fields: [testId], references: [id], onDelete: Cascade)
-
-  @@id([labId, testId])
-}
-
-model LabUser {
-  id        Int         @id @default(autoincrement())
-  email     String      @unique
-  password  String
-  name      String
-  role      LabUserRole @default(manager)
-  labId     Int
-  lastLogin DateTime?   @db.Timestamp(6)
-  createdAt DateTime    @default(now()) @db.Timestamp(6)
-  Lab       Lab         @relation(fields: [labId], references: [id], onDelete: Cascade)
-}
-
-model Test {
-  id               Int                @id @default(autoincrement())
-  name             String
-  testType         String
-  category         String?
-  description      String?
-  testCode         String?            @unique
-  orderRequired    Boolean            @default(false)
-  createdAt        DateTime           @default(now()) @db.Timestamp(6)
-  imageUrl         String?
-  sampleType       String?
-  prepInstructions String?
-  resultFormat     String?
-  LabTest          LabTest[]
-  TestOrderTest    TestOrderTest[]
-  TestPackageTests TestPackageTests[]
-  TestResult       TestResult[]
-
-  @@index([name], map: "idx_test_name")
-  @@index([testType], map: "idx_test_testtype")
-}
-
-model TestOrder {
-  id                     Int                @id @default(autoincrement())
-  patientIdentifier      String
-  fileUrl                String
-  status                 PrescriptionStatus @default(pending)
-  verified               Boolean            @default(false)
-  createdAt              DateTime           @default(now()) @db.Timestamp(6)
-  email                  String?            @db.VarChar(255)
-  phone                  String?            @db.VarChar(20)
-  referringPhysicianName String?
-  priority               String?
-  Booking                Booking[]
-  TestOrderTest          TestOrderTest[]
-}
-
-model TestOrderTest {
-  id          Int       @id @default(autoincrement())
-  testOrderId Int
-  testId      Int
-  Test        Test      @relation(fields: [testId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  TestOrder   TestOrder @relation(fields: [testOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model TestResult {
-  id                Int              @id @default(autoincrement())
-  bookingId         Int
-  testId            Int
-  patientIdentifier String
-  fileUrl           String?
-  value             String?
-  status            TestResultStatus @default(pending)
-  uploadedAt        DateTime         @default(now()) @db.Timestamp(6)
-  updatedAt         DateTime         @default(now()) @db.Timestamp(6)
-  Booking           Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  Test              Test             @relation(fields: [testId], references: [id], onDelete: Cascade)
-}
-
-model TestPackage {
-  id               Int                @id @default(autoincrement())
-  name             String
-  description      String?
-  price            Float
-  createdAt        DateTime           @default(now()) @db.Timestamp(6)
-  TestPackageTests TestPackageTests[]
-}
-
-model TestPackageTests {
-  testPackageId Int
-  testId        Int
-  Test          Test        @relation(fields: [testId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  TestPackage   TestPackage @relation(fields: [testPackageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@id([testPackageId, testId])
+model Sale {
+  id            Int      @id @default(autoincrement())
+  pharmacyId    Int
+  items         Json     @db.Json
+  total         Float
+  paymentMethod String
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  Pharmacy      Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy")
 }
 
 enum OrderStatus {
@@ -389,19 +231,4 @@ enum AdminRole {
 enum PharmacyUserRole {
   manager
   pharmacist
-}
-
-enum LabUserRole {
-  manager
-  lab_scientist
-  pathologist
-  radiologist
-  technician
-}
-
-enum TestResultStatus {
-  pending
-  available
-  reviewed
-  rejected
 }

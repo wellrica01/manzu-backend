@@ -14,7 +14,7 @@ router.post('/register', async (req, res) => {
     res.status(201).json({
       message: 'Registration successful',
       token,
-      user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role },
+      user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role && newUser.role.toUpperCase() },
       pharmacy: { id: newPharmacy.id, name: newPharmacy.name },
     });
   } catch (error) {
@@ -34,7 +34,7 @@ router.post('/login', async (req, res) => {
     res.status(200).json({
       message: 'Login successful',
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role && user.role.toUpperCase() },
       pharmacy: { id: pharmacy.id, name: pharmacy.name },
     });
   } catch (error) {
@@ -54,7 +54,7 @@ router.post('/lab/register', async (req, res) => {
     res.status(201).json({
       message: 'Lab registration successful',
       token,
-      user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role },
+      user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role && newUser.role.toUpperCase() },
       lab: { id: newLab.id, name: newLab.name },
     });
   } catch (error) {
@@ -74,7 +74,7 @@ router.post('/lab/login', async (req, res) => {
     res.status(200).json({
       message: 'Lab login successful',
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role && user.role.toUpperCase() },
       lab: { id: lab.id, name: lab.name },
     });
   } catch (error) {
@@ -94,7 +94,7 @@ router.post('/admin/register', async (req, res) => {
     res.status(201).json({
       message: 'Admin registration successful',
       token,
-      admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role },
+      admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role && admin.role.toUpperCase() },
     });
   } catch (error) {
     console.error('Admin registration error:', { message: error.message, stack: error.stack });
@@ -113,7 +113,7 @@ router.post('/admin/login', async (req, res) => {
     res.status(200).json({
       message: 'Admin login successful',
       token,
-      admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role },
+      admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role && admin.role.toUpperCase() },
     });
   } catch (error) {
     console.error('Admin login error:', { message: error.message, stack: error.stack });
@@ -132,7 +132,7 @@ router.post('/add-user', authenticate, authenticateManager, async (req, res) => 
     const user = await authService.addPharmacyUser({ name, email, password, role, pharmacyId });
     res.status(201).json({
       message: 'User added successfully',
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: { id: user.id, name: user.name, email: user.email, role: user.role && user.role.toUpperCase() },
     });
   } catch (error) {
     console.error('Add user error:', { message: error.message, stack: error.stack });
@@ -151,7 +151,7 @@ router.post('/lab/add-user', authenticate, authenticateManager, async (req, res)
     const user = await authService.addLabUser({ name, email, password, role, labId });
     res.status(201).json({
       message: 'Lab user added successfully',
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: { id: user.id, name: user.name, email: user.email, role: user.role && user.role.toUpperCase() },
     });
   } catch (error) {
     console.error('Add lab user error:', { message: error.message, stack: error.stack });
@@ -175,7 +175,7 @@ router.patch('/users/:userId', authenticate, authenticateManager, async (req, re
     const updatedUser = await authService.editPharmacyUser(Number(userId), { name, email, password }, managerId, pharmacyId);
     res.status(200).json({
       message: 'User updated successfully',
-      user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role },
+      user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role && updatedUser.role.toUpperCase() },
     });
   } catch (error) {
     console.error('Edit user error:', { message: error.message, stack: error.stack });
@@ -199,7 +199,7 @@ router.patch('/lab/users/:userId', authenticate, authenticateManager, async (req
     const updatedUser = await authService.editLabUser(Number(userId), { name, email, password }, managerId, labId);
     res.status(200).json({
       message: 'Lab user updated successfully',
-      user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role },
+      user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role && updatedUser.role.toUpperCase() },
     });
   } catch (error) {
     console.error('Edit lab user error:', { message: error.message, stack: error.stack });
@@ -287,7 +287,7 @@ router.patch('/lab/profile', authenticate, authenticateManager, async (req, res)
     const { updatedUser, updatedLab } = await authService.editLabProfile({ user, lab }, userId, labId);
     res.status(200).json({
       message: 'Lab profile updated successfully',
-      user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role },
+      user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role && updatedUser.role.toUpperCase() },
       lab: {
         id: updatedLab.id,
         name: updatedLab.name,

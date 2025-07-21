@@ -279,11 +279,11 @@ function validateBookingTracking(data) {
 
 function validateConsent(data) {
   const schema = Joi.object({
-    patientIdentifier: Joi.string().optional(),
+    userIdentifier: Joi.string().optional(),
     userId: Joi.number().optional(),
-    consentType: Joi.string().valid('data_collection', 'marketing').required(),
+    consentType: Joi.string().valid('TERMS', 'PRIVACY', 'MARKETING', 'DATA_SHARING', 'REGULATORY').required(),
     granted: Joi.boolean().required(),
-  }).or('patientIdentifier', 'userId');
+  }).or('userIdentifier', 'userId');
   return schema.validate(data, { abortEarly: false });
 }
 
@@ -348,7 +348,7 @@ function validateTestSearch(data) {
 
 function validatePrescriptionUpload(data) {
   const schema = Joi.object({
-    patientIdentifier: Joi.string().required(),
+    userIdentifier: Joi.string().required(),
     contact: Joi.string().required().custom((value, helpers) => {
       if (!isValidEmail(value) && !isValidPhone(value)) {
         return helpers.error('any.invalid', { message: 'Invalid email or phone number format (e.g., example@domain.com or +2349031615501)' });
@@ -366,6 +366,7 @@ function validateAddMedications(data) {
       Joi.object({
         medicationId: Joi.number().integer().required(),
         quantity: Joi.number().integer().min(1).required(),
+        dosageInstructions: Joi.string().optional().allow(null, ''),
       })
     ).min(1).required(),
   });
@@ -374,8 +375,8 @@ function validateAddMedications(data) {
 
 function validateVerifyPrescription(data) {
   const schema = Joi.object({
-    id: Joi.string().pattern(/^\d+$/).required(),
-    status: Joi.string().valid('verified', 'rejected').required(),
+    id: Joi.string().pattern(/^[0-9]+$/).required(),
+    status: Joi.string().valid('VERIFIED', 'REJECTED', 'EXPIRED', 'PENDING').required(),
   });
   return schema.validate(data, { abortEarly: false });
 }
@@ -383,7 +384,7 @@ function validateVerifyPrescription(data) {
 // Rename validateGuestOrder to validatePrescriptionOrder
 function validatePrescriptionOrder(data) {
   const schema = Joi.object({
-    patientIdentifier: Joi.string().required(),
+    userIdentifier: Joi.string().required(),
     lat: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
     lng: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
     radius: Joi.string().pattern(/^\d+(\.\d+)?$/).default('10'),
@@ -437,8 +438,8 @@ function validateFetchOrders(data) {
 
 function validateUpdateOrder(data) {
   const schema = Joi.object({
-    orderId: Joi.string().pattern(/^\d+$/).required(),
-    status: Joi.string().valid('processing', 'shipped', 'delivered', 'ready_for_pickup').required(),
+    orderId: Joi.string().pattern(/^[0-9]+$/).required(),
+    status: Joi.string().valid('PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP').required(),
   });
   return schema.validate(data, { abortEarly: false });
 }
@@ -454,7 +455,6 @@ function validateAddMedication(data) {
     stock: Joi.number().integer().positive().required(),
     price: Joi.number().precision(2).positive().required(),
   });
-
   return schema.validate(data, { abortEarly: false });
 }
 
@@ -473,7 +473,7 @@ function validateUpdateMedication(data) {
 
 function validateDeleteMedication(data) {
   const schema = Joi.object({
-    medicationId: Joi.string().pattern(/^\d+$/).required(),
+    medicationId: Joi.string().pattern(/^[0-9]+$/).required(),
   });
   return schema.validate(data, { abortEarly: false });
 }

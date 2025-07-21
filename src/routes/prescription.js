@@ -39,11 +39,11 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
-    const patientIdentifier = req.headers['x-guest-id'];
+    const userIdentifier = req.headers['x-guest-id'];
     const { contact } = req.body;
 
     // Validate input
-    const { error } = validatePrescriptionUpload({ patientIdentifier, contact });
+    const { error } = validatePrescriptionUpload({ userIdentifier, contact });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
@@ -55,7 +55,7 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
     const phone = !isEmail && contact ? contact : null;
 
     const prescription = await prescriptionService.uploadPrescription({
-      patientIdentifier,
+      userIdentifier,
       email,
       phone,
       fileUrl: `/uploads/${req.file.filename}`,
@@ -80,6 +80,7 @@ router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res
       return res.status(400).json({ message: error.message });
     }
 
+    // Support dosageInstructions in medication addition
     const result = await prescriptionService.addMedications(Number(id), medications);
     res.status(201).json({ message: 'Medications added', prescriptionMedications: result.prescriptionMedications });
   } catch (error) {
@@ -101,7 +102,8 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
       return res.status(400).json({ message: error.message });
     }
 
-    const prescription = await prescriptionService.verifyPrescription(Number(id), status);
+    // Always use uppercase for status
+    const prescription = await prescriptionService.verifyPrescription(Number(id), status.toUpperCase());
     res.status(200).json({ message: 'Prescription updated', prescription });
   } catch (error) {
     console.error('Verification error:', { message: error.message });
@@ -109,14 +111,14 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
   }
 });
 
-// GET /prescriptions/:patientIdentifier - Retrieve prescription order details (for guest or user)
-router.get('/prescriptions/:patientIdentifier', requireConsent, async (req, res) => {
+// GET /prescriptions/:userIdentifier - Retrieve prescription order details (for guest or user)
+router.get('/prescriptions/:userIdentifier', requireConsent, async (req, res) => {
   try {
-    const { patientIdentifier } = req.params;
+    const { userIdentifier } = req.params;
     const { lat, lng, radius, state, lga, ward } = req.query;
 
     // Validate input
-    const { error, value } = validatePrescriptionOrder({ patientIdentifier, lat, lng, radius });
+    const { error, value } = validatePrescriptionOrder({ userIdentifier, lat, lng, radius });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
@@ -141,11 +143,11 @@ router.get('/prescriptions/:patientIdentifier', requireConsent, async (req, res)
 // GET /prescription/status - Get prescription statuses for medications
 router.get('/status', requireConsent, async (req, res) => {
   try {
-    const patientIdentifier = req.headers['x-guest-id'];
+    const userIdentifier = req.headers['x-guest-id'];
     const { medicationIds } = req.query;
 
-    if (!patientIdentifier) {
-      return res.status(400).json({ message: 'Patient identifier is required' });
+    if (!userIdentifier) {
+      return res.status(400).json({ message: 'User identifier is required' });
     }
     if (!medicationIds) {
       return res.status(400).json({ message: 'Medication IDs are required' });
@@ -157,7 +159,7 @@ router.get('/status', requireConsent, async (req, res) => {
     }
 
     const statuses = await prescriptionService.getPrescriptionStatuses({
-      patientIdentifier,
+      userIdentifier,
       medicationIds: medicationIdArray,
     });
     res.status(200).json(statuses);

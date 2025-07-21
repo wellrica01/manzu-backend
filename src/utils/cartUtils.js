@@ -1,7 +1,7 @@
 async function recalculateOrderTotal(prisma, orderId) {
   const items = await prisma.orderItem.findMany({
     where: { orderId },
-    select: { price: true, quantity: true, pharmacyMedicationPharmacyId: true },
+    select: { price: true, quantity: true, pharmacyId: true },
   });
 
   // Calculate total for the entire order
@@ -9,7 +9,7 @@ async function recalculateOrderTotal(prisma, orderId) {
 
   // Calculate per-pharmacy subtotals (optional for frontend)
   const subtotals = items.reduce((acc, item) => {
-    const pharmacyId = item.pharmacyMedicationPharmacyId;
+    const pharmacyId = item.pharmacyId;
     acc[pharmacyId] = (acc[pharmacyId] || 0) + item.price * item.quantity;
     return acc;
   }, {});

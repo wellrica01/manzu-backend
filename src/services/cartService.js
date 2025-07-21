@@ -26,16 +26,16 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   // Check if a cart order already exists for this user
   let cartOrder = await prisma.order.findFirst({
     where: {
-      patientIdentifier: userId,
-      status: 'cart',
+      userIdentifier: userId,
+      status: 'CART',
     },
   });
 
   // Check if there's a pending_prescription order for this user
   const prescriptionOrder = await prisma.order.findFirst({
     where: {
-      patientIdentifier: userId,
-      status: 'pending_prescription',
+      userIdentifier: userId,
+      status: 'PENDING_PRESCRIPTION',
     },
   });
 
@@ -44,8 +44,8 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   if (medication.prescriptionRequired) {
     verifiedPrescription = await prisma.prescription.findFirst({
       where: {
-        patientIdentifier: userId,
-        status: 'verified',
+        userIdentifier: userId,
+        status: 'VERIFIED',
         PrescriptionMedication: {
           some: { medicationId: medicationId }
         }
@@ -63,19 +63,19 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       // Check if a 'pending' order with this prescription already exists
       let pendingOrder = await prisma.order.findFirst({
         where: {
-          patientIdentifier: userId,
-          status: 'pending',
+          userIdentifier: userId,
+          status: 'PENDING',
           prescriptionId: verifiedPrescription.id,
         },
       });
       if (!pendingOrder) {
         pendingOrder = await prisma.order.create({
           data: {
-            patientIdentifier: userId,
-            status: 'pending',
+            userIdentifier: userId,
+            status: 'PENDING',
             totalPrice: 0,
-            deliveryMethod: 'unspecified',
-            paymentStatus: 'pending',
+            deliveryMethod: 'UNSPECIFIED',
+            paymentStatus: 'PENDING',
             prescriptionId: verifiedPrescription.id,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -94,11 +94,11 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
         if (!cartOrder) {
           cartOrder = await prisma.order.create({
             data: {
-              patientIdentifier: userId,
-              status: 'cart',
+              userIdentifier: userId,
+              status: 'CART',
               totalPrice: 0,
-              deliveryMethod: 'unspecified',
-              paymentStatus: 'pending',
+              deliveryMethod: 'UNSPECIFIED',
+              paymentStatus: 'PENDING',
               createdAt: new Date(),
               updatedAt: new Date(),
             },
@@ -112,11 +112,11 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       // Create new cart order for prescription items
       targetOrder = await prisma.order.create({
         data: {
-          patientIdentifier: userId,
-          status: 'cart',
+          userIdentifier: userId,
+          status: 'CART',
           totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
+          deliveryMethod: 'UNSPECIFIED',
+          paymentStatus: 'PENDING',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -127,11 +127,11 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
     if (!cartOrder) {
       cartOrder = await prisma.order.create({
         data: {
-          patientIdentifier: userId,
-          status: 'cart',
+          userIdentifier: userId,
+          status: 'CART',
           totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
+          deliveryMethod: 'UNSPECIFIED',
+          paymentStatus: 'PENDING',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -144,7 +144,7 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   const order = targetOrder;
 
   // Check if the medication is available at the selected pharmacy with sufficient stock
-  const pharmacyMedication = await prisma.pharmacyMedication.findFirst({
+  const pharmacyMedication = await prisma.medicationAvailability.findFirst({
     where: { medicationId, pharmacyId, stock: { gte: quantity } },
   });
 
@@ -156,10 +156,10 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   const result = await prisma.$transaction(async (tx) => {
     const orderItem = await tx.orderItem.upsert({
       where: {
-        orderId_pharmacyMedicationPharmacyId_pharmacyMedicationMedicationId: {
+        orderId_pharmacyId_medicationId: {
           orderId: order.id,
-          pharmacyMedicationPharmacyId: pharmacyId,
-          pharmacyMedicationMedicationId: medicationId,
+          pharmacyId: pharmacyId,
+          medicationId: medicationId,
         },
       },
       update: {
@@ -168,8 +168,8 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       },
       create: {
         orderId: order.id,
-        pharmacyMedicationPharmacyId: pharmacyId,
-        pharmacyMedicationMedicationId: medicationId,
+        pharmacyId: pharmacyId,
+        medicationId: medicationId,
         quantity,
         price: pharmacyMedication.price,
       },
@@ -208,8 +208,8 @@ async function cleanupEmptyOrders(tx, userId, excludeOrderId) {
   // Find all orders for this user
   const orders = await tx.order.findMany({
     where: {
-      patientIdentifier: userId,
-      status: { in: ['cart', 'pending_prescription'] },
+      userIdentifier: userId,
+      status: { in: ['CART', 'PENDING_PRESCRIPTION'] },
     },
     include: {
       items: true,
@@ -231,13 +231,13 @@ async function getCart(userId) {
   // Fetch orders that should be displayed in cart (cart status + pending_prescription + pending for verified prescriptions)
   const orders = await prisma.order.findMany({
     where: { 
-      patientIdentifier: userId, 
-      status: { in: ['cart', 'pending_prescription', 'pending'] }
+      userIdentifier: userId, 
+      status: { in: ['CART', 'PENDING_PRESCRIPTION', 'PENDING'] }
     },
     include: {
       items: {
         include: {
-          pharmacyMedication: {
+          medicationAvailability: {
             include: {
               pharmacy: true,
               medication: true,
@@ -288,33 +288,33 @@ async function getCart(userId) {
       prescriptionId = order.prescriptionId;
     }
     // Track the most relevant status for display
-    if (order.status === 'pending_prescription') {
-      orderStatus = 'pending_prescription';
-    } else if (order.status === 'pending' && orderStatus !== 'pending_prescription') {
-      orderStatus = 'pending';
-    } else if (order.status === 'cart' && orderStatus !== 'pending_prescription' && orderStatus !== 'pending') {
-      orderStatus = 'cart';
+    if (order.status === 'PENDING_PRESCRIPTION') {
+      orderStatus = 'PENDING_PRESCRIPTION';
+    } else if (order.status === 'PENDING' && orderStatus !== 'PENDING_PRESCRIPTION') {
+      orderStatus = 'PENDING';
+    } else if (order.status === 'CART' && orderStatus !== 'PENDING_PRESCRIPTION' && orderStatus !== 'PENDING') {
+      orderStatus = 'CART';
     }
   }
 
   const pharmacyGroups = allItems.reduce((acc, item) => {
-    const pharmacyId = item.pharmacyMedication?.pharmacy?.id;
+    const pharmacyId = item.medicationAvailability?.pharmacy?.id;
     if (!pharmacyId) return acc; // Skip if data is incomplete
 
     if (!acc[pharmacyId]) {
       acc[pharmacyId] = {
         pharmacy: {
           id: pharmacyId,
-          name: item.pharmacyMedication?.pharmacy?.name ?? "Unknown Pharmacy",
-          address: item.pharmacyMedication?.pharmacy?.address ?? "No address",
-          phone: item.pharmacyMedication?.pharmacy?.phone ?? null,
-          licenseNumber: item.pharmacyMedication?.pharmacy?.licenseNumber ?? null,
-          ward: item.pharmacyMedication?.pharmacy?.ward ?? null,
-          lga: item.pharmacyMedication?.pharmacy?.lga ?? null,
-          state: item.pharmacyMedication?.pharmacy?.state ?? null,
-          operatingHours: item.pharmacyMedication?.pharmacy?.operatingHours ?? null,
-          status: item.pharmacyMedication?.pharmacy?.status ?? 'pending',
-          logoUrl: item.pharmacyMedication?.pharmacy?.logoUrl ?? null,
+          name: item.medicationAvailability?.pharmacy?.name ?? "Unknown Pharmacy",
+          address: item.medicationAvailability?.pharmacy?.address ?? "No address",
+          phone: item.medicationAvailability?.pharmacy?.phone ?? null,
+          licenseNumber: item.medicationAvailability?.pharmacy?.licenseNumber ?? null,
+          ward: item.medicationAvailability?.pharmacy?.ward ?? null,
+          lga: item.medicationAvailability?.pharmacy?.lga ?? null,
+          state: item.medicationAvailability?.pharmacy?.state ?? null,
+          operatingHours: item.medicationAvailability?.pharmacy?.operatingHours ?? null,
+          status: item.medicationAvailability?.pharmacy?.status ?? 'pending',
+          logoUrl: item.medicationAvailability?.pharmacy?.logoUrl ?? null,
         },
         items: [],
         subtotal: 0,
@@ -324,27 +324,27 @@ async function getCart(userId) {
     acc[pharmacyId].items.push({
       id: item.id,
       medication: {
-        name: item.pharmacyMedication?.medication?.name ?? "Unknown",
-        genericName: item.pharmacyMedication?.medication?.genericName ?? null,
-        displayName: `${item.pharmacyMedication?.medication?.name ?? ""}${item.pharmacyMedication?.medication?.dosage ? ` ${item.pharmacyMedication.medication.dosage}` : ''}${item.pharmacyMedication?.medication?.form ? ` (${item.pharmacyMedication.medication.form})` : ''}`,
-        category: item.pharmacyMedication?.medication?.category ?? null,
-        description: item.pharmacyMedication?.medication?.description ?? null,
-        manufacturer: item.pharmacyMedication?.medication?.manufacturer ?? null,
-        form: item.pharmacyMedication?.medication?.form ?? null,
-        dosage: item.pharmacyMedication?.medication?.dosage ?? null,
-        imageUrl: item.pharmacyMedication?.medication?.imageUrl ?? null,
-        prescriptionRequired: item.pharmacyMedication?.medication?.prescriptionRequired ?? false,
+        name: item.medicationAvailability?.medication?.name ?? "Unknown",
+        genericName: item.medicationAvailability?.medication?.genericName ?? null,
+        displayName: `${item.medicationAvailability?.medication?.name ?? ""}${item.medicationAvailability?.medication?.dosage ? ` ${item.medicationAvailability.medication.dosage}` : ''}${item.medicationAvailability?.medication?.form ? ` (${item.medicationAvailability.medication.form})` : ''}`,
+        category: item.medicationAvailability?.medication?.category ?? null,
+        description: item.medicationAvailability?.medication?.description ?? null,
+        manufacturer: item.medicationAvailability?.medication?.manufacturer ?? null,
+        form: item.medicationAvailability?.medication?.form ?? null,
+        dosage: item.medicationAvailability?.medication?.dosage ?? null,
+        imageUrl: item.medicationAvailability?.medication?.imageUrl ?? null,
+        prescriptionRequired: item.medicationAvailability?.medication?.prescriptionRequired ?? false,
       },
       quantity: item.quantity,
       price: item.price,
-      pharmacyMedicationMedicationId: item.pharmacyMedicationMedicationId,
-      pharmacyMedicationPharmacyId: item.pharmacyMedicationPharmacyId,
+      medicationAvailabilityMedicationId: item.medicationAvailabilityMedicationId,
+      medicationAvailabilityPharmacyId: item.medicationAvailabilityPharmacyId,
       // Add prescription status based on order status and prescription status
-      prescriptionStatus: item.orderInfo.prescriptionId && item.pharmacyMedication?.medication?.prescriptionRequired 
-        ? (item.orderInfo.orderStatus === 'pending' ? 'verified' : 
-           item.orderInfo.orderStatus === 'pending_prescription' ? 
-             (item.orderInfo.prescriptionStatus === 'rejected' ? 'rejected' : 'pending') : 'none')
-        : 'none',
+      prescriptionStatus: item.orderInfo.prescriptionId && item.medicationAvailability?.medication?.prescriptionRequired 
+        ? (item.orderInfo.orderStatus === 'PENDING' ? 'VERIFIED' : 
+           item.orderInfo.orderStatus === 'PENDING_PRESCRIPTION' ? 
+             (item.orderInfo.prescriptionStatus === 'REJECTED' ? 'REJECTED' : 'PENDING') : 'NONE')
+        : 'NONE',
     });
 
     acc[pharmacyId].subtotal += item.quantity * item.price;
@@ -371,11 +371,11 @@ async function createMixedOrder({ userId, readyItems, prescriptionItems }) {
     // Create order for ready items (immediate checkout)
     const readyOrder = await tx.order.create({
       data: {
-        patientIdentifier: userId,
-        status: 'pending',
+        userIdentifier: userId,
+        status: 'PENDING',
         totalPrice: 0,
-        deliveryMethod: 'unspecified',
-        paymentStatus: 'pending',
+        deliveryMethod: 'UNSPECIFIED',
+        paymentStatus: 'PENDING',
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -384,11 +384,11 @@ async function createMixedOrder({ userId, readyItems, prescriptionItems }) {
     // Create order for prescription items (pending verification)
     const prescriptionOrder = await tx.order.create({
       data: {
-        patientIdentifier: userId,
-        status: 'pending_prescription',
+        userIdentifier: userId,
+        status: 'PENDING_PRESCRIPTION',
         totalPrice: 0,
-        deliveryMethod: 'unspecified',
-        paymentStatus: 'pending',
+        deliveryMethod: 'UNSPECIFIED',
+        paymentStatus: 'PENDING',
         prescriptionId: prescriptionItems.prescriptionId,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -430,11 +430,11 @@ async function handlePrescriptionVerification({ prescriptionId, status }) {
     where: { id: prescriptionId },
     include: {
       orders: {
-        where: { status: 'pending_prescription' },
+        where: { status: 'PENDING_PRESCRIPTION' },
         include: {
           items: {
             include: {
-              pharmacyMedication: {
+              medicationAvailability: {
                 include: { medication: true },
               },
             },
@@ -448,19 +448,19 @@ async function handlePrescriptionVerification({ prescriptionId, status }) {
     throw new Error('Prescription not found');
   }
 
-  if (status === 'verified') {
+  if (status === 'VERIFIED') {
     // Update prescription order to ready for checkout
     for (const order of prescription.orders) {
       await prisma.order.update({
         where: { id: order.id },
         data: { 
-          status: 'pending',
+          status: 'PENDING',
           updatedAt: new Date(),
         },
       });
     }
-  } else if (status === 'rejected') {
-    // Keep prescription order as pending_prescription for re-upload
+  } else if (status === 'REJECTED') {
+    // Keep prescription order as PENDING_PRESCRIPTION for re-upload
     // User can upload new prescription
   }
 
@@ -473,7 +473,7 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
     where: { id: orderItemId },
     include: { 
       order: true,
-      pharmacyMedication: true 
+      medicationAvailability: true 
     },
   });
   
@@ -484,18 +484,18 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
   const order = orderItem.order;
   
   // Check if the order belongs to this user and has appropriate status
-  if (order.patientIdentifier !== userId || !['cart', 'pending_prescription', 'pending'].includes(order.status)) {
+  if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION', 'PENDING'].includes(order.status)) {
     throw new Error('Cart not found');
   }
 
-  const pharmacyMedication = await prisma.pharmacyMedication.findFirst({
+  const medicationAvailability = await prisma.medicationAvailability.findFirst({
     where: {
-      medicationId: orderItem.pharmacyMedicationMedicationId,
-      pharmacyId: orderItem.pharmacyMedicationPharmacyId,
+      medicationId: orderItem.medicationAvailabilityMedicationId,
+      pharmacyId: orderItem.medicationAvailabilityPharmacyId,
       stock: { gte: quantity },
     },
   });
-  if (!pharmacyMedication) {
+  if (!medicationAvailability) {
     throw new Error('Insufficient stock');
   }
 
@@ -503,7 +503,7 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
   const updatedItem = await prisma.$transaction(async (tx) => {
     const item = await tx.orderItem.update({
       where: { id: orderItemId },
-      data: { quantity, price: pharmacyMedication.price },
+      data: { quantity, price: medicationAvailability.price },
     });
 
     await recalculateOrderTotal(tx, order.id);
@@ -531,7 +531,7 @@ async function removeFromCart({ orderItemId, userId }) {
   const order = orderItem.order;
   
   // Check if the order belongs to this user and has appropriate status
-  if (order.patientIdentifier !== userId || !['cart', 'pending_prescription'].includes(order.status)) {
+  if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION'].includes(order.status)) {
     throw new Error('Cart not found');
   }
 
@@ -560,8 +560,8 @@ async function removeFromCart({ orderItemId, userId }) {
 async function linkPrescriptionToCart({ prescriptionId, userId }) {
   const order = await prisma.order.findFirst({
     where: { 
-      patientIdentifier: userId, 
-      status: { in: ['cart', 'pending_prescription'] }
+      userIdentifier: userId, 
+      status: { in: ['CART', 'PENDING_PRESCRIPTION'] }
     },
   });
   
@@ -581,14 +581,14 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
   const orderItems = await prisma.orderItem.findMany({
     where: { orderId: order.id },
     include: {
-      pharmacyMedication: {
+      medicationAvailability: {
         include: { medication: true },
       },
     },
   });
 
-  const otcItems = orderItems.filter(item => !item.pharmacyMedication.medication.prescriptionRequired);
-  const prescriptionItems = orderItems.filter(item => item.pharmacyMedication.medication.prescriptionRequired);
+  const otcItems = orderItems.filter(item => !item.medicationAvailability.medication.prescriptionRequired);
+  const prescriptionItems = orderItems.filter(item => item.medicationAvailability.medication.prescriptionRequired);
 
   // If we have both OTC and prescription items, create separate orders
   if (otcItems.length > 0 && prescriptionItems.length > 0) {
@@ -596,11 +596,11 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
       // Create new order for OTC items (keep as cart) - no contact info needed
       const otcOrder = await tx.order.create({
         data: {
-          patientIdentifier: userId,
-          status: 'cart',
+          userIdentifier: userId,
+          status: 'CART',
           totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
+          deliveryMethod: 'UNSPECIFIED',
+          paymentStatus: 'PENDING',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -609,11 +609,11 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
       // Create new order for prescription items - with contact info
       const prescriptionOrder = await tx.order.create({
         data: {
-          patientIdentifier: userId,
-          status: 'pending_prescription',
+          userIdentifier: userId,
+          status: 'PENDING_PRESCRIPTION',
           totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
+          deliveryMethod: 'UNSPECIFIED',
+          paymentStatus: 'PENDING',
           prescriptionId: prescriptionId,
           email: prescription.email || order.email,
           phone: prescription.phone || order.phone,
@@ -659,7 +659,7 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
     };
 
     if (prescriptionItems.length > 0) {
-      updateData.status = 'pending_prescription';
+      updateData.status = 'PENDING_PRESCRIPTION';
       updateData.updatedAt = new Date();
       // Only add contact info for prescription orders
       updateData.email = prescription.email || order.email;
@@ -680,8 +680,8 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
     // Get all cart orders (including pending_prescription status)
     const orders = await prisma.order.findMany({
       where: { 
-        patientIdentifier: userId, 
-        status: { in: ['cart', 'pending_prescription'] }
+        userIdentifier: userId, 
+        status: { in: ['CART', 'PENDING_PRESCRIPTION'] }
       },
       include: {
         prescription: {
@@ -697,7 +697,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         },
         items: {
           include: {
-            pharmacyMedication: {
+            medicationAvailability: {
               include: { medication: true },
             },
           },
@@ -707,10 +707,10 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
 
     if (!orders || orders.length === 0) {
       // No orders found, return all as 'none'
-      return Object.fromEntries(medicationIds.map(id => [id, 'none']));
+      return Object.fromEntries(medicationIds.map(id => [id, 'NONE']));
     }
 
-    const statuses = Object.fromEntries(medicationIds.map(id => [id, 'none']));
+    const statuses = Object.fromEntries(medicationIds.map(id => [id, 'NONE']));
 
     // Check each order for prescription coverage
     for (const order of orders) {
@@ -719,7 +719,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         
         // Get medication IDs in this order
         const orderMedicationIds = order.items.map(item => 
-          item.pharmacyMedication.medication.id.toString()
+          item.medicationAvailability.medication.id.toString()
         );
 
         // Map medicationIds covered by the prescription
@@ -729,7 +729,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         // Update statuses for medications in this order that are covered by prescription
         for (const medId of medicationIds) {
           if (orderMedicationIds.includes(medId) && coveredMedicationIds.includes(medId)) {
-            statuses[medId] = prescription.status; // 'verified' or 'pending'
+            statuses[medId] = prescription.status; // 'VERIFIED' or 'PENDING'
           }
         }
       }
@@ -746,13 +746,13 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
   // Find orders that contain the specified medications (both cart and pending_prescription status)
   const orders = await prisma.order.findMany({
     where: {
-      patientIdentifier: userId,
-      status: { in: ['cart', 'pending_prescription'] },
+      userIdentifier: userId,
+      status: { in: ['CART', 'PENDING_PRESCRIPTION'] },
     },
     include: {
       items: {
         include: {
-          pharmacyMedication: {
+          medicationAvailability: {
             include: { medication: true },
           },
         },
@@ -770,7 +770,7 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
 
   for (const order of orders) {
     const orderMeds = order.items.map(item => 
-    item.pharmacyMedication.medication.id.toString()
+    item.medicationAvailability.medication.id.toString()
   );
 
   const hasSpecifiedMedications = medicationIds.some(medId => 
@@ -803,16 +803,16 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
 
   // Separate OTC and prescription items
   const otcItems = targetOrder.items.filter(item => 
-    !item.pharmacyMedication.medication.prescriptionRequired
+    !item.medicationAvailability.medication.prescriptionRequired
   );
   
   const prescriptionItems = targetOrder.items.filter(item => 
-    item.pharmacyMedication.medication.prescriptionRequired
+    item.medicationAvailability.medication.prescriptionRequired
   );
 
   // Check if the specified medications are prescription items
   const specifiedPrescriptionItems = prescriptionItems.filter(item => 
-    medicationIds.includes(item.pharmacyMedication.medication.id.toString())
+    medicationIds.includes(item.medicationAvailability.medication.id.toString())
   );
 
   if (specifiedPrescriptionItems.length === 0) {
@@ -823,7 +823,7 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
   const result = await prisma.$transaction(async (tx) => {
     // If this is a rejected prescription case (order already has prescriptionId), 
     // just update the existing order with the new prescriptionId
-    if (targetOrder.prescriptionId && targetOrder.status === 'pending_prescription') {
+    if (targetOrder.prescriptionId && targetOrder.status === 'PENDING_PRESCRIPTION') {
       const updatedOrder = await tx.order.update({
         where: { id: targetOrder.id },
         data: {
@@ -851,11 +851,11 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
       // Create new order for OTC items (keep as cart)
       const otcOrder = await tx.order.create({
         data: {
-          patientIdentifier: userId,
-          status: 'cart',
+          userIdentifier: userId,
+          status: 'CART',
           totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
+          deliveryMethod: 'UNSPECIFIED',
+          paymentStatus: 'PENDING',
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -864,11 +864,11 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
       // Create new order for prescription items (pending verification)
       const prescriptionOrder = await tx.order.create({
         data: {
-          patientIdentifier: userId,
-          status: 'pending_prescription',
+          userIdentifier: userId,
+          status: 'PENDING_PRESCRIPTION',
           totalPrice: 0,
-          deliveryMethod: 'unspecified',
-          paymentStatus: 'pending',
+          deliveryMethod: 'UNSPECIFIED',
+          paymentStatus: 'PENDING',
           prescriptionId: prescriptionId,
           email: prescription.email,
           phone: prescription.phone,
@@ -921,7 +921,7 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
         where: { id: targetOrder.id },
         data: {
           prescriptionId: prescriptionId,
-          status: 'pending_prescription',
+          status: 'PENDING_PRESCRIPTION',
           email: prescription.email,
           phone: prescription.phone,
           updatedAt: new Date(),

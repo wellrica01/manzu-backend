@@ -9,7 +9,7 @@ const cleanupPendingPrescriptionOrders = async () => {
 
     const orders = await prisma.order.findMany({
       where: {
-        status: 'pending_prescription',
+        status: 'PENDING_PRESCRIPTION',
         createdAt: { lte: timeoutThreshold },
       },
       include: { items: true },
@@ -25,7 +25,7 @@ const cleanupPendingPrescriptionOrders = async () => {
         await tx.order.update({
           where: { id: order.id },
           data: {
-            status: 'cancelled',
+            status: 'CANCELLED',
             cancelReason: 'Prescription verification timeout',
             cancelledAt: new Date(),
             updatedAt: new Date(),
@@ -33,11 +33,11 @@ const cleanupPendingPrescriptionOrders = async () => {
         });
 
         for (const item of order.items) {
-          await tx.pharmacyMedication.update({
+          await tx.medicationAvailability.update({
             where: {
-              pharmacyId_medicationId: {
-                pharmacyId: item.pharmacyMedicationPharmacyId,
-                medicationId: item.pharmacyMedicationMedicationId,
+              medicationId_pharmacyId: {
+                medicationId: item.medicationId,
+                pharmacyId: item.pharmacyId,
               },
             },
             data: { stock: { increment: item.quantity } },
@@ -61,7 +61,7 @@ const cleanupPendingPaymentOrders = async () => {
 
     const orders = await prisma.order.findMany({
       where: {
-        status: 'pending',
+        status: 'PENDING',
         createdAt: { lte: timeoutThreshold },
       },
       include: { items: true },
@@ -77,7 +77,7 @@ const cleanupPendingPaymentOrders = async () => {
         await tx.order.update({
           where: { id: order.id },
           data: {
-            status: 'cancelled',
+            status: 'CANCELLED',
             cancelReason: 'Payment timeout',
             cancelledAt: new Date(),
             updatedAt: new Date(),
@@ -85,11 +85,11 @@ const cleanupPendingPaymentOrders = async () => {
         });
 
         for (const item of order.items) {
-          await tx.pharmacyMedication.update({
+          await tx.medicationAvailability.update({
             where: {
-              pharmacyId_medicationId: {
-                pharmacyId: item.pharmacyMedicationPharmacyId,
-                medicationId: item.pharmacyMedicationMedicationId,
+              medicationId_pharmacyId: {
+                medicationId: item.medicationId,
+                pharmacyId: item.pharmacyId,
               },
             },
             data: { stock: { increment: item.quantity } },

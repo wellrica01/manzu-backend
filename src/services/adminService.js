@@ -21,17 +21,17 @@ async function getDashboardOverview() {
     prisma.pharmacy.count(),
     prisma.medication.count(),
     prisma.prescription.count(),
-    prisma.pharmacyUser.count(), // ← userCount now correctly placed
-    prisma.prescription.count({ where: { status: 'pending' } }),
-    prisma.pharmacy.count({ where: { status: 'verified' } }),
-    prisma.order.count(), // ← This was missing!
+    prisma.pharmacyUser.count(),
+    prisma.prescription.count({ where: { status: 'PENDING' } }),
+    prisma.pharmacy.count({ where: { status: 'VERIFIED' } }),
+    prisma.order.count(),
     prisma.order.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         trackingCode: true,
-        patientIdentifier: true,
+        userIdentifier: true,
         totalPrice: true,
         status: true,
         createdAt: true
@@ -55,7 +55,7 @@ async function getDashboardOverview() {
 async function getPharmacies({ page = 1, limit = 10, status, state, name }) {
   const skip = (page - 1) * limit;
   const where = {};
-  if (status && status !== "all") where.status = status;
+  if (status && status !== "all") where.status = status.toUpperCase();
   if (state) where.state = state;
   if (name) where.name = { contains: name, mode: "insensitive" };
 
@@ -172,7 +172,7 @@ async function updatePharmacy(id, data) {
         status: data.status,
         logoUrl: data.logoUrl,
         isActive: data.isActive,
-        verifiedAt: data.status === 'verified' ? new Date() : data.status === 'rejected' ? null : existingPharmacy.verifiedAt,
+        verifiedAt: data.status === 'VERIFIED' ? new Date() : data.status === 'REJECTED' ? null : existingPharmacy.verifiedAt,
       },
     });
     await prisma.$queryRaw`
@@ -219,28 +219,28 @@ async function deletePharmacy(id) {
 async function getMedications({ page, limit, name, genericName, category, prescriptionRequired, pharmacyId }) {
   const skip = (page - 1) * limit;
   const where = {};
-  if (name) where.name = { contains: name, mode: 'insensitive' };
-  if (genericName) where.genericName = { contains: genericName, mode: 'insensitive' };
-  if (category) where.category = { equals: category };
+  if (name) where.brandName = { contains: name, mode: 'insensitive' };
+  if (genericName) where.genericMedication = { name: { contains: genericName, mode: 'insensitive' } };
+  if (category) where.genericMedication = { categories: { some: { category: { name: category } } } };
   if (prescriptionRequired !== undefined) where.prescriptionRequired = prescriptionRequired;
-  if (pharmacyId) where.pharmacyMedications = { some: { pharmacyId } };
+  if (pharmacyId) where.availabilities = { some: { pharmacyId } };
   const [medications, total] = await prisma.$transaction([
     prisma.medication.findMany({
       where,
       select: {
         id: true,
-        name: true,
-        genericName: true,
-        category: true,
+        brandName: true,
+        genericMedication: { select: { name: true } },
         description: true,
-        manufacturer: true,
+        manufacturer: { select: { name: true } },
         form: true,
-        dosage: true,
+        strengthValue: true,
+        strengthUnit: true,
         nafdacCode: true,
         prescriptionRequired: true,
         imageUrl: true,
         createdAt: true,
-        pharmacyMedications: {
+        availabilities: {
           select: {
             stock: true,
             price: true,
@@ -266,18 +266,18 @@ async function getMedication(id) {
     where: { id },
     select: {
       id: true,
-      name: true,
-      genericName: true,
-      category: true,
+      brandName: true,
+      genericMedication: { select: { name: true } },
       description: true,
-      manufacturer: true,
+      manufacturer: { select: { name: true } },
       form: true,
-      dosage: true,
+      strengthValue: true,
+      strengthUnit: true,
       nafdacCode: true,
       prescriptionRequired: true,
       imageUrl: true,
       createdAt: true,
-      pharmacyMedications: {
+      availabilities: {
         select: {
           stock: true,
           price: true,
@@ -296,20 +296,49 @@ async function getMedication(id) {
 }
 
 async function createMedication(data) {
+  // Ensure required relations exist
+  const genericMedication = await prisma.genericMedication.findUnique({ where: { id: data.genericMedicationId } });
+  if (!genericMedication) throw new Error('Generic medication not found');
+  let manufacturer = null;
+  if (data.manufacturerId) {
+    manufacturer = await prisma.manufacturer.findUnique({ where: { id: data.manufacturerId } });
+    if (!manufacturer) throw new Error('Manufacturer not found');
+  }
   const medication = await prisma.medication.create({
     data: {
-      ...data,
+      brandName: data.brandName,
+      genericMedicationId: data.genericMedicationId,
+      brandDescription: data.brandDescription,
+      manufacturerId: data.manufacturerId,
+      form: data.form,
+      strengthValue: data.strengthValue,
+      strengthUnit: data.strengthUnit,
+      route: data.route,
+      packSizeQuantity: data.packSizeQuantity,
+      packSizeUnit: data.packSizeUnit,
+      isCombination: data.isCombination,
+      combinationDescription: data.combinationDescription,
+      nafdacCode: data.nafdacCode,
+      nafdacStatus: data.nafdacStatus,
+      prescriptionRequired: data.prescriptionRequired,
+      regulatoryClass: data.regulatoryClass,
+      restrictedTo: data.restrictedTo,
+      insuranceCoverage: data.insuranceCoverage,
+      approvalDate: data.approvalDate ? new Date(data.approvalDate) : undefined,
+      expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
+      storageConditions: data.storageConditions,
+      imageUrl: data.imageUrl,
       createdAt: new Date(),
     },
     select: {
       id: true,
-      name: true,
-      genericName: true,
-      category: true,
-      description: true,
-      manufacturer: true,
+      brandName: true,
+      genericMedication: { select: { name: true } },
+      brandDescription: true,
+      manufacturer: { select: { name: true } },
       form: true,
-      dosage: true,
+      strengthValue: true,
+      strengthUnit: true,
       nafdacCode: true,
       prescriptionRequired: true,
       imageUrl: true,
@@ -328,18 +357,18 @@ async function updateMedication(id, data) {
       data,
       select: {
         id: true,
-        name: true,
-        genericName: true,
-        category: true,
+        brandName: true,
+        genericMedication: { select: { name: true } },
         description: true,
-        manufacturer: true,
+        manufacturer: { select: { name: true } },
         form: true,
-        dosage: true,
+        strengthValue: true,
+        strengthUnit: true,
         nafdacCode: true,
         prescriptionRequired: true,
         imageUrl: true,
         createdAt: true,
-        pharmacyMedications: {
+        availabilities: {
           select: {
             stock: true,
             price: true,
@@ -365,16 +394,16 @@ async function deleteMedication(id) {
   try {
     await prisma.$transaction(async (prisma) => {
       await prisma.orderItem.deleteMany({
-        where: { pharmacyMedicationMedicationId: id },
+        where: { medicationId: id },
       });
-      await prisma.pharmacyMedication.deleteMany({
+      await prisma.medicationAvailability.deleteMany({
         where: { medicationId: id },
       });
       await prisma.medication.delete({
         where: { id },
       });
     });
-    console.log('Medication, related PharmacyMedication, and OrderItem records deleted:', { medicationId: id });
+    console.log('Medication, related MedicationAvailability, and OrderItem records deleted:', { medicationId: id });
   } catch (error) {
     if (error.code === 'P2025') {
       const err = new Error('Medication not found');
@@ -389,14 +418,14 @@ async function deleteMedication(id) {
 async function getPrescriptions({ page, limit, status, patientIdentifier }) {
   const skip = (page - 1) * limit;
   const where = {};
-  if (status) where.status = status;
-  if (patientIdentifier) where.patientIdentifier = { contains: patientIdentifier, mode: 'insensitive' };
+  if (status) where.status = status.toUpperCase();
+  if (patientIdentifier) where.userIdentifier = { contains: patientIdentifier, mode: 'insensitive' };
   const [prescriptions, total] = await prisma.$transaction([
     prisma.prescription.findMany({
       where,
       select: {
         id: true,
-        patientIdentifier: true,
+        userIdentifier: true,
         fileUrl: true,
         status: true,
         verified: true,
@@ -431,7 +460,7 @@ async function getPrescription(id) {
           pharmacy: true,
           items: {
             include: {
-              pharmacyMedication: {
+              medicationAvailability: {
                 include: { medication: true },
               },
             },
@@ -452,14 +481,14 @@ async function getPrescription(id) {
 async function getOrders({ page, limit, status, patientIdentifier }) {
   const skip = (page - 1) * limit;
   const where = {};
-  if (status) where.status = status;
-  if (patientIdentifier) where.patientIdentifier = { contains: patientIdentifier, mode: 'insensitive' };
+  if (status) where.status = status.toUpperCase();
+  if (patientIdentifier) where.userIdentifier = { contains: patientIdentifier, mode: 'insensitive' };
   const [orders, total] = await prisma.$transaction([
     prisma.order.findMany({
       where,
       select: {
         id: true,
-        patientIdentifier: true,
+        userIdentifier: true,
         status: true,
         totalPrice: true,
         createdAt: true,
@@ -481,7 +510,7 @@ async function getOrder(id) {
     where: { id },
     select: {
       id: true,
-      patientIdentifier: true,
+      userIdentifier: true,
       status: true,
       totalPrice: true,
       deliveryMethod: true,
@@ -502,18 +531,17 @@ async function getOrder(id) {
       prescription: {
         select: {
           id: true,
-          patientIdentifier: true,
+          userIdentifier: true,
           status: true,
           fileUrl: true,
-          verified: true,
         },
       },
       items: {
         select: {
-          pharmacyMedication: {
+          medicationAvailability: {
             select: {
               medication: {
-                select: { id: true, name: true, genericName: true },
+                select: { id: true, brandName: true, genericMedication: { select: { name: true } } },
               },
               pharmacy: {
                 select: { id: true, name: true },

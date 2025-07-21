@@ -5,7 +5,7 @@ const { editPharmacySchema, paginationSchema, createMedicationSchema, updateMedi
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const router = express.Router();
 
-console.log('Loaded admin.js version: 2025-07-15-v2');
+console.log('Loaded admin.js version: 2025-07-15-v3 (new schema)');
 
 // GET /admin/dashboard - Dashboard overview
 router.get('/dashboard', authenticate, authenticateAdmin, async (req, res) => {
@@ -75,7 +75,8 @@ router.patch('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res
     if (isNaN(parseInt(id))) {
       return res.status(400).json({ message: 'Invalid pharmacy ID' });
     }
-    const data = editPharmacySchema.parse(req.body);
+    // Convert status to UPPERCASE for new schema
+    const data = { ...editPharmacySchema.parse(req.body), status: req.body.status?.toUpperCase() };
     const pharmacy = await adminService.updatePharmacy(Number(id), data);
     res.status(200).json({ message: 'Pharmacy updated successfully', pharmacy });
   } catch (error) {
@@ -136,6 +137,7 @@ router.get('/medications/:id', authenticate, authenticateAdmin, async (req, res)
 // POST /admin/medications - Create medication
 router.post('/medications', authenticate, authenticateAdmin, async (req, res) => {
   try {
+    // Expect new schema fields
     const data = createMedicationSchema.parse(req.body);
     const medication = await adminService.createMedication(data);
     res.status(201).json({ message: 'Medication created successfully', medication });
@@ -155,6 +157,7 @@ router.patch('/medications/:id', authenticate, authenticateAdmin, async (req, re
     if (isNaN(parseInt(id))) {
       return res.status(400).json({ message: 'Invalid medication ID' });
     }
+    // Expect new schema fields
     const data = updateMedicationSchema.parse(req.body);
     const medication = await adminService.updateMedication(Number(id), data);
     res.status(200).json({ message: 'Medication updated successfully', medication });

@@ -8,12 +8,19 @@ async function trackOrders(trackingCode) {
     where: {
       trackingCode,
       status: {
-        in: ['confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled'],
+        in: [
+          'CONFIRMED',
+          'PROCESSING',
+          'SHIPPED',
+          'DELIVERED',
+          'READY_FOR_PICKUP',
+          'CANCELLED',
+        ],
       },
     },
     select: {
       id: true,
-      patientIdentifier: true,
+      userIdentifier: true,
       name: true,
       totalPrice: true,
       address: true,
@@ -32,14 +39,19 @@ async function trackOrders(trackingCode) {
           id: true,
           status: true,
           fileUrl: true,
-          verified: true,
           createdAt: true,
-          PrescriptionMedication: {
+          prescriptionMedications: {
             select: {
               medicationId: true,
               quantity: true,
-              Medication: {
-                select: { name: true, genericName: true, dosage: true },
+              medication: {
+                select: {
+                  brandName: true,
+                  genericMedication: { select: { name: true } },
+                  strengthValue: true,
+                  strengthUnit: true,
+                  form: true,
+                },
               },
             },
           },
@@ -53,10 +65,17 @@ async function trackOrders(trackingCode) {
           id: true,
           quantity: true,
           price: true,
-          pharmacyMedication: {
+          medicationAvailability: {
             select: {
               medication: {
-                select: { id: true, name: true, genericName: true, dosage: true, prescriptionRequired: true },
+                select: {
+                  id: true,
+                  brandName: true,
+                  genericMedication: { select: { name: true } },
+                  strengthValue: true,
+                  strengthUnit: true,
+                  form: true,
+                },
               },
               pharmacy: {
                 select: { name: true, address: true },
@@ -82,7 +101,7 @@ async function trackOrders(trackingCode) {
     orders: orders.map(order => ({
       id: order.id,
       name: order.name,
-      patientIdentifier: order.patientIdentifier,
+      userIdentifier: order.userIdentifier,
       totalPrice: order.totalPrice,
       address: order.address,
       deliveryMethod: order.deliveryMethod,
@@ -94,42 +113,53 @@ async function trackOrders(trackingCode) {
       filledAt: order.filledAt,
       cancelledAt: order.cancelledAt,
       cancelReason: order.cancelReason,
-      prescription: order.prescription ? {
-        id: order.prescription.id,
-        status: order.prescription.status,
-        fileUrl: order.prescription.fileUrl,
-        verified: order.prescription.verified,
-        createdAt: order.prescription.createdAt,
-        medications: order.prescription.PrescriptionMedication.map(pm => ({
-          medicationId: pm.medicationId,
-          name: pm.Medication.name,
-          genericName: pm.Medication.genericName,
-          dosage: pm.Medication.dosage,
-          quantity: pm.quantity,
-        })),
-      } : null,
-      pharmacy: {
-        id: order.pharmacy.id,
-        name: order.pharmacy.name,
-        address: order.pharmacy.address,
-      },
+      prescription: order.prescription
+        ? {
+            id: order.prescription.id,
+            status: order.prescription.status,
+            fileUrl: order.prescription.fileUrl,
+            verified: order.prescription.status === 'VERIFIED',
+            createdAt: order.prescription.createdAt,
+            medications: order.prescription.prescriptionMedications.map(pm => ({
+              medicationId: pm.medicationId,
+              brandName: pm.medication.brandName,
+              genericName: pm.medication.genericMedication?.name,
+              strengthValue: pm.medication.strengthValue,
+              strengthUnit: pm.medication.strengthUnit,
+              form: pm.medication.form,
+              quantity: pm.quantity,
+            })),
+          }
+        : null,
+      pharmacy: order.pharmacy
+        ? {
+            id: order.pharmacy.id,
+            name: order.pharmacy.name,
+            address: order.pharmacy.address,
+          }
+        : null,
       items: order.items.map(item => ({
         id: item.id,
-        medication: {
-          id: item.pharmacyMedication.medication.id,
-          name: item.pharmacyMedication.medication.name,
-          genericName: item.pharmacyMedication.medication.genericName,
-          dosage: item.pharmacyMedication.medication.dosage,
-          prescriptionRequired: item.pharmacyMedication.medication.prescriptionRequired,
-        },
-        pharmacy: {
-          name: item.pharmacyMedication.pharmacy.name,
-          address: item.pharmacyMedication.pharmacy.address,
-        },
+        medication: item.medicationAvailability && item.medicationAvailability.medication
+          ? {
+              id: item.medicationAvailability.medication.id,
+              brandName: item.medicationAvailability.medication.brandName,
+              genericName: item.medicationAvailability.medication.genericMedication?.name,
+              strengthValue: item.medicationAvailability.medication.strengthValue,
+              strengthUnit: item.medicationAvailability.medication.strengthUnit,
+              form: item.medicationAvailability.medication.form,
+            }
+          : null,
+        pharmacy: item.medicationAvailability && item.medicationAvailability.pharmacy
+          ? {
+              name: item.medicationAvailability.pharmacy.name,
+              address: item.medicationAvailability.pharmacy.address,
+            }
+          : null,
         quantity: item.quantity,
         price: item.price,
-        receivedDate: item.pharmacyMedication.receivedDate,
-        expiryDate: item.pharmacyMedication.expiryDate,
+        receivedDate: item.medicationAvailability?.receivedDate,
+        expiryDate: item.medicationAvailability?.expiryDate,
       })),
     })),
   };

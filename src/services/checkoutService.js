@@ -5,20 +5,20 @@ const { normalizePhone } = require('../utils/validation');
 const prisma = new PrismaClient();
 
 async function initiateCheckout({ name, email, phone, address, deliveryMethod, userId }) {
-  const patientIdentifier = userId;
+  const userIdentifier = userId;
   const normalizedPhone = normalizePhone(phone);
 
-  // Find all orders that contain ready medications (cart status + pending status for verified prescriptions)
+  // Find all orders that contain ready medications (CART status + PENDING status for verified prescriptions)
   const cartOrders = await prisma.order.findMany({
     where: { 
-      patientIdentifier, 
-      status: { in: ['cart', 'pending'] } // Include both cart and pending orders
+      userIdentifier, 
+      status: { in: ['CART', 'PENDING'] } // Use uppercase enums
     },
     include: {
       items: {
         include: {
-          pharmacyMedication: {
-            include: { medication: true, pharmacy: true },
+          medicationAvailability: {
+            include: { medication: { include: { genericMedication: true } }, pharmacy: true },
           },
         },
       },
@@ -35,9 +35,9 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
   
   for (const order of cartOrders) {
     for (const item of order.items) {
-      const isOTC = !item.pharmacyMedication.medication.prescriptionRequired;
-      const isVerifiedPrescription = item.pharmacyMedication.medication.prescriptionRequired && 
-                                   order.status === 'pending' && 
+      const isOTC = !item.medicationAvailability.medication.prescriptionRequired;
+      const isVerifiedPrescription = item.medicationAvailability.medication.prescriptionRequired && 
+                                   order.status === 'PENDING' && 
                                    order.prescriptionId;
       
       if (isOTC || isVerifiedPrescription) {
@@ -56,9 +56,9 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
 
   // Group items by pharmacy
   const itemsByPharmacy = readyItems.reduce((acc, item) => {
-    const pharmacyId = item.pharmacyMedicationPharmacyId;
+    const pharmacyId = item.pharmacyId;
     if (!acc[pharmacyId]) {
-      acc[pharmacyId] = { items: [], pharmacy: item.pharmacyMedication.pharmacy };
+      acc[pharmacyId] = { items: [], pharmacy: item.medicationAvailability.pharmacy };
     }
     acc[pharmacyId].items.push(item);
     return acc;
@@ -71,26 +71,26 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
   for (const pharmacyId of pharmacyIds) {
     const { items } = itemsByPharmacy[pharmacyId];
     for (const item of items) {
-      if (item.pharmacyMedication.stock < item.quantity) {
-        throw new Error(`Insufficient stock for ${item.pharmacyMedication.medication.name}`);
+      if ((item.medicationAvailability.stock || 0) < item.quantity) {
+        throw new Error(`Insufficient stock for ${item.medicationAvailability.medication.brandName}`);
       }
       
       // Check if prescription medications have verified prescriptions
-      if (item.pharmacyMedication.medication.prescriptionRequired) {
+      if (item.medicationAvailability.medication.prescriptionRequired) {
         const verifiedPrescription = await prisma.prescription.findFirst({
           where: { 
-            patientIdentifier, 
-            status: 'verified',
-            PrescriptionMedication: {
+            userIdentifier, 
+            status: 'VERIFIED',
+            prescriptionMedications: {
               some: {
-                medicationId: item.pharmacyMedication.medicationId
+                medicationId: item.medicationAvailability.medicationId
               }
             }
           },
         });
         
         if (!verifiedPrescription) {
-          throw new Error(`Prescription required for ${item.pharmacyMedication.medication.name} but not verified`);
+          throw new Error(`Prescription required for ${item.medicationAvailability.medication.brandName} but not verified`);
         }
       }
     }
@@ -102,23 +102,23 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
   for (const pharmacyId of pharmacyIds) {
     const { items, pharmacy } = itemsByPharmacy[pharmacyId];
     const totalPrice = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const orderStatus = 'pending';
+    const orderStatus = 'PENDING';
     const paymentReference = `order_${Date.now()}_${pharmacyId}`;
     
     const newOrder = await prisma.$transaction(async (tx) => {
       const createdOrder = await tx.order.create({
         data: {
-          patientIdentifier,
+          userIdentifier,
           pharmacyId: parseInt(pharmacyId),
           status: orderStatus,
           deliveryMethod,
-          address: deliveryMethod === 'delivery' ? address : null,
+          address: deliveryMethod === 'COURIER' ? address : null,
           name,
           email,
           phone: normalizedPhone,
           totalPrice,
           paymentReference,
-          paymentStatus: 'pending',
+          paymentStatus: 'PENDING',
           checkoutSessionId,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -130,18 +130,18 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
         await tx.orderItem.create({
           data: {
             orderId: createdOrder.id,
-            pharmacyMedicationPharmacyId: item.pharmacyMedicationPharmacyId,
-            pharmacyMedicationMedicationId: item.pharmacyMedication.medicationId,
+            pharmacyId: item.pharmacyId,
+            medicationId: item.medicationAvailability.medicationId,
             quantity: item.quantity,
             price: item.price,
           },
         });
 
-        await tx.pharmacyMedication.update({
+        await tx.medicationAvailability.update({
           where: {
-            pharmacyId_medicationId: {
-              pharmacyId: item.pharmacyMedicationPharmacyId,
-              medicationId: item.pharmacyMedication.medicationId,
+            medicationId_pharmacyId: {
+              medicationId: item.medicationAvailability.medicationId,
+              pharmacyId: item.pharmacyId,
             },
           },
           data: {
@@ -182,13 +182,10 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
   const totalPayableAmount = orders.reduce((sum, o) => sum + o.order.totalPrice, 0) * 100;
   const transactionReference = `session_${checkoutSessionId}_${Date.now()}`;
 
-  console.log('Initiating Paystack for orders:', { totalPayableAmount, transactionReference });
-
   // Paystack requires an email, so we'll use a placeholder if none provided
-  const paystackEmail = email || `guest-${patientIdentifier}@manzu.com`;
+  const paystackEmail = email || `guest-${userIdentifier}@manzu.com`;
   
   const callbackUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/med-confirmation/callback?session=${checkoutSessionId}`;
-  console.log('Callback URL:', callbackUrl);
   
   const paystackResponse = await axios.post(
     'https://api.paystack.co/transaction/initialize',
@@ -210,12 +207,6 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
     throw new Error('Failed to initialize payment: ' + JSON.stringify(paystackResponse.data));
   }
 
-  console.log('Creating TransactionReference:', {
-    transactionReference,
-    orderReferences: paymentReferences,
-    checkoutSessionId
-  });
-  
   try {
     await prisma.transactionReference.create({
       data: {
@@ -225,9 +216,7 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
         createdAt: new Date(),
       },
     });
-    console.log('TransactionReference created successfully');
   } catch (error) {
-    console.error('Error creating TransactionReference:', error);
     throw new Error('Failed to create transaction reference: ' + error.message);
   }
 
@@ -254,10 +243,10 @@ async function retrieveSession({ email, phone, checkoutSessionId }) {
     console.log('Checking order by checkoutSessionId:', checkoutSessionId);
     const order = await prisma.order.findFirst({
       where: { checkoutSessionId },
-      select: { patientIdentifier: true },
+      select: { userIdentifier: true },
     });
     if (order) {
-      guestId = order.patientIdentifier;
+      guestId = order.userIdentifier;
       console.log('Found guestId by checkoutSessionId:', guestId);
     }
   } else if (email || phone) {
@@ -269,12 +258,12 @@ async function retrieveSession({ email, phone, checkoutSessionId }) {
 
     const orderQuery = {
       where: { ...(orConditions.length > 0 && { OR: orConditions }) },
-      select: { patientIdentifier: true, createdAt: true },
+      select: { userIdentifier: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     };
     const prescriptionQuery = {
       where: { ...(orConditions.length > 0 && { OR: orConditions }) },
-      select: { patientIdentifier: true, createdAt: true },
+      select: { userIdentifier: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     };
 
@@ -290,10 +279,10 @@ async function retrieveSession({ email, phone, checkoutSessionId }) {
     console.log('Prescription result:', prescription);
 
     if (order && prescription) {
-      guestId = order.createdAt > prescription.createdAt ? order.patientIdentifier : prescription.patientIdentifier;
+      guestId = order.createdAt > prescription.createdAt ? order.userIdentifier : prescription.userIdentifier;
       console.log('Selected guestId (order vs prescription):', guestId);
     } else {
-      guestId = order?.patientIdentifier || prescription?.patientIdentifier;
+      guestId = order?.userIdentifier || prescription?.userIdentifier;
       console.log('Selected guestId (single result):', guestId);
     }
   }
@@ -310,20 +299,20 @@ async function getSessionDetails({ orderId, userId }) {
     where: { id: orderId },
     select: {
       checkoutSessionId: true,
-      patientIdentifier: true,
+      userIdentifier: true,
       email: true,
     },
   });
 
-  if (!order || order.patientIdentifier !== userId) {
+  if (!order || order.userIdentifier !== userId) {
     throw new Error('Order not found or unauthorized');
   }
 
   const sessionOrders = await prisma.order.findMany({
     where: {
       checkoutSessionId: order.checkoutSessionId,
-      patientIdentifier: userId,
-      status: 'pending',
+      userIdentifier: userId,
+      status: 'PENDING',
     },
     select: {
       id: true,
@@ -359,7 +348,7 @@ async function resumeCheckout({ orderId, email, userId }) {
     include: {
       items: {
         include: {
-          pharmacyMedication: {
+          medicationAvailability: {
             include: { medication: true },
           },
         },
@@ -367,20 +356,20 @@ async function resumeCheckout({ orderId, email, userId }) {
     },
   });
 
-  if (!order || order.patientIdentifier !== userId) {
+  if (!order || order.userIdentifier !== userId) {
     throw new Error('Order not found or unauthorized');
   }
 
   const sessionOrders = await prisma.order.findMany({
     where: {
       checkoutSessionId: order.checkoutSessionId,
-      patientIdentifier: userId,
-      status: 'pending',
+      userIdentifier: userId,
+      status: 'PENDING',
     },
     include: {
       items: {
         include: {
-          pharmacyMedication: {
+          medicationAvailability: {
             include: { medication: true },
           },
         },
@@ -436,7 +425,7 @@ async function resumeCheckout({ orderId, email, userId }) {
         where: { id: sessionOrder.id },
         data: {
           paymentReference: orderSpecificReference,
-          paymentStatus: 'pending',
+          paymentStatus: 'PENDING',
           updatedAt: new Date(),
         },
       });
@@ -480,23 +469,23 @@ async function resumeCheckout({ orderId, email, userId }) {
 async function getResumeOrders({ orderId, userId }) {
   const initialOrder = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { checkoutSessionId: true, patientIdentifier: true, status: true },
+    select: { checkoutSessionId: true, userIdentifier: true, status: true },
   });
 
-  if (!initialOrder || initialOrder.patientIdentifier !== userId || initialOrder.status !== 'pending') {
+  if (!initialOrder || initialOrder.userIdentifier !== userId || initialOrder.status !== 'PENDING') {
     throw new Error('Order not found, unauthorized, or not pending');
   }
 
   const orders = await prisma.order.findMany({
     where: {
       checkoutSessionId: initialOrder.checkoutSessionId,
-      patientIdentifier: userId,
-      status: 'pending',
+      userIdentifier: userId,
+      status: 'PENDING',
     },
     include: {
       items: {
         include: {
-          pharmacyMedication: { include: { medication: true, pharmacy: true } },
+          medicationAvailability: { include: { medication: true, pharmacy: true } },
         },
       },
       pharmacy: true,
@@ -519,7 +508,7 @@ async function getResumeOrders({ orderId, userId }) {
         id: item.id,
         quantity: item.quantity,
         price: item.price,
-        medication: { id: item.pharmacyMedication.medication.id, name: item.pharmacyMedication.medication.name },
+        medication: { id: item.medicationAvailability.medication.id, name: item.medicationAvailability.medication.brandName },
       })),
     };
 

@@ -10,13 +10,11 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
     where: {
       items: {
         some: {
-          pharmacyMedication: {
-            pharmacyId,
-          },
+          pharmacyId,
         },
       },
-      status: { 
-        notIn: ['cart', 'pending', 'pending_prescription'] 
+      status: {
+        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
       },
     },
   });
@@ -25,13 +23,11 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
     where: {
       items: {
         some: {
-          pharmacyMedication: {
-            pharmacyId,
-          },
+          pharmacyId,
         },
       },
-      status: { 
-        notIn: ['cart', 'pending', 'pending_prescription'] 
+      status: {
+        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
       },
     },
     select: {
@@ -39,7 +35,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
       name: true,
       createdAt: true,
       trackingCode: true,
-      patientIdentifier: true,
+      userIdentifier: true,
       deliveryMethod: true,
       address: true,
       status: true,
@@ -56,11 +52,12 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
           id: true,
           quantity: true,
           price: true,
-          pharmacyMedication: {
+          pharmacyId: true,
+          medicationId: true,
+          medicationAvailability: {
             select: {
-              medication: { select: { name: true } },
+              medication: { select: { brandName: true, genericMedication: { select: { name: true } } } },
               pharmacy: { select: { name: true, address: true } },
-              pharmacyId: true,
             },
           },
         },
@@ -77,7 +74,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
       name: order.name,
       createdAt: order.createdAt,
       trackingCode: order.trackingCode,
-      patientIdentifier: order.patientIdentifier,
+      userIdentifier: order.userIdentifier,
       deliveryMethod: order.deliveryMethod,
       address: order.address,
       status: order.status,
@@ -90,13 +87,16 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
           }
         : null,
       items: order.items
-        .filter(item => item.pharmacyMedication.pharmacyId === pharmacyId)
+        .filter(item => item.pharmacyId === pharmacyId)
         .map(item => ({
           id: item.id,
-          medication: { name: item.pharmacyMedication.medication.name },
+          medication: {
+            brandName: item.medicationAvailability.medication.brandName,
+            genericName: item.medicationAvailability.medication.genericMedication?.name || null,
+          },
           pharmacy: {
-            name: item.pharmacyMedication.pharmacy.name,
-            address: item.pharmacyMedication.pharmacy.address,
+            name: item.medicationAvailability.pharmacy.name,
+            address: item.medicationAvailability.pharmacy.address,
           },
           quantity: item.quantity,
           price: item.price,
@@ -112,9 +112,7 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
       id: orderId,
       items: {
         some: {
-          pharmacyMedication: {
-            pharmacyId,
-          },
+          pharmacyId,
         },
       },
     },
@@ -124,7 +122,7 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
   }
 
   const updateData = { status };
-  if (status === 'delivered' || status === 'ready_for_pickup') {
+  if (status === 'DELIVERED' || status === 'READY_FOR_PICKUP') {
     updateData.filledAt = new Date();
   }
 
@@ -138,17 +136,18 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
 }
 
 async function fetchMedications(pharmacyId) {
-  const medications = await prisma.pharmacyMedication.findMany({
+  const medications = await prisma.medicationAvailability.findMany({
     where: { pharmacyId },
-    include: { medication: true },
+    include: { medication: { include: { genericMedication: true } } },
   });
-  const allMedications = await prisma.medication.findMany();
+  const allMedications = await prisma.medication.findMany({ include: { genericMedication: true } });
 
   return {
     medications: medications.map(m => ({
       pharmacyId: m.pharmacyId,
       medicationId: m.medicationId,
-      name: m.medication.name,
+      brandName: m.medication.brandName,
+      genericName: m.medication.genericMedication?.name || null,
       stock: m.stock,
       price: m.price,
       expiryDate: m.expiryDate,
@@ -156,20 +155,21 @@ async function fetchMedications(pharmacyId) {
     })),
     availableMedications: allMedications.map(m => ({
       id: m.id,
-      name: m.name,
+      brandName: m.brandName,
+      genericName: m.genericMedication?.name || null,
     })),
   };
 }
 
 async function addMedication({ pharmacyId, medicationId, stock, price, receivedDate, expiryDate }) {
-  const existing = await prisma.pharmacyMedication.findUnique({
-    where: { pharmacyId_medicationId: { pharmacyId, medicationId } },
+  const existing = await prisma.medicationAvailability.findUnique({
+    where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
   });
   if (existing) {
     throw new Error('Medication already exists in pharmacy inventory');
   }
 
-  const medication = await prisma.pharmacyMedication.create({
+  const medication = await prisma.medicationAvailability.create({
     data: {
       pharmacyId,
       medicationId,
@@ -178,14 +178,15 @@ async function addMedication({ pharmacyId, medicationId, stock, price, receivedD
       receivedDate: receivedDate ? new Date(receivedDate) : null,
       expiryDate: expiryDate ? new Date(expiryDate) : null,
     },
-    include: { medication: true },
+    include: { medication: { include: { genericMedication: true } } },
   });
 
   console.log('Medication added:', { pharmacyId: medication.pharmacyId, medicationId: medication.medicationId });
   return {
     pharmacyId: medication.pharmacyId,
     medicationId: medication.medicationId,
-    name: medication.medication.name,
+    brandName: medication.medication.brandName,
+    genericName: medication.medication.genericMedication?.name || null,
     stock: medication.stock,
     price: medication.price,
     receivedDate: medication.receivedDate,
@@ -194,30 +195,31 @@ async function addMedication({ pharmacyId, medicationId, stock, price, receivedD
 }
 
 async function updateMedication({ pharmacyId, medicationId, stock, price, receivedDate, expiryDate }) {
-  const medication = await prisma.pharmacyMedication.findUnique({
-    where: { pharmacyId_medicationId: { pharmacyId, medicationId } },
-    include: { medication: true },
+  const medication = await prisma.medicationAvailability.findUnique({
+    where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
+    include: { medication: { include: { genericMedication: true } } },
   });
   if (!medication) {
     throw new Error('Medication not found');
   }
 
-  const updatedMedication = await prisma.pharmacyMedication.update({
-    where: { pharmacyId_medicationId: { pharmacyId, medicationId } },
+  const updatedMedication = await prisma.medicationAvailability.update({
+    where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
     data: {
       stock,
       price,
       receivedDate: receivedDate ? new Date(receivedDate) : null,
       expiryDate: expiryDate ? new Date(expiryDate) : null,
     },
-    include: { medication: true },
+    include: { medication: { include: { genericMedication: true } } },
   });
 
   console.log('Medication updated:', { pharmacyId: updatedMedication.pharmacyId, medicationId: updatedMedication.medicationId });
   return {
     pharmacyId: updatedMedication.pharmacyId,
     medicationId: updatedMedication.medicationId,
-    name: updatedMedication.medication.name,
+    brandName: updatedMedication.medication.brandName,
+    genericName: updatedMedication.medication.genericMedication?.name || null,
     stock: updatedMedication.stock,
     price: updatedMedication.price,
     receivedDate: updatedMedication.receivedDate,
@@ -226,15 +228,15 @@ async function updateMedication({ pharmacyId, medicationId, stock, price, receiv
 }
 
 async function deleteMedication(pharmacyId, medicationId) {
-  const medication = await prisma.pharmacyMedication.findUnique({
-    where: { pharmacyId_medicationId: { pharmacyId, medicationId } },
+  const medication = await prisma.medicationAvailability.findUnique({
+    where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
   });
   if (!medication) {
     throw new Error('Medication not found');
   }
 
-  await prisma.pharmacyMedication.delete({
-    where: { pharmacyId_medicationId: { pharmacyId, medicationId } },
+  await prisma.medicationAvailability.delete({
+    where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
   });
 
   console.log('Medication deleted:', { pharmacyId, medicationId });
@@ -252,7 +254,7 @@ async function fetchUsers(pharmacyId) {
 async function registerDevice(pharmacyId, deviceToken) {
   await prisma.pharmacy.update({
     where: { id: pharmacyId },
-    data: { deviceToken },
+    data: { devicetoken: deviceToken },
   });
   console.log('Device registered:', { pharmacyId });
 }
@@ -343,9 +345,9 @@ async function getDashboardData(pharmacyId) {
   // Orders today - only count orders with status confirmed and above
   const ordersToday = await prisma.order.count({
     where: {
-      items: { some: { pharmacyMedication: { pharmacyId } } },
-      status: { 
-        notIn: ['cart', 'pending', 'pending_prescription'] 
+      items: { some: { pharmacyId } },
+      status: {
+        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
       },
       createdAt: { gte: startOfDay, lte: endOfDay },
     },
@@ -354,13 +356,13 @@ async function getDashboardData(pharmacyId) {
   // Pending orders - count confirmed orders (shown as pending in UI)
   const pendingOrders = await prisma.order.count({
     where: {
-      items: { some: { pharmacyMedication: { pharmacyId } } },
-      status: 'confirmed',
+      items: { some: { pharmacyId } },
+      status: 'CONFIRMED',
     },
   });
 
   // Inventory alerts (stock < 10)
-  const inventoryAlerts = await prisma.pharmacyMedication.count({
+  const inventoryAlerts = await prisma.medicationAvailability.count({
     where: { pharmacyId, stock: { lt: 10 } },
   });
 
@@ -368,9 +370,9 @@ async function getDashboardData(pharmacyId) {
   const revenueTodayResult = await prisma.order.aggregate({
     _sum: { totalPrice: true },
     where: {
-      items: { some: { pharmacyMedication: { pharmacyId } } },
-      status: { 
-        notIn: ['cart', 'pending', 'pending_prescription'] 
+      items: { some: { pharmacyId } },
+      status: {
+        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
       },
       createdAt: { gte: startOfDay, lte: endOfDay },
     },
@@ -378,6 +380,46 @@ async function getDashboardData(pharmacyId) {
   const revenueToday = revenueTodayResult._sum.totalPrice || 0;
 
   return { ordersToday, pendingOrders, inventoryAlerts, revenueToday };
+}
+
+async function recordSale({ pharmacyId, items, total, paymentMethod }) {
+  // Decrement stock for each item
+  await Promise.all(items.map(async (item) => {
+    const { medicationId, quantity } = item;
+    const medAvail = await prisma.medicationAvailability.findUnique({
+      where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
+    });
+    if (!medAvail) throw new Error(`Medication ${medicationId} not found in pharmacy inventory`);
+    if (medAvail.stock < quantity) throw new Error(`Insufficient stock for medication ${medicationId}`);
+    await prisma.medicationAvailability.update({
+      where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
+      data: { stock: { decrement: quantity } },
+    });
+  }));
+  // Create the sale
+  const sale = await prisma.sale.create({
+    data: {
+      pharmacyId,
+      items,
+      total,
+      paymentMethod,
+    },
+  });
+  return sale;
+}
+
+async function fetchSales(pharmacyId, date) {
+  let where = { pharmacyId };
+  if (date) {
+    const start = new Date(date + 'T00:00:00.000Z');
+    const end = new Date(date + 'T23:59:59.999Z');
+    where.createdAt = { gte: start, lte: end };
+  }
+  const sales = await prisma.sale.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+  });
+  return sales;
 }
 
 module.exports = {
@@ -392,4 +434,6 @@ module.exports = {
   getProfile,
   editProfile,
   getDashboardData,
+  recordSale,
+  fetchSales,
 };

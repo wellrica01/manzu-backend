@@ -22,7 +22,7 @@ function authenticate(req, res, next) {
 }
 
 function authenticateAdmin(req, res, next) {
-  if (!req.user || req.user.role !== 'admin') {
+  if (!req.user || req.user.role !== 'ADMIN') {
     console.error('Unauthorized: Not an admin', { adminId: req.user?.adminId });
     return res.status(403).json({ message: 'Only admins can perform this action' });
   }
@@ -30,7 +30,7 @@ function authenticateAdmin(req, res, next) {
 }
 
 function authenticateManager(req, res, next) {
-  if (!req.user || req.user.role !== 'manager') {
+  if (!req.user || req.user.role !== 'MANAGER') {
     console.error('Unauthorized: Not a manager', { userId: req.user?.userId });
     return res.status(403).json({ message: 'Only managers can perform this action' });
   }

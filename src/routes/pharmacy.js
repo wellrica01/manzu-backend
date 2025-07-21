@@ -4,9 +4,9 @@ const { validateFetchOrders, validateUpdateOrder, validateFetchMedications, vali
 const { authenticate, authenticateManager } = require('../middleware/auth');
 const router = express.Router();
 
-console.log('Loaded pharmacy.js version: 2025-06-19-v1');
+console.log('Loaded pharmacy.js version: 2025-06-19-v2 (new schema)');
 
-// GET /pharmacy/orders - Fetch orders for pharmacy
+// GET /pharmacy/orders - Fetch orders for pharmacy (new schema)
 router.get('/orders', authenticate, async (req, res) => {
   try {
     // Parse pagination params
@@ -27,7 +27,7 @@ router.get('/orders', authenticate, async (req, res) => {
   }
 });
 
-// PATCH /pharmacy/orders/:orderId - Update order status
+// PATCH /pharmacy/orders/:orderId - Update order status (new schema)
 router.patch('/orders/:orderId', authenticate, async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -48,7 +48,7 @@ router.patch('/orders/:orderId', authenticate, async (req, res) => {
   }
 });
 
-// GET /pharmacy/medications - Fetch pharmacy medications
+// GET /pharmacy/medications - Fetch pharmacy medications (new schema)
 router.get('/medications', authenticate, async (req, res) => {
   try {
     // Validate input (no query params to validate)
@@ -66,7 +66,7 @@ router.get('/medications', authenticate, async (req, res) => {
   }
 });
 
-// POST /pharmacy/medications - Add new pharmacy medication
+// POST /pharmacy/medications - Add new pharmacy medication (new schema)
 router.post('/medications', authenticate, async (req, res) => {
   try {
     const { medicationId, stock, price, receivedDate, expiryDate } = req.body;
@@ -93,7 +93,7 @@ router.post('/medications', authenticate, async (req, res) => {
   }
 });
 
-// PATCH /pharmacy/medications - Update pharmacy medication
+// PATCH /pharmacy/medications - Update pharmacy medication (new schema)
 router.patch('/medications', authenticate, async (req, res) => {
   try {
     const { medicationId, stock, price, receivedDate, expiryDate } = req.body;
@@ -120,7 +120,7 @@ router.patch('/medications', authenticate, async (req, res) => {
   }
 });
 
-// DELETE /pharmacy/medications - Delete pharmacy medication
+// DELETE /pharmacy/medications - Delete pharmacy medication (new schema)
 router.delete('/medications', authenticate, async (req, res) => {
   try {
     const { medicationId } = req.query;
@@ -158,7 +158,7 @@ router.get('/users', authenticate, authenticateManager, async (req, res) => {
   }
 });
 
-// POST /pharmacy/notifications/register - Device registration for notifications
+// POST /pharmacy/notifications/register - Device registration for notifications (new schema)
 router.post('/notifications/register', authenticate, async (req, res) => {
   try {
     const { deviceToken } = req.body;
@@ -178,7 +178,7 @@ router.post('/notifications/register', authenticate, async (req, res) => {
   }
 });
 
-// GET /pharmacy/profile - Get pharmacy profile details
+// GET /pharmacy/profile - Get pharmacy profile details (new schema)
 router.get('/profile', authenticate, async (req, res) => {
   try {
     const { userId, pharmacyId } = req.user;
@@ -194,7 +194,7 @@ router.get('/profile', authenticate, async (req, res) => {
   }
 });
 
-// PATCH /pharmacy/profile - Edit pharmacy profile (manager only)
+// PATCH /pharmacy/profile - Edit pharmacy profile (manager only, new schema)
 router.patch('/profile', authenticate, authenticateManager, async (req, res) => {
   try {
     const { user, pharmacy } = require('../utils/adminValidation').editProfileSchema.parse(req.body);
@@ -224,13 +224,45 @@ router.patch('/profile', authenticate, authenticateManager, async (req, res) => 
   }
 });
 
-// GET /pharmacy/dashboard - Dashboard summary for pharmacy
+// GET /pharmacy/dashboard - Dashboard summary for pharmacy (new schema)
 router.get('/dashboard', authenticate, async (req, res) => {
   try {
     const data = await pharmacyService.getDashboardData(req.user.pharmacyId);
     res.status(200).json({ message: 'Dashboard data fetched', ...data });
   } catch (error) {
     console.error('Dashboard error:', { message: error.message, stack: error.stack });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// POST /pharmacy/sales - Record a new PoS sale (new schema)
+router.post('/sales', authenticate, async (req, res) => {
+  try {
+    const { items, total, paymentMethod } = req.body;
+    if (!items || !Array.isArray(items) || !total || !paymentMethod) {
+      return res.status(400).json({ message: 'Invalid sale data' });
+    }
+    const sale = await pharmacyService.recordSale({
+      pharmacyId: req.user.pharmacyId,
+      items,
+      total,
+      paymentMethod,
+    });
+    res.status(201).json({ message: 'Sale recorded', sale });
+  } catch (error) {
+    console.error('Record sale error:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// GET /pharmacy/sales?date=YYYY-MM-DD - Fetch sales for a day (new schema)
+router.get('/sales', authenticate, async (req, res) => {
+  try {
+    const { date } = req.query;
+    const sales = await pharmacyService.fetchSales(req.user.pharmacyId, date);
+    res.status(200).json({ message: 'Sales fetched', sales });
+  } catch (error) {
+    console.error('Fetch sales error:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

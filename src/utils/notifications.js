@@ -17,19 +17,26 @@ async function sendVerificationNotification(prescription, status, order) {
       guestLink += `&orderId=${order.id}`;
     }
     let msg = {};
-    if (status === 'verified') {
+    if (status === 'VERIFIED') {
       msg = {
         to: email,
         from: process.env.SENDGRID_FROM_EMAIL,
         subject: 'Your Prescription is Ready',
         text: `Your prescription #${prescription.id} has been verified. ${order && order.totalPrice > 0 ? 'Complete your order payment' : 'View your medications and select pharmacies'}: ${guestLink}`,
       };
-    } else {
+    } else if (status === 'REJECTED') {
       msg = {
         to: email,
         from: process.env.SENDGRID_FROM_EMAIL,
         subject: 'Prescription Rejected',
         text: `Your prescription #${prescription.id} was rejected. Please upload a clearer image or contact support.`,
+      };
+    } else {
+      msg = {
+        to: email,
+        from: process.env.SENDGRID_FROM_EMAIL,
+        subject: 'Prescription Update',
+        text: `Your prescription #${prescription.id} status: ${status}.`,
       };
     }
     if (email) {
@@ -40,9 +47,11 @@ async function sendVerificationNotification(prescription, status, order) {
     if (phone) {
       const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
       await twilioClient.messages.create({
-        body: status === 'verified'
+        body: status === 'VERIFIED'
           ? `Prescription #${prescription.id} verified. ${order && order.totalPrice > 0 ? 'Pay for your order' : 'Select pharmacies'}: ${guestLink}`
-          : `Prescription #${prescription.id} rejected. Upload again or contact support.`,
+          : status === 'REJECTED'
+            ? `Prescription #${prescription.id} rejected. Upload again or contact support.`
+            : `Prescription #${prescription.id} status: ${status}.`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: phone,
       });

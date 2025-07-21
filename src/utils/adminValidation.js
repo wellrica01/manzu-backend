@@ -18,67 +18,67 @@ const editPharmacySchema = z.object({
   state: z.string().min(1, 'State required'),
   phone: z.string().regex(/^\+?\d{10,15}$/, 'Invalid phone number'),
   licenseNumber: z.string().min(1, 'License number required'),
-  status: z.enum(['pending', 'verified', 'rejected']),
+  status: z.enum(['PENDING', 'VERIFIED', 'SUSPENDED', 'REJECTED', 'CLOSED']),
   logoUrl: z.string().url('Invalid URL').optional().or(z.literal('')).transform((val) => (val === '' ? undefined : val)),
   isActive: z.boolean(),
 }).merge(paginationSchema);
 
 
 const createMedicationSchema = z.object({
-  name: z.string().min(1, 'Medication name required'),
-  genericName: z.string().min(1, 'Generic name required'),
-  category: z.string().optional(),
-  description: z.string().optional(),
-  manufacturer: z.string().optional(),
-  form: z.string().optional(),
-  dosage: z.string().optional(),
-  nafdacCode: z.string().optional(),
+  brandName: z.string().min(1, 'Brand name required'),
+  genericMedicationId: z.number().int().positive(),
+  brandDescription: z.string().optional(),
+  manufacturerId: z.number().int().positive().optional(),
+  form: z.enum(['TABLET','CAPSULE','CAPLET','SYRUP','INJECTION','CREAM','OINTMENT','GEL','SUSPENSION','POWDER','SUPPOSITORY','EYE_DROP','EAR_DROP','DROPS','NASAL_SPRAY','INHALER','PATCH','LOZENGE','EFFERVESCENT']).optional(),
+  strengthValue: z.number().optional(),
+  strengthUnit: z.enum(['MG','ML','G','MCG','IU','NG','MMOL','PERCENT']).optional(),
+  route: z.enum(['ORAL','INTRAVENOUS','INTRAMUSCULAR','SUBCUTANEOUS','TOPICAL','INHALATION','RECTAL','VAGINAL','OPHTHALMIC','OTIC','NASAL','SUBLINGUAL','BUCCAL','TRANSDERMAL']).optional(),
+  packSizeQuantity: z.number().optional(),
+  packSizeUnit: z.enum(['TABLETS','CAPSULES','ML','VIALS','AMPOULES','SACHETS','PATCHES','BOTTLES','TUBES','BLISTERS']).optional(),
+  isCombination: z.boolean().optional(),
+  combinationDescription: z.string().optional(),
+  nafdacCode: z.string().min(1, 'NAFDAC code required'),
+  nafdacStatus: z.enum(['VALID','EXPIRED','PENDING','SUSPENDED']).optional(),
   prescriptionRequired: z.boolean(),
-  imageUrl: z.preprocess((val) => (val === '' ? undefined : val), z.string().url('Invalid URL').optional()),
+  regulatoryClass: z.enum(['OTC','PRESCRIPTION_ONLY','SCHEDULE_I','SCHEDULE_II','SCHEDULE_III','SCHEDULE_IV','SCHEDULE_V','RESTRICTED']).optional(),
+  restrictedTo: z.enum(['GENERAL','HOSPITAL_ONLY','SPECIALTY_PHARMACY','CONTROLLED_SUBSTANCE']).optional(),
+  insuranceCoverage: z.boolean().optional(),
+  approvalDate: z.string().optional(),
+  expiryDate: z.string().optional(),
+  storageConditions: z.string().optional(),
+  imageUrl: z.string().url('Invalid URL').optional(),
 });
 
-const updateMedicationSchema = z.object({
-  name: z.string().min(1, 'Medication name required'),
-  genericName: z.string().min(1, 'Generic name required'),
-  category: z.string().optional(),
-  description: z.string().optional(),
-  manufacturer: z.string().optional(),
-  form: z.string().optional(),
-  dosage: z.string().optional(),
-  nafdacCode: z.string().optional(),
-  prescriptionRequired: z.boolean(),
-  imageUrl: z.preprocess((val) => (val === '' ? undefined : val), z.string().url('Must be a valid URL').optional()),
-});
+const updateMedicationSchema = createMedicationSchema.partial();
 
 
 const medicationFilterSchema = z.object({
-  name: z.string().optional(),
-  genericName: z.string().optional(),
-  category: z.string().optional(),
+  brandName: z.string().optional(),
+  genericMedicationId: z.string().regex(/^\d+$/).optional().transform(Number),
   prescriptionRequired: z.enum(['true', 'false']).optional().transform((val) => val === 'true'),
   pharmacyId: z.string().regex(/^\d+$/).optional().transform(Number),
 }).merge(paginationSchema);
 
 
 const prescriptionFilterSchema = z.object({
-  status: z.enum(['pending', 'verified', 'rejected']).optional(),
-  patientIdentifier: z.string().optional(),
+  status: z.enum(['PENDING', 'VERIFIED', 'REJECTED', 'EXPIRED']).optional(),
+  userIdentifier: z.string().optional(),
 }).merge(paginationSchema);
 
 const orderFilterSchema = z.object({
-  status: z.enum(['cart', 'pending', 'pending_prescription', 'confirmed', 'processing', 'shipped', 'delivered', 'ready_for_pickup', 'cancelled']).optional(),
-  patientIdentifier: z.string().optional(),
+  status: z.enum(['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED', 'COMPLETED']).optional(),
+  userIdentifier: z.string().optional(),
 }).merge(paginationSchema);
 
 
 const adminUserFilterSchema = z.object({
-  role: z.enum(['admin', 'support']).optional(),
+  role: z.enum(['ADMIN', 'SUPER_ADMIN', 'SUPPORT']).optional(),
   email: z.string().optional(),
   pharmacyId: z.string().regex(/^\d+$/).optional().transform(json => Number(json)),
 }).merge(paginationSchema);
 
 const pharmacyUserFilterSchema = z.object({
-  role: z.enum(['manager', 'pharmacist']).optional(),
+  role: z.enum(['MANAGER', 'PHARMACIST', 'ADMIN', 'STAFF', 'OWNER', 'TECHNICIAN']).optional(),
   email: z.string().optional(),
   pharmacyId: z.string().regex(/^\d+$/).optional().transform(Number),
 }).merge(paginationSchema);
@@ -93,9 +93,11 @@ const registerSchema = z.object({
     ward: z.string().min(1, 'Ward required'),
     latitude: z.number().min(-90).max(90, 'Invalid latitude'),
     longitude: z.number().min(-180).max(180, 'Invalid longitude'),
-    phone: z.string().regex(/^\+?\d{10,15}$/, 'Invalid phone number'),
+    phone: z.string().regex(/^[+]?\d{10,15}$/, 'Invalid phone number'),
     licenseNumber: z.string().min(1, 'License number required'),
     logoUrl: z.string().url('Invalid URL').optional(),
+    pharmacyType: z.enum(['COMMUNITY', 'HOSPITAL', 'SPECIALTY', 'PMV']).optional(),
+    deliveryAvailability: z.boolean().optional(),
   }),
   user: z.object({
     name: z.string().min(1, 'User name required'),
@@ -115,7 +117,7 @@ const addUserSchema = z.object({
   name: z.string().min(1, 'User name required'),
   email: z.string().email('Invalid email'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
-  role: z.enum(['pharmacist'], 'Role must be pharmacist'),
+  role: z.enum(['MANAGER', 'PHARMACIST', 'ADMIN', 'STAFF', 'OWNER', 'TECHNICIAN'], 'Role must be a valid pharmacy user role'),
 });
 
 
@@ -123,6 +125,7 @@ const editUserSchema = z.object({
   name: z.string().min(1, 'User name required'),
   email: z.string().email('Invalid email'),
   password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+  role: z.enum(['MANAGER', 'PHARMACIST', 'ADMIN', 'STAFF', 'OWNER', 'TECHNICIAN']).optional(),
 });
 
 const editProfileSchema = z.object({

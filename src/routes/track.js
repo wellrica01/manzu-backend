@@ -5,7 +5,7 @@ const router = express.Router();
 
 console.log('Loaded track.js version: 2025-06-19-v1');
 
-// GET /track - Track orders by tracking code
+// GET /track - Track orders by tracking code (updated for new schema)
 router.get('/', async (req, res) => {
   try {
     const { trackingCode } = req.query;
