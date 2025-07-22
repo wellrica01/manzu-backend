@@ -195,11 +195,10 @@ router.get('/prescription/status', requireConsent, async (req, res) => {
       userId: userIdentifier,
       medicationIds: medicationIdArray,
     });
-    
     res.status(200).json(statuses);
   } catch (error) {
-    console.error('Cart prescription status error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Cart prescription status error:', error); // <-- log full error
+    res.status(500).json({ message: 'Server error', error: error.message, stack: error.stack });
   }
 });
 

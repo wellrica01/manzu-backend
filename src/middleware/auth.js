@@ -22,12 +22,13 @@ function authenticate(req, res, next) {
 }
 
 function authenticateAdmin(req, res, next) {
-  if (!req.user || req.user.role !== 'ADMIN') {
+  if (!req.user || (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN')) {
     console.error('Unauthorized: Not an admin', { adminId: req.user?.adminId });
     return res.status(403).json({ message: 'Only admins can perform this action' });
   }
   next();
 }
+
 
 function authenticateManager(req, res, next) {
   if (!req.user || req.user.role !== 'MANAGER') {

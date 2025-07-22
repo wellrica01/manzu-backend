@@ -231,7 +231,7 @@ async function getMedications({ page, limit, name, genericName, category, prescr
         id: true,
         brandName: true,
         genericMedication: { select: { name: true } },
-        description: true,
+        brandDescription: true,
         manufacturer: { select: { name: true } },
         form: true,
         strengthValue: true,
@@ -268,7 +268,7 @@ async function getMedication(id) {
       id: true,
       brandName: true,
       genericMedication: { select: { name: true } },
-      description: true,
+      brandDescription: true,
       manufacturer: { select: { name: true } },
       form: true,
       strengthValue: true,
@@ -428,7 +428,6 @@ async function getPrescriptions({ page, limit, status, userIdentifier }) {
         userIdentifier: true,
         fileUrl: true,
         status: true,
-        verified: true,
         createdAt: true,
         orders: {
           select: {
@@ -455,6 +454,9 @@ async function getPrescription(id) {
   const prescription = await prisma.prescription.findUnique({
     where: { id },
     include: {
+      prescriptionMedications: {
+        include: { medication: true },
+      },
       orders: {
         include: {
           pharmacy: true,
@@ -477,7 +479,6 @@ async function getPrescription(id) {
   console.log('Prescription fetched:', { prescriptionId: id });
   return prescription;
 }
-
 async function getOrders({ page, limit, status, userIdentifier }) {
   const skip = (page - 1) * limit;
   const where = {};
@@ -665,6 +666,216 @@ async function getPharmacyUser(id) {
   return user;
 }
 
+// CATEGORY SERVICES
+async function getCategories({ page = 1, limit = 20, name }) {
+  const skip = (page - 1) * limit;
+  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
+  const [categories, total] = await prisma.$transaction([
+    prisma.category.findMany({ where, take: limit, skip }),
+    prisma.category.count({ where }),
+  ]);
+  return { categories, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+async function getCategory(id) {
+  const category = await prisma.category.findUnique({ where: { id } });
+  if (!category) { const error = new Error('Category not found'); error.status = 404; throw error; }
+  return category;
+}
+async function createCategory(data) {
+  return prisma.category.create({ data });
+}
+async function updateCategory(id, data) {
+  try {
+    return await prisma.category.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Category not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+async function deleteCategory(id) {
+  try {
+    await prisma.category.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Category not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+
+// THERAPEUTIC CLASS SERVICES
+async function getTherapeuticClasses({ page = 1, limit = 20, name }) {
+  const skip = (page - 1) * limit;
+  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
+  const [therapeuticClasses, total] = await prisma.$transaction([
+    prisma.therapeuticClass.findMany({ where, take: limit, skip }),
+    prisma.therapeuticClass.count({ where }),
+  ]);
+  return { therapeuticClasses, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+async function getTherapeuticClass(id) {
+  const therapeuticClass = await prisma.therapeuticClass.findUnique({ where: { id } });
+  if (!therapeuticClass) { const error = new Error('Therapeutic class not found'); error.status = 404; throw error; }
+  return therapeuticClass;
+}
+async function createTherapeuticClass(data) {
+  return prisma.therapeuticClass.create({ data });
+}
+async function updateTherapeuticClass(id, data) {
+  try {
+    return await prisma.therapeuticClass.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Therapeutic class not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+async function deleteTherapeuticClass(id) {
+  try {
+    await prisma.therapeuticClass.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Therapeutic class not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+
+// CHEMICAL CLASS SERVICES
+async function getChemicalClasses({ page = 1, limit = 20, name }) {
+  const skip = (page - 1) * limit;
+  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
+  const [chemicalClasses, total] = await prisma.$transaction([
+    prisma.chemicalClass.findMany({ where, take: limit, skip }),
+    prisma.chemicalClass.count({ where }),
+  ]);
+  return { chemicalClasses, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+async function getChemicalClass(id) {
+  const chemicalClass = await prisma.chemicalClass.findUnique({ where: { id } });
+  if (!chemicalClass) { const error = new Error('Chemical class not found'); error.status = 404; throw error; }
+  return chemicalClass;
+}
+async function createChemicalClass(data) {
+  return prisma.chemicalClass.create({ data });
+}
+async function updateChemicalClass(id, data) {
+  try {
+    return await prisma.chemicalClass.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Chemical class not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+async function deleteChemicalClass(id) {
+  try {
+    await prisma.chemicalClass.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Chemical class not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+
+// MANUFACTURER SERVICES
+async function getManufacturers({ page = 1, limit = 20, name }) {
+  const skip = (page - 1) * limit;
+  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
+  const [manufacturers, total] = await prisma.$transaction([
+    prisma.manufacturer.findMany({ where, take: limit, skip }),
+    prisma.manufacturer.count({ where }),
+  ]);
+  return { manufacturers, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+async function getManufacturer(id) {
+  const manufacturer = await prisma.manufacturer.findUnique({ where: { id } });
+  if (!manufacturer) { const error = new Error('Manufacturer not found'); error.status = 404; throw error; }
+  return manufacturer;
+}
+async function createManufacturer(data) {
+  return prisma.manufacturer.create({ data });
+}
+async function updateManufacturer(id, data) {
+  try {
+    return await prisma.manufacturer.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Manufacturer not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+async function deleteManufacturer(id) {
+  try {
+    await prisma.manufacturer.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Manufacturer not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+
+// GENERIC MEDICATION SERVICES
+async function getGenericMedications({ page = 1, limit = 20, name }) {
+  const skip = (page - 1) * limit;
+  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
+  const [genericMedications, total] = await prisma.$transaction([
+    prisma.genericMedication.findMany({ where, take: limit, skip }),
+    prisma.genericMedication.count({ where }),
+  ]);
+  return { genericMedications, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+async function getGenericMedication(id) {
+  const genericMedication = await prisma.genericMedication.findUnique({ where: { id } });
+  if (!genericMedication) { const error = new Error('Generic medication not found'); error.status = 404; throw error; }
+  return genericMedication;
+}
+async function createGenericMedication(data) {
+  return prisma.genericMedication.create({ data });
+}
+async function updateGenericMedication(id, data) {
+  try {
+    return await prisma.genericMedication.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Generic medication not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+async function deleteGenericMedication(id) {
+  try {
+    await prisma.genericMedication.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Generic medication not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+
+// INDICATION SERVICES
+async function getIndications({ page = 1, limit = 20, genericMedicationId }) {
+  const skip = (page - 1) * limit;
+  const where = genericMedicationId ? { genericMedicationId: Number(genericMedicationId) } : {};
+  const [indications, total] = await prisma.$transaction([
+    prisma.indication.findMany({ where, take: limit, skip }),
+    prisma.indication.count({ where }),
+  ]);
+  return { indications, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+async function getIndication(id) {
+  const indication = await prisma.indication.findUnique({ where: { id } });
+  if (!indication) { const error = new Error('Indication not found'); error.status = 404; throw error; }
+  return indication;
+}
+async function createIndication(data) {
+  return prisma.indication.create({ data });
+}
+async function updateIndication(id, data) {
+  try {
+    return await prisma.indication.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Indication not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+async function deleteIndication(id) {
+  try {
+    await prisma.indication.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { const err = new Error('Indication not found'); err.status = 404; throw err; }
+    throw error;
+  }
+}
+
 
 module.exports = {
   getDashboardOverview,
@@ -686,4 +897,34 @@ module.exports = {
   getAdminUser,
   getPharmacyUsers,
   getPharmacyUser,
+  getCategories,
+  getCategory,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  getTherapeuticClasses,
+  getTherapeuticClass,
+  createTherapeuticClass,
+  updateTherapeuticClass,
+  deleteTherapeuticClass,
+  getChemicalClasses,
+  getChemicalClass,
+  createChemicalClass,
+  updateChemicalClass,
+  deleteChemicalClass,
+  getManufacturers,
+  getManufacturer,
+  createManufacturer,
+  updateManufacturer,
+  deleteManufacturer,
+  getGenericMedications,
+  getGenericMedication,
+  createGenericMedication,
+  updateGenericMedication,
+  deleteGenericMedication,
+  getIndications,
+  getIndication,
+  createIndication,
+  updateIndication,
+  deleteIndication,
 };

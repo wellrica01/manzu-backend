@@ -158,6 +158,44 @@ const adminLoginSchema = z.object({
   password: z.string().min(1, 'Password required'),
 });
 
+// CATEGORY
+const categorySchema = z.object({
+  name: z.string().min(1, 'Category name required'),
+});
+
+// THERAPEUTIC CLASS
+const therapeuticClassSchema = z.object({
+  name: z.string().min(1, 'Therapeutic class name required'),
+});
+
+// CHEMICAL CLASS
+const chemicalClassSchema = z.object({
+  name: z.string().min(1, 'Chemical class name required'),
+});
+
+// MANUFACTURER
+const manufacturerSchema = z.object({
+  name: z.string().min(1, 'Manufacturer name required'),
+  country: z.string().optional(),
+  contactInfo: z.string().optional(),
+});
+
+// GENERIC MEDICATION
+const genericMedicationSchema = z.object({
+  name: z.string().min(1, 'Generic medication name required'),
+  inn: z.string().optional(),
+  atcCode: z.string().optional(),
+  description: z.string().optional(),
+  translations: z.any().optional(),
+});
+
+// INDICATION
+const indicationSchema = z.object({
+  genericMedicationId: z.number().int().positive(),
+  indication: z.string().min(1, 'Indication required'),
+  translations: z.any().optional(),
+});
+
 module.exports = {
   editPharmacySchema,
   createMedicationSchema,
@@ -175,4 +213,10 @@ module.exports = {
   adminRegisterSchema,
   adminLoginSchema,
   paginationSchema,
+  categorySchema,
+  therapeuticClassSchema,
+  chemicalClassSchema,
+  manufacturerSchema,
+  genericMedicationSchema,
+  indicationSchema,
 };

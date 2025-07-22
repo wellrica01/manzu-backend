@@ -1,7 +1,7 @@
 const express = require('express');
 const z = require('zod');
 const adminService = require('../services/adminService');
-const { editPharmacySchema, paginationSchema, createMedicationSchema, updateMedicationSchema,  medicationFilterSchema, prescriptionFilterSchema, orderFilterSchema, adminUserFilterSchema, pharmacyUserFilterSchema,  } = require('../utils/adminValidation');
+const { editPharmacySchema, paginationSchema, createMedicationSchema, updateMedicationSchema, medicationFilterSchema, prescriptionFilterSchema, orderFilterSchema, adminUserFilterSchema, pharmacyUserFilterSchema, categorySchema, therapeuticClassSchema, chemicalClassSchema, manufacturerSchema, genericMedicationSchema, indicationSchema } = require('../utils/adminValidation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const router = express.Router();
 
@@ -304,6 +304,282 @@ router.get('/pharmacy-users/:id', authenticate, authenticateAdmin, async (req, r
   } catch (error) {
     console.error('Fetch pharmacy user error:', { message: error.message });
     res.status(error.status === 404 ? 404 : 500).json({ message: error.status === 404 ? 'Pharmacy user not found' : 'Server error', error: error.message });
+  }
+});
+
+// --- CATEGORY ROUTES ---
+router.get('/categories', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const { categories, pagination } = await adminService.getCategories(req.query);
+    res.status(200).json({ message: 'Categories fetched successfully', categories, pagination });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.get('/categories/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const category = await adminService.getCategory(Number(req.params.id));
+    res.status(200).json({ message: 'Category fetched successfully', category });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.post('/categories', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = categorySchema.parse(req.body);
+    const category = await adminService.createCategory(data);
+    res.status(201).json({ message: 'Category created successfully', category });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.patch('/categories/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = categorySchema.parse(req.body);
+    const category = await adminService.updateCategory(Number(req.params.id), data);
+    res.status(200).json({ message: 'Category updated successfully', category });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.delete('/categories/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    await adminService.deleteCategory(Number(req.params.id));
+    res.status(200).json({ message: 'Category deleted successfully' });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+
+// --- THERAPEUTIC CLASS ROUTES ---
+router.get('/therapeutic-classes', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const { therapeuticClasses, pagination } = await adminService.getTherapeuticClasses(req.query);
+    res.status(200).json({ message: 'Therapeutic classes fetched successfully', therapeuticClasses, pagination });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.get('/therapeutic-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const therapeuticClass = await adminService.getTherapeuticClass(Number(req.params.id));
+    res.status(200).json({ message: 'Therapeutic class fetched successfully', therapeuticClass });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.post('/therapeutic-classes', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = therapeuticClassSchema.parse(req.body);
+    const therapeuticClass = await adminService.createTherapeuticClass(data);
+    res.status(201).json({ message: 'Therapeutic class created successfully', therapeuticClass });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.patch('/therapeutic-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = therapeuticClassSchema.parse(req.body);
+    const therapeuticClass = await adminService.updateTherapeuticClass(Number(req.params.id), data);
+    res.status(200).json({ message: 'Therapeutic class updated successfully', therapeuticClass });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.delete('/therapeutic-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    await adminService.deleteTherapeuticClass(Number(req.params.id));
+    res.status(200).json({ message: 'Therapeutic class deleted successfully' });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+
+// --- CHEMICAL CLASS ROUTES ---
+router.get('/chemical-classes', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const { chemicalClasses, pagination } = await adminService.getChemicalClasses(req.query);
+    res.status(200).json({ message: 'Chemical classes fetched successfully', chemicalClasses, pagination });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.get('/chemical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const chemicalClass = await adminService.getChemicalClass(Number(req.params.id));
+    res.status(200).json({ message: 'Chemical class fetched successfully', chemicalClass });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.post('/chemical-classes', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = chemicalClassSchema.parse(req.body);
+    const chemicalClass = await adminService.createChemicalClass(data);
+    res.status(201).json({ message: 'Chemical class created successfully', chemicalClass });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.patch('/chemical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = chemicalClassSchema.parse(req.body);
+    const chemicalClass = await adminService.updateChemicalClass(Number(req.params.id), data);
+    res.status(200).json({ message: 'Chemical class updated successfully', chemicalClass });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.delete('/chemical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    await adminService.deleteChemicalClass(Number(req.params.id));
+    res.status(200).json({ message: 'Chemical class deleted successfully' });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+
+// --- MANUFACTURER ROUTES ---
+router.get('/manufacturers', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const { manufacturers, pagination } = await adminService.getManufacturers(req.query);
+    res.status(200).json({ message: 'Manufacturers fetched successfully', manufacturers, pagination });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.get('/manufacturers/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const manufacturer = await adminService.getManufacturer(Number(req.params.id));
+    res.status(200).json({ message: 'Manufacturer fetched successfully', manufacturer });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.post('/manufacturers', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = manufacturerSchema.parse(req.body);
+    const manufacturer = await adminService.createManufacturer(data);
+    res.status(201).json({ message: 'Manufacturer created successfully', manufacturer });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.patch('/manufacturers/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = manufacturerSchema.parse(req.body);
+    const manufacturer = await adminService.updateManufacturer(Number(req.params.id), data);
+    res.status(200).json({ message: 'Manufacturer updated successfully', manufacturer });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.delete('/manufacturers/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    await adminService.deleteManufacturer(Number(req.params.id));
+    res.status(200).json({ message: 'Manufacturer deleted successfully' });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+
+// --- GENERIC MEDICATION ROUTES ---
+router.get('/generic-medications', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const { genericMedications, pagination } = await adminService.getGenericMedications(req.query);
+    res.status(200).json({ message: 'Generic medications fetched successfully', genericMedications, pagination });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.get('/generic-medications/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const genericMedication = await adminService.getGenericMedication(Number(req.params.id));
+    res.status(200).json({ message: 'Generic medication fetched successfully', genericMedication });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.post('/generic-medications', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = genericMedicationSchema.parse(req.body);
+    const genericMedication = await adminService.createGenericMedication(data);
+    res.status(201).json({ message: 'Generic medication created successfully', genericMedication });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.patch('/generic-medications/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = genericMedicationSchema.parse(req.body);
+    const genericMedication = await adminService.updateGenericMedication(Number(req.params.id), data);
+    res.status(200).json({ message: 'Generic medication updated successfully', genericMedication });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.delete('/generic-medications/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    await adminService.deleteGenericMedication(Number(req.params.id));
+    res.status(200).json({ message: 'Generic medication deleted successfully' });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+
+// --- INDICATION ROUTES ---
+router.get('/indications', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const { indications, pagination } = await adminService.getIndications(req.query);
+    res.status(200).json({ message: 'Indications fetched successfully', indications, pagination });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.get('/indications/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const indication = await adminService.getIndication(Number(req.params.id));
+    res.status(200).json({ message: 'Indication fetched successfully', indication });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.post('/indications', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = indicationSchema.parse(req.body);
+    const indication = await adminService.createIndication(data);
+    res.status(201).json({ message: 'Indication created successfully', indication });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.patch('/indications/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    const data = indicationSchema.parse(req.body);
+    const indication = await adminService.updateIndication(Number(req.params.id), data);
+    res.status(200).json({ message: 'Indication updated successfully', indication });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
+  }
+});
+router.delete('/indications/:id', authenticate, authenticateAdmin, async (req, res) => {
+  try {
+    await adminService.deleteIndication(Number(req.params.id));
+    res.status(200).json({ message: 'Indication deleted successfully' });
+  } catch (error) {
+    res.status(error.status === 404 ? 404 : 500).json({ message: error.message });
   }
 });
 

@@ -46,7 +46,7 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       where: {
         userIdentifier: userId,
         status: 'VERIFIED',
-        PrescriptionMedication: {
+        prescriptionMedications: {
           some: { medicationId: medicationId }
         }
       },
@@ -324,6 +324,7 @@ async function getCart(userId) {
     acc[pharmacyId].items.push({
       id: item.id,
       medication: {
+        id: item.medicationAvailability?.medication?.id,
         name: item.medicationAvailability?.medication?.name ?? "Unknown",
         genericName: item.medicationAvailability?.medication?.genericName ?? null,
         displayName: `${item.medicationAvailability?.medication?.name ?? ""}${item.medicationAvailability?.medication?.dosage ? ` ${item.medicationAvailability.medication.dosage}` : ''}${item.medicationAvailability?.medication?.form ? ` (${item.medicationAvailability.medication.form})` : ''}`,
@@ -686,9 +687,9 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
       include: {
         prescription: {
           include: {
-            PrescriptionMedication: {
+            prescriptionMedications: {
               include: {
-                Medication: {
+                medication: {
                   select: { id: true },
                 },
               },
@@ -723,8 +724,8 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         );
 
         // Map medicationIds covered by the prescription
-        const coveredMedicationIds = prescription.PrescriptionMedication
-          .map(pm => pm.medicationId.toString());
+        const coveredMedicationIds = prescription.prescriptionMedications
+          .map(pm => pm.medication.id.toString());
 
         // Update statuses for medications in this order that are covered by prescription
         for (const medId of medicationIds) {

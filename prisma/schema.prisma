@@ -154,12 +154,13 @@ model DrugComponent {
 
 model Prescription {
   id                      Int                      @id @default(autoincrement())
-  userIdentifier          String                   @unique
+  userIdentifier          String
   fileUrl                 String
   status                  PrescriptionStatus       @default(PENDING)
   createdAt               DateTime                 @default(now())
   email                   String?
   phone                   String?
+  updatedAt               DateTime?                @default(now()) @db.Timestamptz(6)
   orders                  Order[]
   prescriptionMedications PrescriptionMedication[]
 
