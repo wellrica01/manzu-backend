@@ -16,7 +16,13 @@ async function getDashboardOverview() {
     pendingPrescriptions,
     verifiedPharmaciesCount,
     orderCount,
-    recentOrders
+    recentOrders,
+    categoryCount,
+    therapeuticClassCount,
+    chemicalClassCount,
+    manufacturerCount,
+    genericMedicationCount,
+    indicationCount
   ] = await prisma.$transaction([
     prisma.pharmacy.count(),
     prisma.medication.count(),
@@ -36,7 +42,13 @@ async function getDashboardOverview() {
         status: true,
         createdAt: true
       }
-    })
+    }),
+    prisma.category.count(),
+    prisma.therapeuticClass.count(),
+    prisma.chemicalClass.count(),
+    prisma.manufacturer.count(),
+    prisma.genericMedication.count(),
+    prisma.indication.count()
   ]);
 
   const summary = {
@@ -44,7 +56,13 @@ async function getDashboardOverview() {
     medications: { total: medicationCount },
     prescriptions: { total: prescriptionCount, pending: pendingPrescriptions },
     users: { total: userCount },
-    orders: { total: orderCount, recent: recentOrders }
+    orders: { total: orderCount, recent: recentOrders },
+    categories: { total: categoryCount },
+    therapeuticClasses: { total: therapeuticClassCount },
+    chemicalClasses: { total: chemicalClassCount },
+    manufacturers: { total: manufacturerCount },
+    genericMedications: { total: genericMedicationCount },
+    indications: { total: indicationCount }
   };
 
   console.log('Dashboard summary:', summary);
@@ -668,13 +686,14 @@ async function getPharmacyUser(id) {
 
 // CATEGORY SERVICES
 async function getCategories({ page = 1, limit = 20, name }) {
-  const skip = (page - 1) * limit;
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
   const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
   const [categories, total] = await prisma.$transaction([
-    prisma.category.findMany({ where, take: limit, skip }),
+    prisma.category.findMany({ where, take, skip }),
     prisma.category.count({ where }),
   ]);
-  return { categories, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+  return { categories, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
 }
 async function getCategory(id) {
   const category = await prisma.category.findUnique({ where: { id } });
@@ -703,13 +722,14 @@ async function deleteCategory(id) {
 
 // THERAPEUTIC CLASS SERVICES
 async function getTherapeuticClasses({ page = 1, limit = 20, name }) {
-  const skip = (page - 1) * limit;
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
   const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
   const [therapeuticClasses, total] = await prisma.$transaction([
-    prisma.therapeuticClass.findMany({ where, take: limit, skip }),
+    prisma.therapeuticClass.findMany({ where, take, skip }),
     prisma.therapeuticClass.count({ where }),
   ]);
-  return { therapeuticClasses, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+  return { therapeuticClasses, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
 }
 async function getTherapeuticClass(id) {
   const therapeuticClass = await prisma.therapeuticClass.findUnique({ where: { id } });
@@ -738,13 +758,14 @@ async function deleteTherapeuticClass(id) {
 
 // CHEMICAL CLASS SERVICES
 async function getChemicalClasses({ page = 1, limit = 20, name }) {
-  const skip = (page - 1) * limit;
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
   const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
   const [chemicalClasses, total] = await prisma.$transaction([
-    prisma.chemicalClass.findMany({ where, take: limit, skip }),
+    prisma.chemicalClass.findMany({ where, take, skip }),
     prisma.chemicalClass.count({ where }),
   ]);
-  return { chemicalClasses, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+  return { chemicalClasses, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
 }
 async function getChemicalClass(id) {
   const chemicalClass = await prisma.chemicalClass.findUnique({ where: { id } });
@@ -773,13 +794,14 @@ async function deleteChemicalClass(id) {
 
 // MANUFACTURER SERVICES
 async function getManufacturers({ page = 1, limit = 20, name }) {
-  const skip = (page - 1) * limit;
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
   const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
   const [manufacturers, total] = await prisma.$transaction([
-    prisma.manufacturer.findMany({ where, take: limit, skip }),
+    prisma.manufacturer.findMany({ where, take, skip }),
     prisma.manufacturer.count({ where }),
   ]);
-  return { manufacturers, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+  return { manufacturers, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
 }
 async function getManufacturer(id) {
   const manufacturer = await prisma.manufacturer.findUnique({ where: { id } });
@@ -808,13 +830,14 @@ async function deleteManufacturer(id) {
 
 // GENERIC MEDICATION SERVICES
 async function getGenericMedications({ page = 1, limit = 20, name }) {
-  const skip = (page - 1) * limit;
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;  
   const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
   const [genericMedications, total] = await prisma.$transaction([
-    prisma.genericMedication.findMany({ where, take: limit, skip }),
+    prisma.genericMedication.findMany({ where, take, skip }),
     prisma.genericMedication.count({ where }),
   ]);
-  return { genericMedications, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+  return { genericMedications, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
 }
 async function getGenericMedication(id) {
   const genericMedication = await prisma.genericMedication.findUnique({ where: { id } });
@@ -822,11 +845,58 @@ async function getGenericMedication(id) {
   return genericMedication;
 }
 async function createGenericMedication(data) {
-  return prisma.genericMedication.create({ data });
+  const {
+    categoryIds = [],
+    chemicalClassIds = [],
+    therapeuticClassIds = [],
+    ...rest
+  } = data;
+
+  return prisma.genericMedication.create({
+    data: {
+      ...rest,
+      categories: {
+        create: categoryIds.map(categoryId => ({
+          category: { connect: { id: categoryId } }
+        }))
+      },
+      chemicalClasses: {
+        create: chemicalClassIds.map(chemicalClassId => ({
+          chemicalClass: { connect: { id: chemicalClassId } }
+        }))
+      },
+      therapeuticClasses: {
+        create: therapeuticClassIds.map(therapeuticClassId => ({
+          therapeuticClass: { connect: { id: therapeuticClassId } }
+        }))
+      }
+    }
+  });
 }
 async function updateGenericMedication(id, data) {
+  const {
+    categoryIds = [],
+    chemicalClassIds = [],
+    therapeuticClassIds = [],
+    ...rest
+  } = data;
   try {
-    return await prisma.genericMedication.update({ where: { id }, data });
+    return await prisma.genericMedication.update({
+      where: { id },
+      data: {
+        ...rest,
+        categories: {
+          // set replaces all existing relations
+          set: categoryIds.map(categoryId => ({ categoryId, genericMedicationId: id }))
+        },
+        chemicalClasses: {
+          set: chemicalClassIds.map(chemicalClassId => ({ chemicalClassId, genericMedicationId: id }))
+        },
+        therapeuticClasses: {
+          set: therapeuticClassIds.map(therapeuticClassId => ({ therapeuticClassId, genericMedicationId: id }))
+        }
+      }
+    });
   } catch (error) {
     if (error.code === 'P2025') { const err = new Error('Generic medication not found'); err.status = 404; throw err; }
     throw error;

@@ -21,6 +21,10 @@ const editPharmacySchema = z.object({
   status: z.enum(['PENDING', 'VERIFIED', 'SUSPENDED', 'REJECTED', 'CLOSED']),
   logoUrl: z.string().url('Invalid URL').optional().or(z.literal('')).transform((val) => (val === '' ? undefined : val)),
   isActive: z.boolean(),
+  pharmacyType: z.enum(['COMMUNITY', 'HOSPITAL', 'SPECIALTY', 'PMV']).optional(),
+  ward: z.string().optional(),
+  operatingHours: z.string().optional(),
+  deliveryAvailability: z.boolean().optional(),
 }).merge(paginationSchema);
 
 
@@ -97,6 +101,7 @@ const registerSchema = z.object({
     licenseNumber: z.string().min(1, 'License number required'),
     logoUrl: z.string().url('Invalid URL').optional(),
     pharmacyType: z.enum(['COMMUNITY', 'HOSPITAL', 'SPECIALTY', 'PMV']).optional(),
+    operatingHours: z.string().optional(),
     deliveryAvailability: z.boolean().optional(),
   }),
   user: z.object({
@@ -187,6 +192,9 @@ const genericMedicationSchema = z.object({
   atcCode: z.string().optional(),
   description: z.string().optional(),
   translations: z.any().optional(),
+  categoryIds: z.array(z.number().int().positive()).optional(),
+  chemicalClassIds: z.array(z.number().int().positive()).optional(),
+  therapeuticClassIds: z.array(z.number().int().positive()).optional(),
 });
 
 // INDICATION
