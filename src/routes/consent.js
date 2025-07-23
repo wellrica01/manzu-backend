@@ -5,7 +5,7 @@ const router = express.Router();
 
 console.log('Loaded consent.js version: 2025-06-19-v1');
 
-// POST /consent - Record patient or pharmacy user consent
+// POST /consent - Record user or pharmacy user consent
 router.post('/', async (req, res) => {
   try {
     // Validate input

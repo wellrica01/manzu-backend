@@ -3,7 +3,7 @@ const prisma = new PrismaClient();
 
 async function recordConsent({ userIdentifier, userId, consentType, granted }) {
   if (userIdentifier) {
-    // Patient consent
+    // User consent
     const consent = await prisma.userConsent.upsert({
       where: {
         userIdentifier_consentType: {

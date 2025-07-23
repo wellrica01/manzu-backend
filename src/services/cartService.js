@@ -240,7 +240,16 @@ async function getCart(userId) {
           medicationAvailability: {
             include: {
               pharmacy: true,
-              medication: true,
+              medication: {
+                include: {
+                  genericMedication: {
+                    include: {
+                      categories: { include: { category: true } },
+                    },
+                  },
+                  manufacturer: true,
+                },
+              },
             },
           },
         },
@@ -321,27 +330,52 @@ async function getCart(userId) {
       };
     }
 
+    // Extract medication and related info
+    const med = item.medicationAvailability?.medication;
+    const genericMed = med?.genericMedication;
+    const manufacturer = med?.manufacturer;
+    const categories = genericMed?.categories?.map(c => c.category?.name).filter(Boolean) ?? [];
+
     acc[pharmacyId].items.push({
       id: item.id,
       medication: {
-        id: item.medicationAvailability?.medication?.id,
-        name: item.medicationAvailability?.medication?.name ?? "Unknown",
-        genericName: item.medicationAvailability?.medication?.genericName ?? null,
-        displayName: `${item.medicationAvailability?.medication?.name ?? ""}${item.medicationAvailability?.medication?.dosage ? ` ${item.medicationAvailability.medication.dosage}` : ''}${item.medicationAvailability?.medication?.form ? ` (${item.medicationAvailability.medication.form})` : ''}`,
-        category: item.medicationAvailability?.medication?.category ?? null,
-        description: item.medicationAvailability?.medication?.description ?? null,
-        manufacturer: item.medicationAvailability?.medication?.manufacturer ?? null,
-        form: item.medicationAvailability?.medication?.form ?? null,
-        dosage: item.medicationAvailability?.medication?.dosage ?? null,
-        imageUrl: item.medicationAvailability?.medication?.imageUrl ?? null,
-        prescriptionRequired: item.medicationAvailability?.medication?.prescriptionRequired ?? false,
+        id: med?.id,
+        brandName: med?.brandName ?? "Unknown",
+        brandDescription: med?.brandDescription ?? null,
+        localNames: med?.localNames ?? [],
+        genericMedicationId: med?.genericMedicationId ?? null,
+        manufacturerId: med?.manufacturerId ?? null,
+        form: med?.form ?? null,
+        strengthValue: med?.strengthValue ?? null,
+        strengthUnit: med?.strengthUnit ?? null,
+        route: med?.route ?? null,
+        packSizeQuantity: med?.packSizeQuantity ?? null,
+        packSizeUnit: med?.packSizeUnit ?? null,
+        isCombination: med?.isCombination ?? false,
+        combinationDescription: med?.combinationDescription ?? null,
+        nafdacCode: med?.nafdacCode ?? null,
+        nafdacStatus: med?.nafdacStatus ?? null,
+        prescriptionRequired: med?.prescriptionRequired ?? false,
+        regulatoryClass: med?.regulatoryClass ?? null,
+        restrictedTo: med?.restrictedTo ?? null,
+        insuranceCoverage: med?.insuranceCoverage ?? null,
+        createdAt: med?.createdAt ?? null,
+        approvalDate: med?.approvalDate ?? null,
+        expiryDate: med?.expiryDate ?? null,
+        storageConditions: med?.storageConditions ?? null,
+        imageUrl: med?.imageUrl ?? null,
+        genericName: genericMed?.name ?? null,
+        description: genericMed?.description ?? null,
+        manufacturer: manufacturer?.name ?? null,
+        category: categories,
+        displayName: `${med?.brandName ?? ""}${med?.strengthValue ? ` ${med.strengthValue}${med.strengthUnit ?? ""}` : ""}${med?.form ? ` (${med.form})` : ""}`,
       },
       quantity: item.quantity,
       price: item.price,
       medicationAvailabilityMedicationId: item.medicationAvailabilityMedicationId,
       medicationAvailabilityPharmacyId: item.medicationAvailabilityPharmacyId,
       // Add prescription status based on order status and prescription status
-      prescriptionStatus: item.orderInfo.prescriptionId && item.medicationAvailability?.medication?.prescriptionRequired 
+      prescriptionStatus: item.orderInfo.prescriptionId && med?.prescriptionRequired 
         ? (item.orderInfo.orderStatus === 'PENDING' ? 'VERIFIED' : 
            item.orderInfo.orderStatus === 'PENDING_PRESCRIPTION' ? 
              (item.orderInfo.prescriptionStatus === 'REJECTED' ? 'REJECTED' : 'PENDING') : 'NONE')

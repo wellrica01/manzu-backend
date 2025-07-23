@@ -328,6 +328,7 @@ async function confirmOrder({ reference, session, userId }) {
         medication: {
           brandName: item.medicationAvailability.medication.brandName,
           genericName: item.medicationAvailability.medication.genericMedication?.name,
+          displayName: `${item.medicationAvailability.medication.brandName ?? ""}${item.medicationAvailability.medication.strengthValue ? ` ${item.medicationAvailability.medication.strengthValue}${item.medicationAvailability.medication.strengthUnit ?? ""}` : ""}${item.medicationAvailability.medication.form ? ` (${item.medicationAvailability.medication.form})` : ""}`,
           prescriptionRequired: item.medicationAvailability.medication.prescriptionRequired,
         },
         quantity: item.quantity,

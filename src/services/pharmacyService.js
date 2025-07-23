@@ -148,6 +148,7 @@ async function fetchMedications(pharmacyId) {
       medicationId: m.medicationId,
       brandName: m.medication.brandName,
       genericName: m.medication.genericMedication?.name || null,
+      displayName: `${m.medication.brandName ?? ""}${m.medication.strengthValue ? ` ${m.medication.strengthValue}${m.medication.strengthUnit ?? ""}` : ""}${m.medication.form ? ` (${m.medication.form})` : ""}`,
       stock: m.stock,
       price: m.price,
       expiryDate: m.expiryDate,
@@ -157,6 +158,7 @@ async function fetchMedications(pharmacyId) {
       id: m.id,
       brandName: m.brandName,
       genericName: m.genericMedication?.name || null,
+      displayName: `${m.brandName ?? ""}${m.strengthValue ? ` ${m.strengthValue}${m.strengthUnit ?? ""}` : ""}${m.form ? ` (${m.form})` : ""}`,
     })),
   };
 }
@@ -379,7 +381,25 @@ async function getDashboardData(pharmacyId) {
   });
   const revenueToday = revenueTodayResult._sum.totalPrice || 0;
 
-  return { ordersToday, pendingOrders, inventoryAlerts, revenueToday };
+  // PoS sales today (count)
+  const posSalesToday = await prisma.sale.count({
+    where: {
+      pharmacyId,
+      createdAt: { gte: startOfDay, lte: endOfDay },
+    },
+  });
+
+  // PoS revenue today (sum)
+  const posRevenueTodayResult = await prisma.sale.aggregate({
+    _sum: { total: true },
+    where: {
+      pharmacyId,
+      createdAt: { gte: startOfDay, lte: endOfDay },
+    },
+  });
+  const posRevenueToday = posRevenueTodayResult._sum.total || 0;
+
+  return { ordersToday, pendingOrders, inventoryAlerts, revenueToday, posSalesToday, posRevenueToday };
 }
 
 async function recordSale({ pharmacyId, items, total, paymentMethod }) {

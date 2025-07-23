@@ -119,7 +119,7 @@ router.post('/prescription/upload', upload.single('prescriptionFile'), requireCo
     const { medicationIds } = req.body;
 
     if (!userIdentifier) {
-      return res.status(400).json({ message: 'Patient identifier is required' });
+      return res.status(400).json({ message: 'User identifier is required' });
     }
 
     if (!medicationIds) {
@@ -180,7 +180,7 @@ router.get('/prescription/status', requireConsent, async (req, res) => {
     const { medicationIds } = req.query;
 
     if (!userIdentifier) {
-      return res.status(400).json({ message: 'Patient identifier is required' });
+      return res.status(400).json({ message: 'User identifier is required' });
     }
     if (!medicationIds) {
       return res.status(400).json({ message: 'Medication IDs are required' });

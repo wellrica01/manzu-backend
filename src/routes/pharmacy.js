@@ -225,6 +225,7 @@ router.patch('/profile', authenticate, authenticateManager, async (req, res) => 
 });
 
 // GET /pharmacy/dashboard - Dashboard summary for pharmacy (new schema)
+// Now includes PoS (walk-in) sales stats: posSalesToday, posRevenueToday
 router.get('/dashboard', authenticate, async (req, res) => {
   try {
     const data = await pharmacyService.getDashboardData(req.user.pharmacyId);
