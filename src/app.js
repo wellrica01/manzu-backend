@@ -21,16 +21,16 @@ require('dotenv').config();
      };
      app.use(cors(corsOptions));
      app.use(express.json());
-     app.use('/api', medicationRoutes);
-     app.use('/api/prescription', prescriptionRoutes);
-     app.use('/api/cart', cartRoutes);
-     app.use('/api/med-checkout', medCheckoutRoutes);
-     app.use('/api/med-confirmation', medConfirmationRoutes);
-     app.use('/api/med-track', medTrackRoutes);
-     app.use('/api/pharmacy', pharmacyRoutes);
-     app.use('/api/auth', authRoutes);
-     app.use('/api/admin', adminRoutes);
-     app.use('/api/consent', consentRoutes);
+     app.use('api', medicationRoutes);
+     app.use('api/prescription', prescriptionRoutes);
+     app.use('api/cart', cartRoutes);
+     app.use('api/med-checkout', medCheckoutRoutes);
+     app.use('api/med-confirmation', medConfirmationRoutes);
+     app.use('api/med-track', medTrackRoutes);
+     app.use('api/pharmacy', pharmacyRoutes);
+     app.use('api/auth', authRoutes);
+     app.use('api/admin', adminRoutes);
+     app.use('api/consent', consentRoutes);
 
      const PORT = process.env.PORT || 5000;
      
