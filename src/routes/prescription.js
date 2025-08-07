@@ -1,35 +1,14 @@
 const express = require('express');
-const multer = require('multer');
+const supabase = require('../utils/supabaseClient')
+const upload = require('../utils/upload')
 const path = require('path');
+const fs = require('fs/promises'); // for cleanup after upload if needed
 const prescriptionService = require('../services/prescriptionService');
 const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validatePrescriptionOrder } = require('../utils/validation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
 
-// Multer setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // Limit to 10MB
-  fileFilter: (req, file, cb) => {
-    const filetypes = /pdf|jpg|jpeg|png/;
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypes.test(file.mimetype);
-    if (extname && mimetype) {
-      return cb(null, true);
-    }
-    cb(new Error('Invalid file type. Only PDF, JPG, JPEG, and PNG are allowed.'));
-  },
-});
 
 console.log('Loaded prescription.js version: 2025-06-19-v2');
 
@@ -39,6 +18,7 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
+
     const userIdentifier = req.headers['x-guest-id'];
     const { contact } = req.body;
 
@@ -54,13 +34,41 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
     const email = isEmail ? contact : null;
     const phone = !isEmail && contact ? contact : null;
 
+    // Define file path in Supabase Storage
+    const fileName = `${Date.now()}-${req.file.originalname}`;
+    const filePath = `prescriptions/${fileName}`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('prescriptions') // 🔁 change to your actual bucket name
+      .upload(filePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+      });
+
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError.message);
+      return res.status(500).json({ message: 'File upload failed', error: uploadError.message });
+    }
+
+    // Get public URL (or you can use signed URLs for privacy)
+    const { data: publicUrlData } = supabase.storage
+      .from('prescriptions')
+      .getPublicUrl(filePath);
+
+    const publicFileUrl = publicUrlData?.publicUrl || null;
+
+    // Save prescription record
     const prescription = await prescriptionService.uploadPrescription({
       userIdentifier,
       email,
       phone,
-      fileUrl: `/uploads/${req.file.filename}`,
+      fileUrl: publicFileUrl,
     });
-    res.status(201).json({ message: 'Prescription uploaded successfully. You will be notified when it’s ready.', prescription });
+
+    res.status(201).json({
+      message: 'Prescription uploaded successfully. You will be notified when it’s ready.',
+      prescription,
+    });
   } catch (error) {
     console.error('Upload error:', { message: error.message });
     res.status(500).json({ message: 'Server error', error: error.message });

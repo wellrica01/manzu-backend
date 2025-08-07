@@ -50,7 +50,7 @@ const createMedicationSchema = z.object({
   approvalDate: z.string().optional(),
   expiryDate: z.string().optional(),
   storageConditions: z.string().optional(),
-  imageUrl: z.string().url('Invalid URL').optional(),
+  imageUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
 });
 
 const updateMedicationSchema = createMedicationSchema.partial();

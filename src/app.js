@@ -21,7 +21,6 @@ require('dotenv').config();
      };
      app.use(cors(corsOptions));
      app.use(express.json());
-     app.use('/uploads', express.static('uploads'));
      app.use('/api', medicationRoutes);
      app.use('/api/prescription', prescriptionRoutes);
      app.use('/api/cart', cartRoutes);

@@ -1,4 +1,6 @@
 const express = require('express');
+const supabase = require('../utils/supabaseClient')
+const upload = require('../utils/upload')
 const z = require('zod');
 const adminService = require('../services/adminService');
 const { editPharmacySchema, paginationSchema, createMedicationSchema, updateMedicationSchema, medicationFilterSchema, prescriptionFilterSchema, orderFilterSchema, adminUserFilterSchema, pharmacyUserFilterSchema, categorySchema, therapeuticClassSchema, chemicalClassSchema, manufacturerSchema, genericMedicationSchema, indicationSchema } = require('../utils/adminValidation');
@@ -135,14 +137,38 @@ router.get('/medications/:id', authenticate, authenticateAdmin, async (req, res)
 });
 
 // POST /admin/medications - Create medication
-router.post('/medications', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/medications', authenticate, authenticateAdmin, upload.single('image'), async (req, res) => {
   try {
-    // Expect new schema fields
-    const data = createMedicationSchema.parse(req.body);
+    const formFields = req.body;
+    const image = req.file;
+
+    // Parse form fields
+    const data = createMedicationSchema.parse(formFields);
+
+    // Upload image to Supabase if provided
+    if (image) {
+      const fileName = `medications/${Date.now()}-${image.originalname}`;
+      const { error: uploadError } = await supabase.storage
+        .from('medications')
+        .upload(fileName, image.buffer, { contentType: image.mimetype });
+
+      if (uploadError) {
+        throw new Error('Image upload failed: ' + uploadError.message);
+      }
+
+      // Get public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('medications')
+        .getPublicUrl(fileName);
+
+      data.imageUrl = publicUrlData.publicUrl;
+    }
+
     const medication = await adminService.createMedication(data);
     res.status(201).json({ message: 'Medication created successfully', medication });
+
   } catch (error) {
-    console.error('Create medication error:', { message: error.message });
+    console.error('Create medication error:', error.message);
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
