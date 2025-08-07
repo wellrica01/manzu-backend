@@ -56,7 +56,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
           medicationId: true,
           medicationAvailability: {
             select: {
-              medication: { select: { brandName: true, genericMedication: { select: { name: true } } } },
+              medication: { select: { brandName: true, strengthValue: true, strengthUnit: true, form: true, genericMedication: { select: { name: true } } } },
               pharmacy: { select: { name: true, address: true } },
             },
           },
@@ -93,6 +93,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
           medication: {
             brandName: item.medicationAvailability.medication.brandName,
             genericName: item.medicationAvailability.medication.genericMedication?.name || null,
+            displayName: `${item.medicationAvailability.medication.brandName ?? ""}${item.medicationAvailability.medication.strengthValue ? ` ${item.medicationAvailability.medication.strengthValue}${item.medicationAvailability.medication.strengthUnit ?? ""}` : ""}${item.medicationAvailability.medication.form ? ` (${item.medicationAvailability.medication.form})` : ""}`,
           },
           pharmacy: {
             name: item.medicationAvailability.pharmacy.name,
