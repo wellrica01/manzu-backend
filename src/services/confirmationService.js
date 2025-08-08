@@ -80,7 +80,7 @@ async function confirmOrder({ reference, session, userId }) {
         where: {
           userIdentifier: userId,
           checkoutSessionId: session,
-          status: { in: ['PENDING', 'CONFIRMED', 'PAID'] },
+          status: { in: ['PENDING', 'CONFIRMED'] }, // <-- fixed here
         },
         include: {
           items: {
@@ -116,7 +116,7 @@ async function confirmOrder({ reference, session, userId }) {
       where: {
         userIdentifier: userId,
         checkoutSessionId: session,
-        status: { in: ['PENDING', 'CONFIRMED', 'PAID'] },
+        status: { in: ['PENDING', 'CONFIRMED'] }, // <-- fixed here
       },
       include: {
         items: {
@@ -155,7 +155,7 @@ async function confirmOrder({ reference, session, userId }) {
   // Generate or reuse a tracking code
   const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
   const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
-  let status = 'completed';
+  let status = 'COMPLETED';
 
   // Verify Paystack transaction if transactionRef is found
   if (transactionRef) {
@@ -346,7 +346,7 @@ async function confirmOrder({ reference, session, userId }) {
   }, {});
 
   return {
-    message: status === 'completed' ? 'Payment verified' : 'Orders retrieved, some awaiting verification',
+    message: status === 'COMPLETED' ? 'Payment verified' : 'Orders retrieved, some awaiting verification',
     status,
     checkoutSessionId: session,
     trackingCode,
