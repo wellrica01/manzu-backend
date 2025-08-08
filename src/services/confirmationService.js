@@ -210,72 +210,78 @@ async function confirmOrder({ reference, session, userId }) {
 
   // Update orders in a transaction
   console.log('Starting order update transaction');
-  const updatedOrders = await prisma.$transaction(async (tx) => {
-    const updated = [];
-    for (const order of orders) {
-      console.log('Processing order:', { id: order.id, status: order.status, paymentStatus: order.paymentStatus });
-      
-      let newStatus = order.status;
-      let newPaymentStatus = order.paymentStatus;
-      let newPrescriptionId = order.prescriptionId;
+  const updatedOrders = await prisma.$transaction(
+    async (tx) => {
+      const updated = [];
+      for (const order of orders) {
+        console.log('Processing order:', { id: order.id, status: order.status, paymentStatus: order.paymentStatus });
+        
+        let newStatus = order.status;
+        let newPaymentStatus = order.paymentStatus;
+        let newPrescriptionId = order.prescriptionId;
 
-      const requiresPrescription = order.items.some(
-        item => item.medicationAvailability.medication.prescriptionRequired
-      );
+        const requiresPrescription = order.items.some(
+          item => item.medicationAvailability.medication.prescriptionRequired
+        );
 
-      if (requiresPrescription && verifiedPrescription) {
-        const orderMedicationIds = order.items
-          .filter(item => item.medicationAvailability.medication.prescriptionRequired)
-          .map(item => item.medicationAvailability.medicationId);
-        const prescriptionMedicationIds = verifiedPrescription.prescriptionMedications.map(pm => pm.medicationId);
-        const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
+        if (requiresPrescription && verifiedPrescription) {
+          const orderMedicationIds = order.items
+            .filter(item => item.medicationAvailability.medication.prescriptionRequired)
+            .map(item => item.medicationAvailability.medicationId);
+          const prescriptionMedicationIds = verifiedPrescription.prescriptionMedications.map(pm => pm.medicationId);
+          const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
 
-        if (isPrescriptionValid && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
+          if (isPrescriptionValid && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
+            newStatus = 'CONFIRMED';
+            newPaymentStatus = 'PAID';
+            newPrescriptionId = verifiedPrescription.id;
+          } else if (order.status === 'PENDING_PRESCRIPTION') {
+            status = 'PENDING_PRESCRIPTION';
+          }
+        } else if (!requiresPrescription && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
           newStatus = 'CONFIRMED';
           newPaymentStatus = 'PAID';
-          newPrescriptionId = verifiedPrescription.id;
         } else if (order.status === 'PENDING_PRESCRIPTION') {
           status = 'PENDING_PRESCRIPTION';
         }
-      } else if (!requiresPrescription && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
-        newStatus = 'CONFIRMED';
-        newPaymentStatus = 'PAID';
-      } else if (order.status === 'PENDING_PRESCRIPTION') {
-        status = 'PENDING_PRESCRIPTION';
-      }
 
-      console.log('Updating order with:', { newStatus, newPaymentStatus, trackingCode });
+        console.log('Updating order with:', { newStatus, newPaymentStatus, trackingCode });
 
-      const updatedOrder = await tx.order.update({
-        where: { id: order.id },
-        data: {
-          paymentStatus: newPaymentStatus,
-          status: newStatus,
-          trackingCode,
-          prescriptionId: newPrescriptionId,
-          updatedAt: new Date(),
-        },
-        include: {
-          items: {
-            include: {
-              medicationAvailability: {
-                include: {
-                  medication: {
-                    include: { genericMedication: true },
+        const updatedOrder = await tx.order.update({
+          where: { id: order.id },
+          data: {
+            paymentStatus: newPaymentStatus,
+            status: newStatus,
+            trackingCode,
+            prescriptionId: newPrescriptionId,
+            updatedAt: new Date(),
+          },
+          include: {
+            items: {
+              include: {
+                medicationAvailability: {
+                  include: {
+                    medication: {
+                      include: { genericMedication: true },
+                    },
+                    pharmacy: true,
                   },
-                  pharmacy: true,
                 },
               },
             },
+            prescription: true,
+            pharmacy: true,
           },
-          prescription: true,
-          pharmacy: true,
-        },
-      });
-      updated.push(updatedOrder);
+        });
+        updated.push(updatedOrder);
+      }
+      return updated;
+    },
+    {
+      timeout: 20000, // 20 seconds timeout for transaction
+      maxWait: 10000, // 10 seconds max wait to acquire transaction
     }
-    return updated;
-  });
+  );
   console.log('Order update transaction completed');
 
   console.log('Payment verified or session retrieved:', {
