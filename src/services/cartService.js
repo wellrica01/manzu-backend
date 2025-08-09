@@ -566,7 +566,7 @@ async function removeFromCart({ orderItemId, userId }) {
   const order = orderItem.order;
   
   // Check if the order belongs to this user and has appropriate status
-  if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION'].includes(order.status)) {
+  if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION', 'PENDING'].includes(order.status)) {
     throw new Error('Cart not found');
   }
 
