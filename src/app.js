@@ -1,4 +1,5 @@
 const express = require('express');
+
 require('dotenv').config();
 const medicationRoutes = require('./routes/medication');
 const prescriptionRoutes = require('./routes/prescription');
@@ -11,28 +12,46 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const consentRoutes = require('./routes/consent');
 require('./jobs/cron');
+
 const app = express();
 const cors = require('cors');
 
 const allowedOrigins = [
-  "https://manzu-frontend-nchi.vercel.app", // production frontend
-  "http://localhost:3000",                  // local dev frontend
+  "https://manzu-frontend-nchi.vercel.app", // production
+  "http://localhost:3000",                  // local dev
 ];
 
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true); // Allow requests with no origin (Postman, curl)
+    }
+
+    try {
+      const cleanOrigin = origin.trim().replace(/\/$/, '').toLowerCase();
+
+      if (allowedOrigins.includes(cleanOrigin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    } catch (err) {
+      return callback(new Error("Invalid origin format"));
     }
   },
   credentials: true,
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // handle preflight
+
+// Preflight logging for all routes
+app.options(/.*/, (req, res, next) => {
+  console.log(`\n[Preflight Request] Method: ${req.method}, Path: ${req.originalUrl}, Origin: ${req.headers.origin || 'N/A'}`);
+  next();
+}, cors(corsOptions));
+
 app.use(express.json());
+
 app.use('/api', medicationRoutes);
 app.use('/api/prescription', prescriptionRoutes);
 app.use('/api/cart', cartRoutes);
@@ -45,7 +64,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/consent', consentRoutes);
 
 const PORT = process.env.PORT || 5000;
-
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
