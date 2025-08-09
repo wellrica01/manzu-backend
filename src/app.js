@@ -24,27 +24,27 @@ const allowedOrigins = [
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) {
-      return callback(null, true); // Allow requests with no origin (Postman, curl)
+      return callback(null, true); // Allow tools like Postman
     }
 
-    try {
-      const cleanOrigin = origin.trim().replace(/\/$/, '').toLowerCase();
+    const normalizedOrigin = origin.trim().replace(/\/$/, '').toLowerCase();
 
-      if (allowedOrigins.includes(cleanOrigin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error("Not allowed by CORS"));
-    } catch (err) {
-      return callback(new Error("Invalid origin format"));
+    if (
+      allowedOrigins.some(o => o.toLowerCase() === normalizedOrigin) ||
+      normalizedOrigin.endsWith('.vercel.app')
+    ) {
+      return callback(null, true);
     }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 
 app.use(cors(corsOptions));
 
-// Preflight logging for all routes
 app.options(/.*/, (req, res, next) => {
   console.log(`\n[Preflight Request] Method: ${req.method}, Path: ${req.originalUrl}, Origin: ${req.headers.origin || 'N/A'}`);
   next();
@@ -52,6 +52,12 @@ app.options(/.*/, (req, res, next) => {
 
 app.use(express.json());
 
+// ✅ Health check route for Render
+app.get('/', (req, res) => {
+  res.send('Manzu backend is live 🚀');
+});
+
+// API routes
 app.use('/api', medicationRoutes);
 app.use('/api/prescription', prescriptionRoutes);
 app.use('/api/cart', cartRoutes);
@@ -68,3 +74,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
