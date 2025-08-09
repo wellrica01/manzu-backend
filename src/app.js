@@ -1,6 +1,6 @@
 const express = require('express');
-
 require('dotenv').config();
+
 const medicationRoutes = require('./routes/medication');
 const prescriptionRoutes = require('./routes/prescription');
 const cartRoutes = require('./routes/cart');
@@ -16,6 +16,7 @@ require('./jobs/cron');
 const app = express();
 const cors = require('cors');
 
+// ====== CORS CONFIG ======
 const allowedOrigins = [
   "https://manzu-frontend-nchi.vercel.app", // production
   "http://localhost:3000",                  // local dev
@@ -40,11 +41,32 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-id'] // add more if frontend needs them
 };
 
+// ====== DEBUG HEADER LOGGING ======
+// Log every request's method, path, and headers
+app.use((req, res, next) => {
+  console.log(`\n[${req.method}] ${req.originalUrl}`);
+  console.log('Headers:', req.headers);
+  next();
+});
+
+// Special log for preflight OPTIONS requests
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const reqHeaders = req.headers['access-control-request-headers'];
+    if (reqHeaders) {
+      console.log(`🚨 Preflight requesting headers: ${reqHeaders}`);
+    }
+  }
+  next();
+});
+
+// ====== ENABLE CORS ======
 app.use(cors(corsOptions));
 
+// Handle all preflight routes
 app.options(/.*/, (req, res, next) => {
   console.log(`\n[Preflight Request] Method: ${req.method}, Path: ${req.originalUrl}, Origin: ${req.headers.origin || 'N/A'}`);
   next();
@@ -52,12 +74,12 @@ app.options(/.*/, (req, res, next) => {
 
 app.use(express.json());
 
-// ✅ Health check route for Render
+// ====== HEALTH CHECK ======
 app.get('/', (req, res) => {
   res.send('Manzu backend is live 🚀');
 });
 
-// API routes
+// ====== API ROUTES ======
 app.use('/api', medicationRoutes);
 app.use('/api/prescription', prescriptionRoutes);
 app.use('/api/cart', cartRoutes);
@@ -69,9 +91,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/consent', consentRoutes);
 
+// ====== START SERVER ======
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
