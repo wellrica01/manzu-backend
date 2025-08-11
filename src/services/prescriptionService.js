@@ -149,6 +149,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
             select: {
               id: true,
               brandName: true,
+              manufacturer: { select: { name: true, country: true } },
               form: true,
               strengthValue: true,
               strengthUnit: true,
@@ -264,7 +265,9 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
         id: medication.id,
         displayName: formatDisplayName(medication),
         quantity: prescriptionMed.quantity,
+        dosageInstructions: prescriptionMed.dosageInstructions,
         genericName: medication.genericMedication?.name,
+        manufacturer: medication.manufacturer?.name || null,
         form: medication.form,
         strengthValue: medication.strengthValue,
         strengthUnit: medication.strengthUnit,

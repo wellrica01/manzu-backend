@@ -19,7 +19,7 @@ const cors = require('cors');
 // ====== CORS CONFIG ======
 const allowedOrigins = [
   "https://manzu-frontend-nchi.vercel.app", // production
-  "http://localhost:3000",                  // local dev
+  "http://192.168.19.67:3000",                  // local dev
 ];
 
 const corsOptions = {
@@ -40,7 +40,7 @@ const corsOptions = {
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-id'] // add more if frontend needs them
 };
 

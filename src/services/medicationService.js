@@ -158,7 +158,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
       nafdacCode: true,
       imageUrl: true,
       genericMedication: { select: { name: true } },
-      manufacturer: { select: { name: true } },
+      manufacturer: { select: { name: true, country: true } },
       availabilities: {
         where: pharmacyFilter,
         select: {
