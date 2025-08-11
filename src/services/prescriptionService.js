@@ -129,6 +129,40 @@ async function verifyPrescription(prescriptionId, status) {
   return updatedPrescription;
 }
 
+
+async function retrievePrescription({ email, phone }) {
+  let guestId = null;
+
+  if (email || phone) {
+    const orConditions = [];
+    if (email) orConditions.push({ email });
+    if (phone) orConditions.push({ phone: normalizePhone(phone) });
+
+    console.log('OR conditions:', JSON.stringify(orConditions));
+
+    const prescriptionQuery = {
+      where: { ...(orConditions.length > 0 && { OR: orConditions }) },
+      select: { userIdentifier: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    };
+
+    console.log('Prescription query:', JSON.stringify(prescriptionQuery));
+
+    const prescription = await prisma.prescription.findFirst(prescriptionQuery);
+
+    console.log('Prescription result:', prescription);
+
+    if (prescription) {
+      guestId = prescription.userIdentifier;
+      console.log('Selected guestId:', guestId);
+    }
+  }
+
+  return guestId; // Will be null if not found
+}
+
+
+
 async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, lga, ward }) {
   const userLat = parseFloat(lat);
   const userLng = parseFloat(lng);
@@ -376,4 +410,4 @@ async function getPrescriptionStatuses({ userIdentifier, medicationIds }) {
   }
 }
 
-module.exports = { uploadPrescription, addMedications, verifyPrescription, getPrescriptionOrder, getPrescriptionStatuses };
+module.exports = { uploadPrescription, addMedications, verifyPrescription, retrievePrescription, getPrescriptionOrder, getPrescriptionStatuses };

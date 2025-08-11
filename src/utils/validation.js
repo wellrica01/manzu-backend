@@ -87,36 +87,23 @@ function validateCheckout(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
-function validateSessionRetrieve(data) {
+function validatePrescriptionRetrieve(data) {
   const schema = Joi.object({
     email: Joi.string().custom((value, helpers) => {
       if (value && !isValidEmail(value)) {
-        return helpers.error('any.invalid');
+        return helpers.error('any.invalid', { message: 'Invalid email format' });
       }
       return value;
     }, 'email validation').optional(),
+
     phone: Joi.string().custom((value, helpers) => {
       if (value && !isValidPhone(value)) {
         return helpers.error('any.invalid', { message: 'Invalid phone number format' });
       }
       return value;
     }, 'phone validation').optional(),
-    checkoutSessionId: Joi.string().optional(),
-  }).or('email', 'phone', 'checkoutSessionId');
-  return schema.validate(data, { abortEarly: false });
-}
+  }).or('email', 'phone'); // At least one required
 
-function validateResume(data) {
-  const schema = Joi.object({
-    orderId: Joi.number().integer().required(),
-    email: Joi.string().custom((value, helpers) => {
-      if (value && !isValidEmail(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'email validation').optional().allow(''),
-    userId: Joi.string().required(),
-  });
   return schema.validate(data, { abortEarly: false });
 }
 
@@ -307,8 +294,7 @@ module.exports = {
   validateUpdateCart,
   validateRemoveFromCart,
   validateCheckout,
-  validateSessionRetrieve,
-  validateResume,
+  validatePrescriptionRetrieve,
   validateOrderConfirmation,
   validateTracking,
   validateConsent,

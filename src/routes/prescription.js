@@ -4,7 +4,7 @@ const upload = require('../utils/upload')
 const path = require('path');
 const fs = require('fs/promises'); // for cleanup after upload if needed
 const prescriptionService = require('../services/prescriptionService');
-const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validatePrescriptionOrder } = require('../utils/validation');
+const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validatePrescriptionRetrieve, validatePrescriptionOrder } = require('../utils/validation');
 const { authenticate, authenticateAdmin } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
@@ -119,8 +119,37 @@ router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) =>
   }
 });
 
+
+// POST /prescription/retrieve - Retrieve prescription by email or phone
+router.post('/retrieve', requireConsent, async (req, res) => {
+  try {
+    const { email, phone } = req.body;
+
+    // Validate input
+    const { error } = validatePrescriptionRetrieve({ email, phone });
+    if (error) {
+      console.error('Validation error:', error.message);
+      return res.status(400).json({ message: error.message });
+    }
+
+    const guestId = await prescriptionService.retrievePrescription({ email, phone });
+
+    // Always return 200 with guestId (null if not found)
+    res.status(200).json({ guestId });
+  } catch (error) {
+    console.error('Session retrieval error:', {
+      message: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+
+
+
 // GET /prescriptions/:userIdentifier - Retrieve prescription order details (for guest or user)
-router.get('/prescriptions/:userIdentifier', requireConsent, async (req, res) => {
+router.get('/:userIdentifier', requireConsent, async (req, res) => {
   try {
     const { userIdentifier } = req.params;
     const { lat, lng, radius, state, lga, ward } = req.query;
