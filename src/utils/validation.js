@@ -30,7 +30,7 @@ function isValidBookingReference(reference) {
 }
 
 function isValidTrackingCode(trackingCode) {
-  return /^TRK-SESSION-\d+-\d+$/.test(trackingCode);
+  return /^TRK-[A-Z0-9]{4}-[A-Z0-9]{6}-[A-Z0-9]{3}$/.test(trackingCode);
 }
 
 function validateAddToCart(data) {
