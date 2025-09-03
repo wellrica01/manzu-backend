@@ -325,6 +325,7 @@ model Medication {
   expiryDate              DateTime?
   storageConditions       String?
   imageUrl                String?
+  fullName                String?
   components              DrugComponent[]
   genericMedication       GenericMedication        @relation(fields: [genericMedicationId], references: [id])
   manufacturer            Manufacturer?            @relation(fields: [manufacturerId], references: [id])

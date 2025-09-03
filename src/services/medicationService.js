@@ -34,11 +34,14 @@ async function getMedicationSuggestions(searchTerm) {
       OR: [
         { brandName: { startsWith: normalizedTerm, mode: 'insensitive' } },
         { genericMedication: { name: { startsWith: normalizedTerm, mode: 'insensitive' } } },
+        { fullName: { startsWith: normalizedTerm, mode: 'insensitive' } },
       ],
     },
     select: {
       id: true,
       brandName: true,
+      fullName: true,
+      imageUrl: true,
       form: true,
       strengthValue: true,
       strengthUnit: true,
@@ -48,6 +51,9 @@ async function getMedicationSuggestions(searchTerm) {
   });
   return medications.map(med => ({
     id: med.id,
+    imageUrl: med.imageUrl,
+    fullName: med.fullName,
+    genericName: med.genericMedication.name,
     displayName: formatDisplayName(med),
   }));
 }
@@ -151,6 +157,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
     select: {
       id: true,
       brandName: true,
+      fullName: true,
       form: true,
       prescriptionRequired: true,
       strengthValue: true,
@@ -222,7 +229,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
 
     return {
       id: med.id,
-      displayName: formatDisplayName(med),
+      fullName: med.fullName,
       genericName: med.genericMedication?.name || null,
       manufacturerName: med.manufacturer?.name || null,
       manufacturerCountry: med.manufacturer?.country || null,
