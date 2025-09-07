@@ -178,6 +178,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
             select: { 
               name: true, 
               address: true,
+              logoUrl: true,
               phone: true,
               licenseNumber: true,
               status: true,
@@ -203,6 +204,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
     let availability = med.availabilities.map(av => ({
       pharmacyId: av.pharmacyId,
       pharmacyName: av.pharmacy.name,
+      logoUrl: av.pharmacy.logoUrl,
       address: av.pharmacy.address,
       phone: av.pharmacy.phone,
       licenseNumber: av.pharmacy.licenseNumber,
