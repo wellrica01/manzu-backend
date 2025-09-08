@@ -264,7 +264,9 @@ async function confirmOrder({ reference, session, userId }) {
                     medication: {
                       include: { genericMedication: true },
                     },
-                    pharmacy: true,
+                    pharmacy: {
+                      include: { operatingHours: true }
+                    },
                   },
                 },
               },
@@ -305,7 +307,13 @@ async function confirmOrder({ reference, session, userId }) {
           address: order.pharmacy?.address || '',
           logoUrl: order.pharmacy?.logoUrl || '',
           phone: order.pharmacy?.phone || '',
-          operatingHours: order.pharmacy?.operatingHours || '',
+          operatingHours: Array.isArray(order.pharmacy?.OperatingHour)
+            ? order.pharmacy.OperatingHour.map(h => ({
+                dayOfWeek: h.dayOfWeek,
+                openTime: h.openTime,
+                closeTime: h.closeTime,
+              }))
+            : [],
           ward: order.pharmacy?.ward || '',
           lga: order.pharmacy?.lga || '',
           state: order.pharmacy?.state || '',
@@ -314,6 +322,7 @@ async function confirmOrder({ reference, session, userId }) {
         subtotal: 0,
       };
     }
+
     acc[pharmacyId].orders.push({
       id: order.id,
       name: order.name,

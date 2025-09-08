@@ -186,7 +186,13 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
               ward: true,
               lga: true,
               state: true,
-              operatingHours: true
+              OperatingHour: {
+                select: {
+                  dayOfWeek: true,
+                  openTime: true,
+                  closeTime: true,
+             }
+            }
             } 
           },
         },
@@ -213,7 +219,15 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
       ward: av.pharmacy.ward,
       lga: av.pharmacy.lga,
       state: av.pharmacy.state,
-      operatingHours: av.pharmacy.operatingHours,
+      operatingHours: av.pharmacy.OperatingHour.map(h => ({
+        dayOfWeek: h.dayOfWeek,
+        openTime: h.openTime instanceof Date 
+          ? h.openTime.toISOString().slice(11,16) // HH:mm
+          : h.openTime,
+        closeTime: h.closeTime instanceof Date
+          ? h.closeTime.toISOString().slice(11,16)
+          : h.closeTime
+      })),
       stock: av.stock,
       price: av.price,
       expiryDate: av.expiryDate,

@@ -1,0 +1,18 @@
+[
+  {
+    "brandName": "Norvasc",
+    "genericName": "Amlodipine",
+    "form": "Tablet",
+    "strengthValue": 5,
+    "strengthUnit": "mg",
+    "route": "Oral",
+    "isCombination": false
+  },
+  {
+    "brandName": "Co-Diovan",
+    "genericName": "Amlodipine + Hydrochlorothiazide",
+    "form": "Tablet",
+    "route": "Oral",
+    "isCombination": true
+  }
+]

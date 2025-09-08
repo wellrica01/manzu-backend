@@ -1,0 +1,23 @@
+[
+  {
+    "name": "Omeprazole",
+    "inn": "Omeprazole",
+    "atcCode": "A02BC01",
+    "description": "Proton pump inhibitor for acid-related disorders",
+    "therapeuticClass": "Drugs for acid-related disorders"
+  },
+  {
+    "name": "Amlodipine",
+    "inn": "Amlodipine",
+    "atcCode": "C08CA01", 
+    "description": "Calcium channel blocker",
+    "therapeuticClass": "Calcium channel blockers"
+  },
+  {
+    "name": "Warfarin",
+    "inn": "Warfarin",
+    "atcCode": "B01AA03",
+    "description": "Vitamin K antagonist anticoagulant",
+    "therapeuticClass": "Antithrombotic agents"
+  }
+]

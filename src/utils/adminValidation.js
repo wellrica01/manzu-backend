@@ -23,7 +23,23 @@ const editPharmacySchema = z.object({
   isActive: z.boolean(),
   pharmacyType: z.enum(['COMMUNITY', 'HOSPITAL', 'SPECIALTY', 'PMV']).optional(),
   ward: z.string().optional(),
-  operatingHours: z.string().optional(),
+  operatingHours: z
+  .array(
+    z.object({
+      dayOfWeek: z.enum([
+        'SUNDAY',
+        'MONDAY',
+        'TUESDAY',
+        'WEDNESDAY',
+        'THURSDAY',
+        'FRIDAY',
+        'SATURDAY'
+      ]),
+      openTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'Invalid time format (HH:mm)'),
+      closeTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'Invalid time format (HH:mm)'),
+    })
+  )
+  .optional(),
   deliveryAvailability: z.boolean().optional(),
 }).merge(paginationSchema);
 
@@ -101,7 +117,23 @@ const registerSchema = z.object({
     licenseNumber: z.string().min(1, 'License number required'),
     logoUrl: z.string().url('Invalid URL').optional(),
     pharmacyType: z.enum(['COMMUNITY', 'HOSPITAL', 'SPECIALTY', 'PMV']).optional(),
-    operatingHours: z.string().optional(),
+    operatingHours: z
+  .array(
+    z.object({
+      dayOfWeek: z.enum([
+        'SUNDAY',
+        'MONDAY',
+        'TUESDAY',
+        'WEDNESDAY',
+        'THURSDAY',
+        'FRIDAY',
+        'SATURDAY'
+      ]),
+      openTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'Invalid time format (HH:mm)'),
+      closeTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'Invalid time format (HH:mm)'),
+    })
+  )
+  .optional(),
     deliveryAvailability: z.boolean().optional(),
   }),
   user: z.object({

@@ -11,12 +11,15 @@ model Category {
   id                 Int                         @id @default(autoincrement())
   name               String                      @unique
   genericMedications GenericMedicationCategory[]
+  TherapeuticClass   TherapeuticClass[]
 }
 
 model TherapeuticClass {
   id                 Int                                 @id @default(autoincrement())
   name               String                              @unique
+  categoryId         Int?
   genericMedications GenericMedicationTherapeuticClass[]
+  Category           Category?                           @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_category")
 }
 
 model ChemicalClass {
@@ -105,9 +108,9 @@ model Pharmacy {
   isActive             Boolean                  @default(true)
   ward                 String?
   devicetoken          String?
-  operatingHours       String?
   deliveryAvailability Boolean?                 @default(false)
   availabilities       MedicationAvailability[]
+  OperatingHour        OperatingHour[]
   orders               Order[]
   users                PharmacyUser[]
   sale                 Sale[]
@@ -336,6 +339,19 @@ model Medication {
   @@index([nafdacCode])
   @@index([form])
   @@index([route])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model OperatingHour {
+  id         Int       @id @default(autoincrement())
+  pharmacyId Int
+  dayOfWeek  Int       @db.SmallInt
+  openTime   DateTime  @db.Time(6)
+  closeTime  DateTime  @db.Time(6)
+  createdAt  DateTime? @default(now()) @db.Timestamptz(6)
+  Pharmacy   Pharmacy  @relation(fields: [pharmacyId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([pharmacyId, dayOfWeek, openTime, closeTime], map: "uniq_OperatingHour")
 }
 
 enum DosageForm {

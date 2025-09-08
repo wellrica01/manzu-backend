@@ -239,7 +239,11 @@ async function getCart(userId) {
         include: {
           medicationAvailability: {
             include: {
-              pharmacy: true,
+              pharmacy: {
+                include: {
+                  OperatingHour: true 
+                }
+              },
               medication: {
                 include: {
                   genericMedication: {
@@ -310,25 +314,32 @@ async function getCart(userId) {
     const pharmacyId = item.medicationAvailability?.pharmacy?.id;
     if (!pharmacyId) return acc; // Skip if data is incomplete
 
-    if (!acc[pharmacyId]) {
-      acc[pharmacyId] = {
-        pharmacy: {
-          id: pharmacyId,
-          name: item.medicationAvailability?.pharmacy?.name ?? "Unknown Pharmacy",
-          address: item.medicationAvailability?.pharmacy?.address ?? "No address",
-          phone: item.medicationAvailability?.pharmacy?.phone ?? null,
-          licenseNumber: item.medicationAvailability?.pharmacy?.licenseNumber ?? null,
-          ward: item.medicationAvailability?.pharmacy?.ward ?? null,
-          lga: item.medicationAvailability?.pharmacy?.lga ?? null,
-          state: item.medicationAvailability?.pharmacy?.state ?? null,
-          operatingHours: item.medicationAvailability?.pharmacy?.operatingHours ?? null,
-          status: item.medicationAvailability?.pharmacy?.status ?? 'pending',
-          logoUrl: item.medicationAvailability?.pharmacy?.logoUrl ?? null,
-        },
-        items: [],
-        subtotal: 0,
-      };
-    }
+if (!acc[pharmacyId]) {
+  acc[pharmacyId] = {
+    pharmacy: {
+      id: pharmacyId,
+      name: item.medicationAvailability?.pharmacy?.name ?? "Unknown Pharmacy",
+      address: item.medicationAvailability?.pharmacy?.address ?? "No address",
+      phone: item.medicationAvailability?.pharmacy?.phone ?? null,
+      licenseNumber: item.medicationAvailability?.pharmacy?.licenseNumber ?? null,
+      ward: item.medicationAvailability?.pharmacy?.ward ?? null,
+      lga: item.medicationAvailability?.pharmacy?.lga ?? null,
+      state: item.medicationAvailability?.pharmacy?.state ?? null,
+      operatingHours: Array.isArray(item.medicationAvailability?.pharmacy?.OperatingHour) 
+        ? item.medicationAvailability.pharmacy.OperatingHour.map(h => ({
+            dayOfWeek: h.dayOfWeek,
+            openTime: h.openTime,
+            closeTime: h.closeTime,
+          }))
+        : [],
+      status: item.medicationAvailability?.pharmacy?.status ?? "pending",
+      logoUrl: item.medicationAvailability?.pharmacy?.logoUrl ?? null,
+    },
+    items: [],
+    subtotal: 0,
+  };
+}
+
 
     // Extract medication and related info
     const med = item.medicationAvailability?.medication;
@@ -384,7 +395,9 @@ async function getCart(userId) {
     });
 
     acc[pharmacyId].subtotal += item.quantity * item.price;
+    console.log(acc);
     return acc;
+  
   }, {});
 
   const pharmacies = Object.values(pharmacyGroups);

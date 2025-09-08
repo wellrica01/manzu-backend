@@ -1,0 +1,14 @@
+[
+  {
+    "medicationBrand": "Co-Diovan",
+    "genericName": "Amlodipine",
+    "strength": 5,
+    "unit": "mg"
+  },
+  {
+    "medicationBrand": "Co-Diovan",
+    "genericName": "Hydrochlorothiazide",
+    "strength": 12.5,
+    "unit": "mg"
+  }
+]

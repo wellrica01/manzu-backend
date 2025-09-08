@@ -183,6 +183,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
             select: {
               id: true,
               brandName: true,
+              fullName: true,
               manufacturer: { select: { name: true, country: true } },
               form: true,
               strengthValue: true,
@@ -284,20 +285,27 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
             name: true,
             address: true,
             phone: true,
+            logoUrl: true,
             licenseNumber: true,
             status: true,
             isActive: true,
             ward: true,
             lga: true,
             state: true,
-            operatingHours: true,
+            OperatingHour: {
+                select: {
+                  dayOfWeek: true,
+                  openTime: true,
+                  closeTime: true,
+             }
+            },
           } },
         },
       });
 
       return {
         id: medication.id,
-        displayName: formatDisplayName(medication),
+        fullName: medication.fullName,
         quantity: prescriptionMed.quantity,
         dosageInstructions: prescriptionMed.dosageInstructions,
         genericName: medication.genericMedication?.name,
@@ -319,11 +327,20 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
           phone: avail.pharmacy.phone || null,
           licenseNumber: avail.pharmacy.licenseNumber || null,
           status: avail.pharmacy.status,
+          logoUrl: avail.pharmacy.logoUrl,
           isActive: avail.pharmacy.isActive,
           ward: avail.pharmacy.ward,
           lga: avail.pharmacy.lga,
           state: avail.pharmacy.state,
-          operatingHours: avail.pharmacy.operatingHours,
+          operatingHours: avail.pharmacy.OperatingHour.map(h => ({
+            dayOfWeek: h.dayOfWeek,
+            openTime: h.openTime instanceof Date 
+              ? h.openTime.toISOString().slice(11,16) // HH:mm
+              : h.openTime,
+            closeTime: h.closeTime instanceof Date
+              ? h.closeTime.toISOString().slice(11,16)
+              : h.closeTime
+          })),
           stock: avail.stock,
           price: avail.price,
           expiryDate: avail.expiryDate || null,
