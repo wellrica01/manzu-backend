@@ -21,7 +21,7 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
       items: {
         include: {
           medicationAvailability: {
-            include: { medication: { include: { genericMedication: true } }, pharmacy: true },
+            include: { medication: { include: { genericMedication: true } }, pharmacy: { include: { OperatingHour: true } } },
           },
         },
       },

@@ -63,7 +63,9 @@ async function confirmOrder({ reference, session, userId }) {
                   medication: {
                     include: { genericMedication: true },
                   },
-                  pharmacy: true,
+                  pharmacy: {
+                    include: { OperatingHour: true },
+                  },
                 },
               },
             },
@@ -71,7 +73,9 @@ async function confirmOrder({ reference, session, userId }) {
           prescription: {
             include: { prescriptionMedications: true },
           },
-          pharmacy: true,
+          pharmacy: {
+            include: { operatingHours: true },
+          },
         },
       });
     } else {
@@ -90,7 +94,9 @@ async function confirmOrder({ reference, session, userId }) {
                   medication: {
                     include: { genericMedication: true },
                   },
-                  pharmacy: true,
+                  pharmacy: {
+                    include: { OperatingHour: true },
+                  },
                 },
               },
             },
@@ -98,7 +104,9 @@ async function confirmOrder({ reference, session, userId }) {
           prescription: {
             include: { prescriptionMedications: true },
           },
-          pharmacy: true,
+          pharmacy: {
+            include: { OperatingHour: true },
+          },
         },
       });
     }
@@ -126,7 +134,9 @@ async function confirmOrder({ reference, session, userId }) {
                 medication: {
                   include: { genericMedication: true },
                 },
-                pharmacy: true,
+                pharmacy: {
+                    include: { OperatingHour: true },
+                  },
               },
             },
           },
@@ -134,8 +144,10 @@ async function confirmOrder({ reference, session, userId }) {
         prescription: {
           include: { prescriptionMedications: true },
         },
-        pharmacy: true,
-      },
+        pharmacy: {
+            include: { OperatingHour: true },
+          },
+},
     });
     
     if (orders.length === 0) {
@@ -265,15 +277,17 @@ async function confirmOrder({ reference, session, userId }) {
                       include: { genericMedication: true },
                     },
                     pharmacy: {
-                      include: { operatingHours: true }
+                      include: { OperatingHour: true }
                     },
                   },
                 },
               },
             },
             prescription: true,
-            pharmacy: true,
-          },
+            pharmacy: {
+              include: { OperatingHour: true },
+            },
+        },
         });
         updated.push(updatedOrder);
       }
@@ -342,8 +356,8 @@ async function confirmOrder({ reference, session, userId }) {
         id: item.id,
         medication: {
           brandName: item.medicationAvailability.medication.brandName,
+          fullName: item.medicationAvailability.medication.fullName,
           genericName: item.medicationAvailability.medication.genericMedication?.name,
-          displayName: `${item.medicationAvailability.medication.brandName ?? ""}${item.medicationAvailability.medication.strengthValue ? ` ${item.medicationAvailability.medication.strengthValue}${item.medicationAvailability.medication.strengthUnit ?? ""}` : ""}${item.medicationAvailability.medication.form ? ` (${item.medicationAvailability.medication.form})` : ""}`,
           prescriptionRequired: item.medicationAvailability.medication.prescriptionRequired,
         },
         quantity: item.quantity,

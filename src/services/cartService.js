@@ -187,6 +187,140 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   return { orderItem: result.orderItem, userId };
 }
 
+
+async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId }) {
+  // Generate userId if not provided
+  const userId = userIdentifier || guestId || uuidv4();
+
+  // Validate inputs
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw new Error('Items array is required');
+  }
+  if (!prescriptionId) {
+    throw new Error('Prescription ID is required for bulk add');
+  }
+
+  // Check if prescription exists and is verified
+  const prescription = await prisma.prescription.findFirst({
+    where: { id: prescriptionId, userIdentifier: userId, status: 'VERIFIED' },
+    include: { prescriptionMedications: true },
+  });
+  if (!prescription) {
+    throw new Error('Valid prescription not found');
+  }
+
+  // Validate all items (pharmacy, medication, stock, prescription coverage)
+  const itemValidations = await Promise.all(
+    items.map(async (item) => {
+      const { medicationId, pharmacyId, quantity } = item;
+
+      // Check pharmacy exists
+      const pharmacy = await prisma.pharmacy.findUnique({ where: { id: pharmacyId } });
+      if (!pharmacy) {
+        throw new Error(`Pharmacy not found for medication ID ${medicationId}`);
+      }
+
+      // Check medication exists and prescription requirements
+      const medication = await prisma.medication.findUnique({
+        where: { id: medicationId },
+        select: { prescriptionRequired: true },
+      });
+      if (!medication) {
+        throw new Error(`Medication not found for ID ${medicationId}`);
+      }
+
+      // Verify stock availability
+      const pharmacyMedication = await prisma.medicationAvailability.findFirst({
+        where: { medicationId, pharmacyId, stock: { gte: quantity } },
+      });
+      if (!pharmacyMedication) {
+        throw new Error(`Medication ID ${medicationId} not available at pharmacy ${pharmacyId} or insufficient stock`);
+      }
+
+      // Verify prescription coverage
+      if (medication.prescriptionRequired) {
+        const isCovered = prescription.prescriptionMedications.some(
+          pm => pm.medicationId === medicationId && pm.quantity >= quantity
+        );
+        if (!isCovered) {
+          throw new Error(`Medication ID ${medicationId} not covered by prescription`);
+        }
+      }
+
+      return { ...item, price: pharmacyMedication.price };
+    })
+  );
+
+  // Determine or create target order
+  let targetOrder = await prisma.order.findFirst({
+    where: {
+      userIdentifier: userId,
+      status: 'PENDING',
+      prescriptionId,
+    },
+  });
+
+  if (!targetOrder) {
+    targetOrder = await prisma.order.create({
+      data: {
+        userIdentifier: userId,
+        status: 'PENDING',
+        totalPrice: 0,
+        deliveryMethod: 'UNSPECIFIED',
+        paymentStatus: 'PENDING',
+        prescriptionId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  // Add items to cart in a transaction
+  const result = await prisma.$transaction(async (tx) => {
+    const orderItems = await Promise.all(
+      itemValidations.map(item =>
+        tx.orderItem.upsert({
+          where: {
+            orderId_pharmacyId_medicationId: {
+              orderId: targetOrder.id,
+              pharmacyId: item.pharmacyId,
+              medicationId: item.medicationId,
+            },
+          },
+          update: {
+            quantity: { increment: item.quantity },
+            price: item.price,
+          },
+          create: {
+            orderId: targetOrder.id,
+            pharmacyId: item.pharmacyId,
+            medicationId: item.medicationId,
+            quantity: item.quantity,
+            price: item.price,
+          },
+        })
+      )
+    );
+
+    const { updatedOrder } = await recalculateOrderTotal(tx, targetOrder.id);
+    await cleanupEmptyOrders(tx, userId, targetOrder.id);
+
+    return {
+      orderItems,
+      order: updatedOrder,
+      addedItems: itemValidations.map(item => ({
+        medicationId: item.medicationId,
+        pharmacyId: item.pharmacyId,
+        fullName: item.fullName,
+      })),
+    };
+  });
+
+  console.log('Created/Updated Bulk OrderItems:', result.orderItems);
+  return { orderItems: result.orderItems, userId, addedItems: result.addedItems };
+}
+
+
 async function checkPrescriptionCoverage(prescriptionId, medicationId) {
   try {
     // Check if the prescription covers this specific medication
@@ -380,7 +514,7 @@ if (!acc[pharmacyId]) {
         manufacturerName: manufacturer?.name ?? null,
         manufacturerCountry: manufacturer?.country ?? null,
         category: categories,
-        displayName: `${med?.brandName ?? ""}${med?.strengthValue ? ` ${med.strengthValue}${med.strengthUnit ?? ""}` : ""}${med?.form ? ` (${med.form})` : ""}`,
+        fullName: `${med?.brandName ?? ""}${med?.strengthValue ? ` ${med.strengthValue}${med.strengthUnit ?? ""}` : ""}${med?.form ? ` (${med.form})` : ""}`,
       },
       quantity: item.quantity,
       price: item.price,
@@ -997,6 +1131,7 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
 
 module.exports = {
   addToCart,
+  addBulkToCart,
   getCart,
   updateCartItem,
   removeFromCart,

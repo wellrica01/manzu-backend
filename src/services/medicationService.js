@@ -1,5 +1,4 @@
 const { PrismaClient } = require('@prisma/client');
-const { formatDisplayName } = require('../utils/medicationUtils'); 
 const prisma = new PrismaClient();
 
 async function getSampleMedication() {
@@ -54,7 +53,6 @@ async function getMedicationSuggestions(searchTerm) {
     imageUrl: med.imageUrl,
     fullName: med.fullName,
     genericName: med.genericMedication.name,
-    displayName: formatDisplayName(med),
   }));
 }
 
@@ -237,7 +235,7 @@ async function searchMedications({ q, medicationId, page, limit, lat, lng, radiu
     }));
 
     // Sort availability
-    if (sortBy === 'closest' && lat && lng) {
+    if (sortBy === 'nearest' && lat && lng) {
       availability = availability.sort((a, b) => (a.distance_km || Infinity) - (b.distance_km || Infinity));
     } else {
       availability = availability.sort((a, b) => a.price - b.price);

@@ -43,6 +43,26 @@ function validateAddToCart(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+function validateBulkAddToCart(data) {
+  const schema = Joi.object({
+    userIdentifier: Joi.string().optional(),
+    guestId: Joi.string().uuid().optional(),
+    items: Joi.array()
+      .items(
+        Joi.object({
+          medicationId: Joi.number().required(),
+          pharmacyId: Joi.number().required(),
+          quantity: Joi.number().min(1).required(),
+          fullName: Joi.string().required(),
+        })
+      )
+      .min(1)
+      .required(),
+    prescriptionId: Joi.number().required(),
+  }).or('userIdentifier', 'guestId');
+  return schema.validate(data);
+};
+
 function validateUpdateCart(data) {
   const schema = Joi.object({
     orderItemId: Joi.number().integer().required(),
@@ -169,7 +189,7 @@ function validateMedicationSearch(data) {
     state: Joi.string().optional(),
     lga: Joi.string().optional(),
     ward: Joi.string().optional(),
-    sortBy: Joi.string().valid('cheapest', 'closest').default('cheapest'),
+    sortBy: Joi.string().valid('cheapest', 'nearest').default('cheapest'),
   }).or('q', 'medicationId');
   return schema.validate(data, { abortEarly: false });
 }
@@ -291,6 +311,7 @@ module.exports = {
   isValidBookingReference,
   isValidTrackingCode,
   validateAddToCart,
+  validateBulkAddToCart,
   validateUpdateCart,
   validateRemoveFromCart,
   validateCheckout,

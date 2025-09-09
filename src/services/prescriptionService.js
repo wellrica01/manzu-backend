@@ -1,7 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { normalizePhone } = require('../utils/validation');
 const { sendVerificationNotification } = require('../utils/notifications');
-const { formatDisplayName } = require('../utils/medicationUtils');
 const prisma = new PrismaClient();
 
 async function uploadPrescription({ userIdentifier, email, phone, fileUrl }) {
@@ -25,9 +24,6 @@ async function addMedications(prescriptionId, medications) {
   });
   if (!prescription) {
     throw new Error('Prescription not found');
-  }
-  if (prescription.status !== 'PENDING') {
-    throw new Error('Prescription is already processed');
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -162,7 +158,6 @@ async function retrievePrescription({ email, phone }) {
 }
 
 
-
 async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, lga, ward }) {
   const userLat = parseFloat(lat);
   const userLng = parseFloat(lng);
@@ -218,6 +213,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
         status: prescription.status,
         fileUrl: prescription.fileUrl,
       },
+      pharmacyRecommendations: [],
     };
   }
 
@@ -280,26 +276,28 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
       const availability = await prisma.medicationAvailability.findMany({
         where: pharmacyFilter,
         include: {
-          pharmacy: { select: {
-            id: true,
-            name: true,
-            address: true,
-            phone: true,
-            logoUrl: true,
-            licenseNumber: true,
-            status: true,
-            isActive: true,
-            ward: true,
-            lga: true,
-            state: true,
-            OperatingHour: {
+          pharmacy: { 
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              phone: true,
+              logoUrl: true,
+              licenseNumber: true,
+              status: true,
+              isActive: true,
+              ward: true,
+              lga: true,
+              state: true,
+              OperatingHour: {
                 select: {
                   dayOfWeek: true,
                   openTime: true,
                   closeTime: true,
-             }
+                },
+              },
             },
-          } },
+          },
         },
       });
 
@@ -335,11 +333,11 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
           operatingHours: avail.pharmacy.OperatingHour.map(h => ({
             dayOfWeek: h.dayOfWeek,
             openTime: h.openTime instanceof Date 
-              ? h.openTime.toISOString().slice(11,16) // HH:mm
+              ? h.openTime.toISOString().slice(11,16)
               : h.openTime,
             closeTime: h.closeTime instanceof Date
               ? h.closeTime.toISOString().slice(11,16)
-              : h.closeTime
+              : h.closeTime,
           })),
           stock: avail.stock,
           price: avail.price,
@@ -353,6 +351,128 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
       };
     })
   );
+
+  // Compute pharmacy recommendations
+  const medicationIds = prescription.prescriptionMedications.map(pm => pm.medicationId);
+  let recommendationFilter = {
+    medicationId: { in: medicationIds },
+    stock: { gte: 1 }, // Ensure sufficient stock (can refine to match prescriptionMed.quantity)
+    pharmacy: {
+      status: 'VERIFIED',
+      isActive: true,
+    },
+  };
+  if (state) {
+    recommendationFilter.pharmacy.state = { equals: state, mode: 'insensitive' };
+  }
+  if (lga) {
+    recommendationFilter.pharmacy.lga = { equals: lga, mode: 'insensitive' };
+  }
+  if (ward) {
+    recommendationFilter.pharmacy.ward = { equals: ward, mode: 'insensitive' };
+  }
+  if (hasValidCoordinates) {
+    recommendationFilter.pharmacy.id = {
+      in: pharmacyIdsWithDistance.length > 0
+        ? pharmacyIdsWithDistance.map(p => p.id)
+        : [-1],
+    };
+  }
+
+const pharmacyRecommendations = await prisma.medicationAvailability.groupBy({
+  by: ['pharmacyId'],
+  where: recommendationFilter,
+  _count: { medicationId: true },
+  _sum: { price: true },
+}).then(async (grouped) => {
+  const pharmacyIds = grouped.map(g => g.pharmacyId);
+  const pharmacies = await prisma.pharmacy.findMany({
+    where: { id: { in: pharmacyIds }, status: 'VERIFIED', isActive: true },
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      phone: true,
+      logoUrl: true,
+      licenseNumber: true,
+      status: true,
+      isActive: true,
+      ward: true,
+      lga: true,
+      state: true,
+      OperatingHour: {
+        select: {
+          dayOfWeek: true,
+          openTime: true,
+          closeTime: true,
+        },
+      },
+    },
+  });
+
+  const availabilityDetails = await prisma.medicationAvailability.findMany({
+    where: {
+      pharmacyId: { in: pharmacyIds },
+      medicationId: { in: medicationIds },
+      stock: { gte: 1 },
+    },
+    select: {
+      pharmacyId: true,
+      medicationId: true,
+      price: true,
+      stock: true,
+      expiryDate: true,
+      medication: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+    },
+  });
+
+  return grouped.map(group => {
+    const pharmacy = pharmacies.find(p => p.id === group.pharmacyId);
+    if (!pharmacy) return null;
+
+    const meds = availabilityDetails
+      .filter(ad => ad.pharmacyId === group.pharmacyId)
+      .map(ad => ({
+        id: ad.medicationId,
+        fullName: ad.medication.fullName,
+        price: ad.price,
+      }));
+
+    return {
+      pharmacyId: group.pharmacyId,
+      pharmacyName: pharmacy.name,
+      address: pharmacy.address,
+      phone: pharmacy.phone || null,
+      logoUrl: pharmacy.logoUrl || null,
+      licenseNumber: pharmacy.licenseNumber || null,
+      status: pharmacy.status,
+      isActive: pharmacy.isActive,
+      ward: pharmacy.ward || null,
+      lga: pharmacy.lga || null,
+      state: pharmacy.state || null,
+      operatingHours: pharmacy.OperatingHour.map(h => ({
+        dayOfWeek: h.dayOfWeek,
+        openTime: h.openTime instanceof Date 
+          ? h.openTime.toISOString().slice(11,16)
+          : h.openTime,
+        closeTime: h.closeTime instanceof Date
+          ? h.closeTime.toISOString().slice(11,16)
+          : h.closeTime,
+      })),
+      meds,
+      totalPrice: group._sum.price || 0,
+      medCount: group._count.medicationId,
+      distance_km: distanceMap.has(group.pharmacyId)
+        ? distanceMap.get(group.pharmacyId)
+        : null,
+    };
+  }).filter(Boolean).sort((a, b) => b.medCount - a.medCount);
+});
 
   const order = await prisma.order.findFirst({
     where: {
@@ -374,6 +494,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
       status: prescription.status,
       fileUrl: prescription.fileUrl,
     },
+    pharmacyRecommendations,
   };
 }
 

@@ -2,7 +2,7 @@ const express = require('express');
 const upload = require('../utils/upload')
 const supabase = require('../utils/supabaseClient')
 const path = require('path');
-const { validateAddToCart, validateUpdateCart, validateRemoveFromCart } = require('../utils/validation');
+const { validateAddToCart, validateBulkAddToCart, validateUpdateCart, validateRemoveFromCart } = require('../utils/validation');
 const cartService = require('../services/cartService');
 const prescriptionService = require('../services/prescriptionService');
 const { isValidEmail } = require('../utils/validation');
@@ -30,6 +30,33 @@ router.post('/add', async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+
+// Bulk add items to cart
+router.post('/addbulk', async (req, res) => {
+  try {
+    const { userIdentifier, guestId, items, prescriptionId } = req.body;
+
+    // Validate input
+    const { error } = validateBulkAddToCart({ userIdentifier, guestId, items, prescriptionId });
+    if (error) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    const { orderItems, userId, addedItems } = await cartService.addBulkToCart({
+      userIdentifier,
+      guestId,
+      items,
+      prescriptionId,
+    });
+
+    res.status(201).json({ message: 'Added to cart', orderItems, userId, addedItems });
+  } catch (error) {
+    console.error('Bulk add to cart error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 
 // Get cart
 router.get('/', async (req, res) => {
