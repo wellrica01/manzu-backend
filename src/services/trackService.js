@@ -8,93 +8,66 @@ async function trackOrders(trackingCode) {
     where: {
       trackingCode,
       status: {
-        in: [
-          'CONFIRMED',
-          'PROCESSING',
-          'SHIPPED',
-          'DELIVERED',
-          'READY_FOR_PICKUP',
-          'CANCELLED',
-        ],
+        in: ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED'],
       },
     },
-    select: {
-      id: true,
-      userIdentifier: true,
-      name: true,
-      totalPrice: true,
-      address: true,
-      deliveryMethod: true,
-      trackingCode: true,
-      status: true,
-      paymentStatus: true,
-      createdAt: true,
-      updatedAt: true,
-      filledAt: true,
-      cancelledAt: true,
-      cancelReason: true,
-      prescriptionId: true,
-      prescription: {
-        select: {
-          id: true,
-          status: true,
-          fileUrl: true,
-          createdAt: true,
-          prescriptionMedications: {
-            select: {
-              medicationId: true,
-              quantity: true,
-              medication: {
-                select: {
-                  brandName: true,
-                  genericMedication: { select: { name: true } },
-                  strengthValue: true,
-                  strengthUnit: true,
-                  form: true,
-                },
-              },
-            },
-          },
-        },
-      },
-      pharmacy: {
-        select: { id: true, name: true, address: true },
-      },
+    include: {
       items: {
-        select: {
-          id: true,
-          quantity: true,
-          price: true,
+        include: {
           medicationAvailability: {
-            select: {
+            include: {
               medication: {
-                select: {
-                  id: true,
-                  brandName: true,
-                  genericMedication: { select: { name: true } },
-                  strengthValue: true,
-                  strengthUnit: true,
-                  form: true,
+                include: {
+                  Medication_MedicationIngredient: {
+                    select: {
+                      MedicationIngredient: {
+                        select: {
+                          strengthValue: true,
+                          strengthUnit: true,
+                          ActiveSubstance: { select: { name: true } },
+                        },
+                      },
+                    },
+                  },
                 },
               },
-              pharmacy: {
-                select: { name: true, address: true },
-              },
+              pharmacy: true,
               receivedDate: true,
               expiryDate: true,
             },
           },
         },
       },
+      prescription: {
+        include: {
+          prescriptionMedications: {
+            include: {
+              medication: {
+                include: {
+                  Medication_MedicationIngredient: {
+                    select: {
+                      MedicationIngredient: {
+                        select: {
+                          strengthValue: true,
+                          strengthUnit: true,
+                          ActiveSubstance: { select: { name: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      pharmacy: true,
     },
   });
 
-  if (orders.length === 0) {
-    console.error('Orders not found for tracking code:', { trackingCode });
-    throw new Error('Orders not found or not ready for tracking');
-  }
+  if (!orders.length) throw new Error('Orders not found or not ready for tracking');
 
-  console.log('Orders found:', { orderIds: orders.map(o => o.id), trackingCode, status: orders.map(o => o.status) });
+  console.log('Orders found:', { orderIds: orders.map(o => o.id), trackingCode });
 
   return {
     message: 'Orders found',
@@ -119,50 +92,49 @@ async function trackOrders(trackingCode) {
             status: order.prescription.status,
             fileUrl: order.prescription.fileUrl,
             verified: order.prescription.status === 'VERIFIED',
-            createdAt: order.prescription.createdAt,
             medications: order.prescription.prescriptionMedications.map(pm => ({
               medicationId: pm.medicationId,
-              brandName: pm.medication.brandName,
-              genericName: pm.medication.genericMedication?.name,
-              displayName: `${pm.medication.brandName ?? ""}${pm.medication.strengthValue ? ` ${pm.medication.strengthValue}${pm.medication.strengthUnit ?? ""}` : ""}${pm.medication.form ? ` (${pm.medication.form})` : ""}`,
-              strengthValue: pm.medication.strengthValue,
-              strengthUnit: pm.medication.strengthUnit,
-              form: pm.medication.form,
+              ingredients: pm.medication.Medication_MedicationIngredient.map(mmi => ({
+                activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
+                strengthValue: mmi.MedicationIngredient.strengthValue,
+                strengthUnit: mmi.MedicationIngredient.strengthUnit,
+              })),
               quantity: pm.quantity,
             })),
           }
         : null,
       pharmacy: order.pharmacy
-        ? {
-            id: order.pharmacy.id,
-            name: order.pharmacy.name,
-            address: order.pharmacy.address,
-          }
+        ? { id: order.pharmacy.id, name: order.pharmacy.name, address: order.pharmacy.address }
         : null,
-      items: order.items.map(item => ({
-        id: item.id,
-        medication: item.medicationAvailability && item.medicationAvailability.medication
-          ? {
-              id: item.medicationAvailability.medication.id,
-              brandName: item.medicationAvailability.medication.brandName,
-              genericName: item.medicationAvailability.medication.genericMedication?.name,
-              displayName: `${item.medicationAvailability.medication.brandName ?? ""}${item.medicationAvailability.medication.strengthValue ? ` ${item.medicationAvailability.medication.strengthValue}${item.medicationAvailability.medication.strengthUnit ?? ""}` : ""}${item.medicationAvailability.medication.form ? ` (${item.medicationAvailability.medication.form})` : ""}`,
-              strengthValue: item.medicationAvailability.medication.strengthValue,
-              strengthUnit: item.medicationAvailability.medication.strengthUnit,
-              form: item.medicationAvailability.medication.form,
-            }
-          : null,
-        pharmacy: item.medicationAvailability && item.medicationAvailability.pharmacy
-          ? {
-              name: item.medicationAvailability.pharmacy.name,
-              address: item.medicationAvailability.pharmacy.address,
-            }
-          : null,
-        quantity: item.quantity,
-        price: item.price,
-        receivedDate: item.medicationAvailability?.receivedDate,
-        expiryDate: item.medicationAvailability?.expiryDate,
-      })),
+      items: order.items.map(item => {
+        const med = item.medicationAvailability?.medication;
+        const ingredients = med?.Medication_MedicationIngredient.map(mmi => ({
+          activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
+          strengthValue: mmi.MedicationIngredient.strengthValue,
+          strengthUnit: mmi.MedicationIngredient.strengthUnit,
+        }));
+        const displayName = ingredients?.map(i => `${i.activeSubstance} ${i.strengthValue ?? ''}${i.strengthUnit ?? ''}`).join(' + ');
+
+        return {
+          id: item.id,
+          medication: med
+            ? {
+                id: med.id,
+                brandName: med.brandName,
+                prescriptionRequired: med.prescriptionRequired,
+                ingredients,
+                displayName,
+              }
+            : null,
+          pharmacy: item.medicationAvailability?.pharmacy
+            ? { name: item.medicationAvailability.pharmacy.name, address: item.medicationAvailability.pharmacy.address }
+            : null,
+          quantity: item.quantity,
+          price: item.price,
+          receivedDate: item.medicationAvailability?.receivedDate,
+          expiryDate: item.medicationAvailability?.expiryDate,
+        };
+      }),
     })),
   };
 }

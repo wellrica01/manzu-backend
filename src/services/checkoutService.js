@@ -12,21 +12,44 @@ async function initiateCheckout({ name, email, phone, address, deliveryMethod, u
   const normalizedPhone = normalizePhone(phone);
 
   // Find all orders that contain ready medications (CART status + PENDING status for verified prescriptions)
-  const cartOrders = await prisma.order.findMany({
-    where: { 
-      userIdentifier, 
-      status: { in: ['CART', 'PENDING'] } // Use uppercase enums
-    },
-    include: {
-      items: {
-        include: {
-          medicationAvailability: {
-            include: { medication: { include: { genericMedication: true } }, pharmacy: { include: { OperatingHour: true } } },
-          },
+const cartOrders = await prisma.order.findMany({
+  where: { 
+    userIdentifier, 
+    status: { in: ['CART', 'PENDING'] } // uppercase enums
+  },
+  include: {
+    items: {
+      include: {
+        medicationAvailability: {
+          include: {
+            medication: {
+              include: {
+                Medication_MedicationIngredient: {
+                  select: {
+                    MedicationIngredient: {
+                      select: {
+                        strengthValue: true,
+                        strengthUnit: true,
+                        ActiveSubstance: { select: { name: true } }
+                      }
+                    }
+                  },
+                  take: 1 // pick first ingredient for simplicity
+                }
+              }
+            },
+            pharmacy: {
+              include: {
+                OperatingHour: true
+              }
+            }
+          }
         },
       },
     },
-  });
+  },
+});
+
 
   if (!cartOrders || cartOrders.length === 0) {
     throw new Error('Cart is empty or not found');

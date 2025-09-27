@@ -7,78 +7,101 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Category {
-  id                 Int                         @id @default(autoincrement())
-  name               String                      @unique
-  genericMedications GenericMedicationCategory[]
-  TherapeuticClass   TherapeuticClass[]
+model ActiveSubstance {
+  id                   Int                    @id @default(autoincrement())
+  name                 String                 @unique(map: "active_substance_name_unique")
+  type                 SubstanceType
+  genericId            Int
+  GenericName          GenericName            @relation(fields: [genericId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  MedicationIngredient MedicationIngredient[]
+
+  @@index([genericId])
+  @@index([name])
 }
 
-model TherapeuticClass {
-  id                 Int                                 @id @default(autoincrement())
-  name               String                              @unique
-  categoryId         Int?
-  genericMedications GenericMedicationTherapeuticClass[]
-  Category           Category?                           @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_category")
+model AdminUser {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  name      String
+  role      AdminRole @default(ADMIN)
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+}
+
+model AnatomicalClass {
+  id               Int                @id @default(autoincrement())
+  atcCode          String             @unique @db.VarChar(1)
+  name             String
+  TherapeuticClass TherapeuticClass[]
 }
 
 model ChemicalClass {
-  id                 Int                              @id @default(autoincrement())
-  name               String                           @unique
-  genericMedications GenericMedicationChemicalClass[]
-}
-
-model GenericMedication {
-  id                 Int                                 @id @default(autoincrement())
-  name               String                              @unique
-  inn                String?
-  atcCode            String?
-  description        String?
-  translations       Json?
-  components         DrugComponent[]
-  categories         GenericMedicationCategory[]
-  chemicalClasses    GenericMedicationChemicalClass[]
-  therapeuticClasses GenericMedicationTherapeuticClass[]
-  indications        Indication[]
-  medications        Medication[]
+  id                   Int                  @id @default(autoincrement())
+  atcCode              String               @unique @db.VarChar(5)
+  name                 String
+  parentId             Int
+  PharmacologicalClass PharmacologicalClass @relation(fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ChemicalSubstance    ChemicalSubstance[]
 
   @@index([name])
+  @@index([parentId])
+}
+
+model ChemicalSubstance {
+  id                           Int                            @id @default(autoincrement())
+  name                         String                         @db.VarChar
+  atcCode                      String                         @unique @db.VarChar(7)
+  parentId                     Int
+  ChemicalClass                ChemicalClass                  @relation(fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  GenericNameChemicalSubstance GenericNameChemicalSubstance[]
+
   @@index([atcCode])
+  @@index([name])
+  @@index([parentId])
 }
 
-model GenericMedicationCategory {
-  genericMedicationId Int
-  categoryId          Int
-  category            Category          @relation(fields: [categoryId], references: [id])
-  genericMedication   GenericMedication @relation(fields: [genericMedicationId], references: [id])
+model Contraindication {
+  id          Int         @id @default(autoincrement())
+  description String
+  genericId   Int
+  GenericName GenericName @relation(fields: [genericId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@id([genericMedicationId, categoryId])
+  @@index([genericId])
 }
 
-model GenericMedicationTherapeuticClass {
-  genericMedicationId Int
-  therapeuticClassId  Int
-  genericMedication   GenericMedication @relation(fields: [genericMedicationId], references: [id])
-  therapeuticClass    TherapeuticClass  @relation(fields: [therapeuticClassId], references: [id])
+model GenericName {
+  id                           Int                            @id @default(autoincrement())
+  name                         String                         @unique(map: "generic_name_unique")
+  description                  String?
+  ActiveSubstance              ActiveSubstance[]
+  Contraindication             Contraindication[]
+  GenericNameChemicalSubstance GenericNameChemicalSubstance[]
+  Indication                   Indication[]
 
-  @@id([genericMedicationId, therapeuticClassId])
+  @@index([name])
 }
 
-model GenericMedicationChemicalClass {
-  genericMedicationId Int
-  chemicalClassId     Int
-  chemicalClass       ChemicalClass     @relation(fields: [chemicalClassId], references: [id])
-  genericMedication   GenericMedication @relation(fields: [genericMedicationId], references: [id])
+model GenericNameChemicalSubstance {
+  id                  Int               @id @default(autoincrement())
+  genericNameId       Int
+  chemicalSubstanceId Int
+  ChemicalSubstance   ChemicalSubstance @relation(fields: [chemicalSubstanceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  GenericName         GenericName       @relation(fields: [genericNameId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@id([genericMedicationId, chemicalClassId])
+  @@unique([genericNameId, chemicalSubstanceId])
+  @@index([chemicalSubstanceId])
+  @@index([genericNameId])
 }
 
 model Indication {
-  id                  Int               @id @default(autoincrement())
-  genericMedicationId Int
-  indication          String
-  translations        Json?
-  genericMedication   GenericMedication @relation(fields: [genericMedicationId], references: [id])
+  id          Int         @id @default(autoincrement())
+  description String
+  genericId   Int
+  GenericName GenericName @relation(fields: [genericId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([genericId])
 }
 
 model Manufacturer {
@@ -86,38 +109,41 @@ model Manufacturer {
   name        String       @unique
   country     String?
   contactInfo String?
-  medications Medication[]
+  Medication  Medication[]
 
   @@index([name])
 }
 
-model Pharmacy {
-  id                   Int                      @id @default(autoincrement())
-  name                 String
-  location             Unsupported("geometry")?
-  address              String
-  lga                  String
-  state                String
-  phone                String
-  licenseNumber        String                   @unique
-  pharmacyType         PharmacyType?            @default(COMMUNITY)
-  status               PharmacyStatus           @default(PENDING)
-  createdAt            DateTime                 @default(now())
-  verifiedAt           DateTime?
-  logoUrl              String?
-  isActive             Boolean                  @default(true)
-  ward                 String?
-  devicetoken          String?
-  deliveryAvailability Boolean?                 @default(false)
-  availabilities       MedicationAvailability[]
-  OperatingHour        OperatingHour[]
-  orders               Order[]
-  users                PharmacyUser[]
-  sale                 Sale[]
+model Medication {
+  id                              Int                               @id @default(autoincrement())
+  brandName                       String
+  brandDescription                String?
+  localNames                      String[]                          @default([])
+  manufacturerId                  Int?
+  form                            DosageForm?
+  route                           Route?
+  packSizeQuantity                Int?
+  packSizeUnit                    PackSizeUnit?
+  nafdacCode                      String                            @unique
+  nafdacStatus                    NafdacStatus?                     @default(PENDING)
+  prescriptionRequired            Boolean
+  regulatoryClass                 RegulatoryClass?
+  restrictedTo                    RestrictedTo?
+  insuranceCoverage               Boolean?                          @default(false)
+  createdAt                       DateTime                          @default(now())
+  approvalDate                    DateTime?
+  expiryDate                      DateTime?
+  storageConditions               String?
+  imageUrl                        String?
+  fullName                        String?
+  Manufacturer                    Manufacturer?                     @relation(fields: [manufacturerId], references: [id])
+  MedicationAvailability          MedicationAvailability[]
+  Medication_MedicationIngredient Medication_MedicationIngredient[]
+  PrescriptionMedication          PrescriptionMedication[]
 
-  @@index([name, state])
-  @@index([licenseNumber])
-  @@index([location], map: "idx_pharmacy_location", type: Gist)
+  @@index([form])
+  @@index([nafdacCode])
+  @@index([route])
 }
 
 model MedicationAvailability {
@@ -128,56 +154,48 @@ model MedicationAvailability {
   receivedDate DateTime?
   expiryDate   DateTime?
   batchNumber  String?
-  medication   Medication     @relation(fields: [medicationId], references: [id])
-  pharmacy     Pharmacy       @relation(fields: [pharmacyId], references: [id])
-  orderItems   OrderItem[]
-  priceHistory PriceHistory[]
+  Medication   Medication     @relation(fields: [medicationId], references: [id])
+  Pharmacy     Pharmacy       @relation(fields: [pharmacyId], references: [id])
+  OrderItem    OrderItem[]
+  PriceHistory PriceHistory[]
 
   @@id([medicationId, pharmacyId])
 }
 
-model PriceHistory {
-  id                     Int                    @id @default(autoincrement())
-  medicationId           Int
-  pharmacyId             Int
-  price                  Float
-  recordedAt             DateTime               @default(now())
-  medicationAvailability MedicationAvailability @relation(fields: [medicationId, pharmacyId], references: [medicationId, pharmacyId])
+model MedicationIngredient {
+  id                              Int                               @id @default(autoincrement())
+  substanceId                     Int
+  strengthValue                   Float?
+  strengthUnit                    StrengthUnit?
+  perUnitValue                    Float?
+  perUnitType                     PackSizeUnit?
+  ActiveSubstance                 ActiveSubstance                   @relation(fields: [substanceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Medication_MedicationIngredient Medication_MedicationIngredient[]
+
+  @@unique([substanceId, strengthValue, strengthUnit, perUnitType], map: "unique_ingredient_per_strength")
+  @@index([substanceId])
 }
 
-model DrugComponent {
-  id                  Int               @id @default(autoincrement())
-  medicationId        Int
-  genericMedicationId Int
-  strength            Float?
-  unit                StrengthUnit?
-  genericMedication   GenericMedication @relation(fields: [genericMedicationId], references: [id])
-  medication          Medication        @relation(fields: [medicationId], references: [id])
+model Medication_MedicationIngredient {
+  medicationId         Int
+  ingredientId         Int
+  MedicationIngredient MedicationIngredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ingredient")
+  Medication           Medication           @relation(fields: [medicationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_medication")
+
+  @@id([medicationId, ingredientId])
 }
 
-model Prescription {
-  id                      Int                      @id @default(autoincrement())
-  userIdentifier          String
-  fileUrl                 String
-  status                  PrescriptionStatus       @default(PENDING)
-  createdAt               DateTime                 @default(now())
-  email                   String?
-  phone                   String?
-  updatedAt               DateTime?                @default(now()) @db.Timestamptz(6)
-  orders                  Order[]
-  prescriptionMedications PrescriptionMedication[]
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model OperatingHour {
+  id         Int       @id @default(autoincrement())
+  pharmacyId Int
+  dayOfWeek  Int       @db.SmallInt
+  openTime   DateTime  @db.Time(6)
+  closeTime  DateTime  @db.Time(6)
+  createdAt  DateTime? @default(now()) @db.Timestamptz(6)
+  Pharmacy   Pharmacy  @relation(fields: [pharmacyId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([userIdentifier])
-}
-
-model PrescriptionMedication {
-  id                 Int          @id @default(autoincrement())
-  prescriptionId     Int
-  medicationId       Int
-  quantity           Int
-  dosageInstructions String?
-  medication         Medication   @relation(fields: [medicationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  prescription       Prescription @relation(fields: [prescriptionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@unique([pharmacyId, dayOfWeek, openTime, closeTime], map: "uniq_OperatingHour")
 }
 
 model Order {
@@ -193,7 +211,7 @@ model Order {
   totalPrice        Float           @default(0)
   trackingCode      String?
   createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  updatedAt         DateTime
   filledAt          DateTime?
   cancelledAt       DateTime?
   cancelReason      String?
@@ -203,12 +221,12 @@ model Order {
   paymentChannel    String?
   checkoutSessionId String?
   name              String?
-  pharmacy          Pharmacy?       @relation(fields: [pharmacyId], references: [id], onDelete: Restrict)
-  prescription      Prescription?   @relation(fields: [prescriptionId], references: [id])
-  items             OrderItem[]
+  Pharmacy          Pharmacy?       @relation(fields: [pharmacyId], references: [id], onDelete: Restrict)
+  Prescription      Prescription?   @relation(fields: [prescriptionId], references: [id])
+  OrderItem         OrderItem[]
 
-  @@index([userIdentifier])
   @@index([paymentReference])
+  @@index([userIdentifier])
 }
 
 model OrderItem {
@@ -218,25 +236,144 @@ model OrderItem {
   medicationId           Int
   quantity               Int
   price                  Float
-  order                  Order                  @relation(fields: [orderId], references: [id])
-  medicationAvailability MedicationAvailability @relation(fields: [pharmacyId, medicationId], references: [pharmacyId, medicationId])
+  Order                  Order                  @relation(fields: [orderId], references: [id])
+  MedicationAvailability MedicationAvailability @relation(fields: [pharmacyId, medicationId], references: [pharmacyId, medicationId])
 
   @@unique([orderId, pharmacyId, medicationId])
 }
 
+model PharmacologicalClass {
+  id               Int              @id @default(autoincrement())
+  atcCode          String           @unique @db.VarChar(4)
+  name             String
+  parentId         Int
+  ChemicalClass    ChemicalClass[]
+  TherapeuticClass TherapeuticClass @relation(fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([name])
+  @@index([parentId])
+}
+
+model Pharmacy {
+  id                     Int                      @id @default(autoincrement())
+  name                   String
+  location               Unsupported("geometry")?
+  address                String
+  lga                    String
+  state                  String
+  phone                  String
+  licenseNumber          String                   @unique
+  pharmacyType           PharmacyType?            @default(COMMUNITY)
+  status                 PharmacyStatus           @default(PENDING)
+  createdAt              DateTime                 @default(now())
+  verifiedAt             DateTime?
+  logoUrl                String?
+  isActive               Boolean                  @default(true)
+  ward                   String?
+  devicetoken            String?
+  deliveryAvailability   Boolean?                 @default(false)
+  MedicationAvailability MedicationAvailability[]
+  OperatingHour          OperatingHour[]
+  Order                  Order[]
+  PharmacyUser           PharmacyUser[]
+  Sale                   Sale[]
+
+  @@index([licenseNumber])
+  @@index([name, state])
+  @@index([location], map: "idx_pharmacy_location", type: Gist)
+}
+
 model PharmacyUser {
-  id         Int                   @id @default(autoincrement())
-  email      String                @unique
-  password   String
-  name       String
-  role       PharmacyUserRole      @default(MANAGER)
-  pharmacyId Int
-  lastLogin  DateTime?
-  createdAt  DateTime              @default(now())
-  pharmacy   Pharmacy              @relation(fields: [pharmacyId], references: [id])
-  consents   PharmacyUserConsent[]
+  id                  Int                   @id @default(autoincrement())
+  email               String                @unique
+  password            String
+  name                String
+  role                PharmacyUserRole      @default(MANAGER)
+  pharmacyId          Int
+  lastLogin           DateTime?
+  createdAt           DateTime              @default(now())
+  Pharmacy            Pharmacy              @relation(fields: [pharmacyId], references: [id])
+  PharmacyUserConsent PharmacyUserConsent[]
 
   @@index([email])
+}
+
+model PharmacyUserConsent {
+  id           Int          @id @default(autoincrement())
+  userId       Int
+  consentType  ConsentType
+  granted      Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  PharmacyUser PharmacyUser @relation(fields: [userId], references: [id])
+
+  @@unique([userId, consentType])
+  @@index([userId])
+}
+
+model Prescription {
+  id                     Int                      @id @default(autoincrement())
+  userIdentifier         String
+  fileUrl                String
+  status                 PrescriptionStatus       @default(PENDING)
+  createdAt              DateTime                 @default(now())
+  email                  String?
+  phone                  String?
+  updatedAt              DateTime?                @default(now()) @db.Timestamptz(6)
+  Order                  Order[]
+  PrescriptionMedication PrescriptionMedication[]
+
+  @@index([userIdentifier])
+}
+
+model PrescriptionMedication {
+  id                 Int          @id @default(autoincrement())
+  prescriptionId     Int
+  medicationId       Int
+  quantity           Int
+  dosageInstructions String?
+  Medication         Medication   @relation(fields: [medicationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Prescription       Prescription @relation(fields: [prescriptionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model PriceHistory {
+  id                     Int                    @id @default(autoincrement())
+  medicationId           Int
+  pharmacyId             Int
+  price                  Float
+  recordedAt             DateTime               @default(now())
+  MedicationAvailability MedicationAvailability @relation(fields: [medicationId, pharmacyId], references: [medicationId, pharmacyId])
+}
+
+model Sale {
+  id            Int      @id @default(autoincrement())
+  pharmacyId    Int
+  items         Json     @db.Json
+  total         Float
+  paymentMethod String
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  Pharmacy      Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy")
+}
+
+model TherapeuticClass {
+  id                   Int                    @id @default(autoincrement())
+  atcCode              String                 @unique @db.VarChar(3)
+  name                 String
+  parentId             Int
+  PharmacologicalClass PharmacologicalClass[]
+  AnatomicalClass      AnatomicalClass        @relation(fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([name])
+  @@index([parentId])
+}
+
+model TransactionReference {
+  id                   Int      @id @default(autoincrement())
+  transactionReference String   @unique
+  orderReferences      String[]
+  checkoutSessionId    String
+  createdAt            DateTime @default(now())
+
+  @@index([transactionReference])
 }
 
 model UserConsent {
@@ -251,49 +388,7 @@ model UserConsent {
   @@index([userIdentifier])
 }
 
-model PharmacyUserConsent {
-  id           Int          @id @default(autoincrement())
-  userId       Int
-  consentType  ConsentType
-  granted      Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  pharmacyUser PharmacyUser @relation(fields: [userId], references: [id])
-
-  @@unique([userId, consentType])
-  @@index([userId])
-}
-
-model TransactionReference {
-  id                   Int      @id @default(autoincrement())
-  transactionReference String   @unique
-  orderReferences      String[]
-  checkoutSessionId    String
-  createdAt            DateTime @default(now())
-
-  @@index([transactionReference])
-}
-
-model Sale {
-  id            Int      @id @default(autoincrement())
-  pharmacyId    Int
-  items         Json     @db.Json
-  total         Float
-  paymentMethod String
-  createdAt     DateTime @default(now()) @db.Timestamptz(6)
-  Pharmacy      Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy")
-}
-
-model AdminUser {
-  id        Int       @id @default(autoincrement())
-  email     String    @unique
-  password  String
-  name      String
-  role      AdminRole @default(ADMIN)
-  createdAt DateTime  @default(now())
-
-  @@index([email])
-}
-
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model spatial_ref_sys {
   srid      Int     @id
   auth_name String? @db.VarChar(256)
@@ -302,56 +397,24 @@ model spatial_ref_sys {
   proj4text String? @db.VarChar(2048)
 }
 
-model Medication {
-  id                      Int                      @id @default(autoincrement())
-  brandName               String
-  genericMedicationId     Int
-  brandDescription        String?
-  localNames              String[]
-  manufacturerId          Int?
-  form                    DosageForm?
-  strengthValue           Float?
-  strengthUnit            StrengthUnit?
-  route                   Route?
-  packSizeQuantity        Int?
-  packSizeUnit            PackSizeUnit?
-  isCombination           Boolean                  @default(false)
-  combinationDescription  String?
-  nafdacCode              String                   @unique
-  nafdacStatus            NafdacStatus?            @default(PENDING)
-  prescriptionRequired    Boolean
-  regulatoryClass         RegulatoryClass?
-  restrictedTo            RestrictedTo?
-  insuranceCoverage       Boolean?                 @default(false)
-  createdAt               DateTime                 @default(now())
-  approvalDate            DateTime?
-  expiryDate              DateTime?
-  storageConditions       String?
-  imageUrl                String?
-  fullName                String?
-  components              DrugComponent[]
-  genericMedication       GenericMedication        @relation(fields: [genericMedicationId], references: [id])
-  manufacturer            Manufacturer?            @relation(fields: [manufacturerId], references: [id])
-  availabilities          MedicationAvailability[]
-  prescriptionMedications PrescriptionMedication[]
-
-  @@index([genericMedicationId])
-  @@index([nafdacCode])
-  @@index([form])
-  @@index([route])
+enum AdminRole {
+  ADMIN
+  SUPER_ADMIN
+  SUPPORT
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model OperatingHour {
-  id         Int       @id @default(autoincrement())
-  pharmacyId Int
-  dayOfWeek  Int       @db.SmallInt
-  openTime   DateTime  @db.Time(6)
-  closeTime  DateTime  @db.Time(6)
-  createdAt  DateTime? @default(now()) @db.Timestamptz(6)
-  Pharmacy   Pharmacy  @relation(fields: [pharmacyId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+enum ConsentType {
+  TERMS
+  PRIVACY
+  MARKETING
+  DATA_SHARING
+  REGULATORY
+}
 
-  @@unique([pharmacyId, dayOfWeek, openTime, closeTime], map: "uniq_OperatingHour")
+enum DeliveryMethod {
+  UNSPECIFIED
+  PICKUP
+  COURIER
 }
 
 enum DosageForm {
@@ -376,6 +439,102 @@ enum DosageForm {
   EFFERVESCENT
 }
 
+enum NafdacStatus {
+  VALID
+  EXPIRED
+  PENDING
+  SUSPENDED
+}
+
+enum OrderStatus {
+  CART
+  PENDING
+  PENDING_PRESCRIPTION
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  READY_FOR_PICKUP
+  CANCELLED
+  COMPLETED
+}
+
+enum PackSizeUnit {
+  TABLET
+  CAPSULE
+  ML
+  VIAL
+  AMPOULE
+  SACHET
+  PATCH
+  BOTTLE
+  TUBE
+  BLISTER
+}
+
+enum PaymentMethod {
+  PAY_NOW
+  PAY_LATER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PharmacyStatus {
+  PENDING
+  VERIFIED
+  SUSPENDED
+  REJECTED
+  CLOSED
+}
+
+enum PharmacyType {
+  COMMUNITY
+  HOSPITAL
+  SPECIALTY
+  PMV
+}
+
+enum PharmacyUserRole {
+  MANAGER
+  PHARMACIST
+  ADMIN
+  STAFF
+  OWNER
+  TECHNICIAN
+}
+
+enum PrescriptionStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum RegulatoryClass {
+  OTC
+  PRESCRIPTION_ONLY
+  SCHEDULE_I
+  SCHEDULE_II
+  SCHEDULE_III
+  SCHEDULE_IV
+  SCHEDULE_V
+  RESTRICTED
+}
+
+enum RestrictedTo {
+  GENERAL
+  HOSPITAL_ONLY
+  SPECIALTY_PHARMACY
+  CONTROLLED_SUBSTANCE
+}
+
 enum Route {
   ORAL
   INTRAVENOUS
@@ -393,72 +552,6 @@ enum Route {
   TRANSDERMAL
 }
 
-enum PharmacyStatus {
-  PENDING
-  VERIFIED
-  SUSPENDED
-  REJECTED
-  CLOSED
-}
-
-enum PrescriptionStatus {
-  PENDING
-  VERIFIED
-  REJECTED
-  EXPIRED
-}
-
-enum OrderStatus {
-  CART
-  PENDING
-  PENDING_PRESCRIPTION
-  CONFIRMED
-  PROCESSING
-  SHIPPED
-  DELIVERED
-  READY_FOR_PICKUP
-  CANCELLED
-  COMPLETED
-}
-
-enum DeliveryMethod {
-  UNSPECIFIED
-  PICKUP
-  COURIER
-}
-
-enum PaymentStatus {
-  PENDING
-  PAID
-  FAILED
-  CANCELLED
-  REFUNDED
-  PARTIALLY_REFUNDED
-}
-
-enum PharmacyUserRole {
-  MANAGER
-  PHARMACIST
-  ADMIN
-  STAFF
-  OWNER
-  TECHNICIAN
-}
-
-enum ConsentType {
-  TERMS
-  PRIVACY
-  MARKETING
-  DATA_SHARING
-  REGULATORY
-}
-
-enum AdminRole {
-  ADMIN
-  SUPER_ADMIN
-  SUPPORT
-}
-
 enum StrengthUnit {
   MG
   ML
@@ -470,52 +563,15 @@ enum StrengthUnit {
   PERCENT
 }
 
-enum PackSizeUnit {
-  TABLETS
-  CAPSULES
-  ML
-  VIALS
-  AMPOULES
-  SACHETS
-  PATCHES
-  BOTTLES
-  TUBES
-  BLISTERS
-}
-
-enum RestrictedTo {
-  GENERAL
-  HOSPITAL_ONLY
-  SPECIALTY_PHARMACY
-  CONTROLLED_SUBSTANCE
-}
-
-enum PharmacyType {
-  COMMUNITY
-  HOSPITAL
-  SPECIALTY
-  PMV
-}
-
-enum PaymentMethod {
-  PAY_NOW
-  PAY_LATER
-}
-
-enum RegulatoryClass {
-  OTC
-  PRESCRIPTION_ONLY
-  SCHEDULE_I
-  SCHEDULE_II
-  SCHEDULE_III
-  SCHEDULE_IV
-  SCHEDULE_V
-  RESTRICTED
-}
-
-enum NafdacStatus {
-  VALID
-  EXPIRED
-  PENDING
-  SUSPENDED
+enum SubstanceType {
+  BASE
+  SALT
+  ESTER
+  HYDRATE
+  COMPLEX
+  ANHYDROUS
+  AMORPHOUS
+  PRODRUG
+  ENANTIOMER
+  POLYMORPH
 }

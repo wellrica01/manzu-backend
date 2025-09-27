@@ -17,11 +17,14 @@ async function getDashboardOverview() {
     verifiedPharmaciesCount,
     orderCount,
     recentOrders,
-    categoryCount,
+    anatomicalClassCount,
     therapeuticClassCount,
+    pharmacologicalClassCount,
     chemicalClassCount,
+    chemicalSubstanceCount,
+    genericNameCount,
+    activeSubstanceCount,
     manufacturerCount,
-    genericMedicationCount,
     indicationCount
   ] = await prisma.$transaction([
     prisma.pharmacy.count(),
@@ -43,11 +46,14 @@ async function getDashboardOverview() {
         createdAt: true
       }
     }),
-    prisma.category.count(),
+    prisma.anatomicalClass.count(),
     prisma.therapeuticClass.count(),
+    prisma.pharmacologicalClass.count(),
     prisma.chemicalClass.count(),
+    prisma.chemicalSubstance.count(),
+    prisma.genericName.count(),
+    prisma.activeSubstance.count(),
     prisma.manufacturer.count(),
-    prisma.genericMedication.count(),
     prisma.indication.count()
   ]);
 
@@ -57,11 +63,14 @@ async function getDashboardOverview() {
     prescriptions: { total: prescriptionCount, pending: pendingPrescriptions },
     users: { total: userCount },
     orders: { total: orderCount, recent: recentOrders },
-    categories: { total: categoryCount },
+    anatomicalClasses: { total: anatomicalClassCount },
     therapeuticClasses: { total: therapeuticClassCount },
+    pharmacologicalClasses: { total: pharmacologicalClassCount },
     chemicalClasses: { total: chemicalClassCount },
+    chemicalSubstances: { total: chemicalSubstanceCount },
+    genericNames: { total: genericNameCount },
+    activeSubstances: { total: activeSubstanceCount },
     manufacturers: { total: manufacturerCount },
-    genericMedications: { total: genericMedicationCount },
     indications: { total: indicationCount }
   };
 
@@ -234,175 +243,433 @@ async function deletePharmacy(id) {
 }
 
 
-async function getMedications({ page, limit, name, genericName, category, prescriptionRequired, pharmacyId }) {
+// getMedications function 
+async function getMedications({ 
+  page = 1, 
+  limit = 10, 
+  brandName, 
+  activeSubstance, 
+  prescriptionRequired, 
+  pharmacyId,
+  manufacturerId,
+  form, 
+  nafdacStatus 
+}) {
   const skip = (page - 1) * limit;
+
   const where = {};
-  if (name) where.brandName = { contains: name, mode: 'insensitive' };
-  if (genericName) where.genericMedication = { name: { contains: genericName, mode: 'insensitive' } };
-  if (category) where.genericMedication = { categories: { some: { category: { name: category } } } };
-  if (prescriptionRequired !== undefined) where.prescriptionRequired = prescriptionRequired;
-  if (pharmacyId) where.availabilities = { some: { pharmacyId } };
-  const [medications, total] = await prisma.$transaction([
-    prisma.medication.findMany({
-      where,
-      select: {
-        id: true,
-        brandName: true,
-        genericMedication: { select: { name: true } },
-        brandDescription: true,
-        manufacturer: { select: { name: true } },
-        form: true,
-        strengthValue: true,
-        strengthUnit: true,
-        nafdacCode: true,
-        prescriptionRequired: true,
-        imageUrl: true,
-        createdAt: true,
-        availabilities: {
-          select: {
-            stock: true,
-            price: true,
-            pharmacy: { select: { id: true, name: true } },
+  
+  // Parameter mapping
+  if (prescriptionRequired !== undefined) {
+    where.prescriptionRequired = prescriptionRequired;
+  }
+  if (brandName) where.brandName = { contains: brandName, mode: 'insensitive' };
+  if (manufacturerId) where.manufacturerId = manufacturerId;
+  if (form) where.form = form;
+  if (nafdacStatus) where.nafdacStatus = nafdacStatus;
+  
+  // Pharmacy filter
+  if (pharmacyId) {
+    where.availabilities = { some: { pharmacyId } };
+  }
+  
+  // Fixed active substance filter
+  if (activeSubstance) {
+    where.Medication_MedicationIngredient = {
+      some: { 
+        MedicationIngredient: { 
+          ActiveSubstance: { 
+            name: { contains: activeSubstance, mode: 'insensitive' } 
+          } 
+        } 
+      }
+    };
+  }
+
+  try {
+    const [medications, total] = await prisma.$transaction([
+      prisma.medication.findMany({
+        where,
+        select: {
+          id: true,
+          brandName: true,
+          brandDescription: true,
+          localNames: true, 
+          fullName: true, 
+          Manufacturer: { select: { id: true, name: true } },
+          form: true,
+          route: true,
+          packSizeQuantity: true,
+          packSizeUnit: true,
+          nafdacCode: true,
+          nafdacStatus: true,
+          prescriptionRequired: true,
+          regulatoryClass: true,
+          restrictedTo: true,
+          insuranceCoverage: true,
+          imageUrl: true,
+          createdAt: true,
+          approvalDate: true,
+          expiryDate: true,
+          storageConditions: true,
+          Medication_MedicationIngredient: {
+            select: {
+              MedicationIngredient: {
+                select: {
+                  id: true,
+                  strengthValue: true,
+                  strengthUnit: true,
+                  perUnitValue: true,
+                  perUnitType: true,
+                  ActiveSubstance: { 
+                    select: { id: true, name: true } 
+                  }
+                }
+              }
+            }
+          },
+          MedicationAvailability: {
+            select: {
+              stock: true,
+              price: true,
+              Pharmacy: { select: { id: true, name: true } },
+            },
           },
         },
-      },
-      take: limit,
-      skip,
-    }),
-    prisma.medication.count({ where }),
-  ]);
-  console.log('Medications fetched:', { count: medications.length, total });
-  return {
-    medications,
-    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-  };
+        take: limit,
+        skip,
+        orderBy: { createdAt: 'desc' } // Added ordering
+      }),
+      prisma.medication.count({ where }),
+    ]);
+
+    // Improved ingredient mapping
+    const medsWithIngredients = medications.map(med => ({
+      ...med,
+      ingredients: med.Medication_MedicationIngredient.map(mmi => ({
+        id: mmi.MedicationIngredient.id,
+        activeSubstanceId: mmi.MedicationIngredient.ActiveSubstance?.id || null,
+        activeSubstanceName: mmi.MedicationIngredient.ActiveSubstance?.name || null,
+        strengthValue: mmi.MedicationIngredient.strengthValue,
+        strengthUnit: mmi.MedicationIngredient.strengthUnit,
+        perUnitValue: mmi.MedicationIngredient.perUnitValue,
+        perUnitType: mmi.MedicationIngredient.perUnitType,
+      }))
+    }));
+
+    console.log('Medications fetched:', { count: medications.length, total, filters: where });
+
+    return {
+      medications: medsWithIngredients,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  } catch (error) {
+    console.error('Error fetching medications:', error);
+    throw new Error('Failed to fetch medications');
+  }
 }
 
-
+// Fixed getMedication function
 async function getMedication(id) {
-  const medication = await prisma.medication.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      brandName: true,
-      genericMedication: { select: { name: true } },
-      brandDescription: true,
-      manufacturer: { select: { name: true } },
-      form: true,
-      strengthValue: true,
-      strengthUnit: true,
-      nafdacCode: true,
-      prescriptionRequired: true,
-      imageUrl: true,
-      createdAt: true,
-      availabilities: {
-        select: {
-          stock: true,
-          price: true,
-          pharmacy: { select: { id: true, name: true } },
-        },
-      },
-    },
-  });
-  if (!medication) {
-    const error = new Error('Medication not found');
-    error.status = 404;
-    throw error;
-  }
-  console.log('Medication fetched:', { medicationId: id });
-  return medication;
-}
-
-async function createMedication(data) {
-  // Ensure required relations exist
-  const genericMedication = await prisma.genericMedication.findUnique({ where: { id: data.genericMedicationId } });
-  if (!genericMedication) throw new Error('Generic medication not found');
-  let manufacturer = null;
-  if (data.manufacturerId) {
-    manufacturer = await prisma.manufacturer.findUnique({ where: { id: data.manufacturerId } });
-    if (!manufacturer) throw new Error('Manufacturer not found');
-  }
-  const medication = await prisma.medication.create({
-    data: {
-      brandName: data.brandName,
-      genericMedicationId: data.genericMedicationId,
-      brandDescription: data.brandDescription,
-      manufacturerId: data.manufacturerId,
-      form: data.form,
-      strengthValue: data.strengthValue,
-      strengthUnit: data.strengthUnit,
-      route: data.route,
-      packSizeQuantity: data.packSizeQuantity,
-      packSizeUnit: data.packSizeUnit,
-      isCombination: data.isCombination,
-      combinationDescription: data.combinationDescription,
-      nafdacCode: data.nafdacCode,
-      nafdacStatus: data.nafdacStatus,
-      prescriptionRequired: data.prescriptionRequired,
-      regulatoryClass: data.regulatoryClass,
-      restrictedTo: data.restrictedTo,
-      insuranceCoverage: data.insuranceCoverage,
-      approvalDate: data.approvalDate ? new Date(data.approvalDate) : undefined,
-      expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
-      storageConditions: data.storageConditions,
-      imageUrl: data.imageUrl,
-      createdAt: new Date(),
-    },
-    select: {
-      id: true,
-      brandName: true,
-      genericMedication: { select: { name: true } },
-      brandDescription: true,
-      manufacturer: { select: { name: true } },
-      form: true,
-      strengthValue: true,
-      strengthUnit: true,
-      nafdacCode: true,
-      prescriptionRequired: true,
-      imageUrl: true,
-      createdAt: true,
-    },
-  });
-  console.log('Medication created:', { medicationId: medication.id });
-  return medication;
-}
-
-
-async function updateMedication(id, data) {
   try {
-    const medication = await prisma.medication.update({
+    const medication = await prisma.medication.findUnique({
       where: { id },
-      data,
       select: {
         id: true,
         brandName: true,
-        genericMedication: { select: { name: true } },
-        description: true,
-        manufacturer: { select: { name: true } },
+        brandDescription: true,
+        localNames: true,
+        fullName: true,
+        manufacturerId: true,
+        Manufacturer: { select: { id: true, name: true } },
         form: true,
-        strengthValue: true,
-        strengthUnit: true,
+        route: true,
+        packSizeQuantity: true,
+        packSizeUnit: true,
         nafdacCode: true,
+        nafdacStatus: true,
         prescriptionRequired: true,
+        regulatoryClass: true,
+        restrictedTo: true,
+        insuranceCoverage: true,
         imageUrl: true,
         createdAt: true,
-        availabilities: {
+        approvalDate: true,
+        expiryDate: true,
+        storageConditions: true,
+        Medication_MedicationIngredient: {
+          select: {
+            MedicationIngredient: {
+              select: {
+                id: true,
+                strengthValue: true,
+                strengthUnit: true,
+                perUnitValue: true,
+                perUnitType: true,
+                ActiveSubstance: { 
+                  select: { id: true, name: true } 
+                }
+              }
+            }
+          }
+        },
+        MedicationAvailability: {
           select: {
             stock: true,
             price: true,
-            pharmacy: { select: { id: true, name: true } },
+            Pharmacy: { select: { id: true, name: true } },
           },
         },
       },
     });
-    console.log('Medication updated:', { medicationId: id });
+
+    if (!medication) {
+      const error = new Error('Medication not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const medicationWithIngredients = {
+      ...medication,
+      ingredients: medication.Medication_MedicationIngredient.map(mmi => ({
+        id: mmi.MedicationIngredient.id,
+        activeSubstanceId: mmi.MedicationIngredient.ActiveSubstance?.id || null,
+        activeSubstanceName: mmi.MedicationIngredient.ActiveSubstance?.name || null,
+        strengthValue: mmi.MedicationIngredient.strengthValue,
+        strengthUnit: mmi.MedicationIngredient.strengthUnit,
+        perUnitValue: mmi.MedicationIngredient.perUnitValue,
+        perUnitType: mmi.MedicationIngredient.perUnitType,
+      }))
+    };
+
+    console.log('Medication fetched:', { medicationId: id });
+    return medicationWithIngredients;
+  } catch (error) {
+    console.error('Error fetching medication:', error);
+    throw error;
+  }
+}
+
+// Fixed createMedication function with correct field names
+async function createMedication(data) {
+  try {
+    console.log('Received data:', JSON.stringify(data, null, 2));
+
+    // Validate manufacturer if provided
+    if (data.manufacturerId) {
+      const manufacturer = await prisma.manufacturer.findUnique({ 
+        where: { id: data.manufacturerId } 
+      });
+      if (!manufacturer) {
+        throw new Error('Manufacturer not found');
+      }
+    }
+
+    // Validate ingredients
+    if (!data.ingredients || !Array.isArray(data.ingredients) || data.ingredients.length === 0) {
+      throw new Error('At least one active substance is required');
+    }
+
+    const activeSubstanceIds = data.ingredients.map(i => i.activeSubstanceId);
+    const activeSubstances = await prisma.activeSubstance.findMany({
+      where: { id: { in: activeSubstanceIds } },
+    });
+
+    if (activeSubstances.length !== activeSubstanceIds.length) {
+      throw new Error('One or more active substances not found');
+    }
+
+    // Check for duplicate NAFDAC code
+    const existingMed = await prisma.medication.findUnique({
+      where: { nafdacCode: data.nafdacCode }
+    });
+    if (existingMed) {
+      throw new Error('NAFDAC code already exists');
+    }
+
+    const medication = await prisma.$transaction(async (tx) => {
+      // Create medication with correct field mapping
+      const medicationData = {
+        brandName: data.brandName,
+        nafdacCode: data.nafdacCode,
+        prescriptionRequired: data.prescriptionRequired ?? false,
+        brandDescription: data.brandDescription || null,
+        manufacturerId: data.manufacturerId || null,
+        form: data.form || null,
+        packSizeQuantity: data.packSizeQuantity || null,
+        packSizeUnit: data.packSizeUnit || null,
+        imageUrl: data.imageUrl || null,
+      };
+
+      console.log('Medication data to create:', JSON.stringify(medicationData, null, 2));
+
+      // Create Medication
+      const med = await tx.medication.create({
+        data: medicationData,
+      });
+
+      // Create MedicationIngredient entries and link to medication
+      for (const ingredient of data.ingredients) {
+        // Check if ingredient with same properties already exists
+        let medIngredient = await tx.medicationIngredient.findFirst({
+          where: {
+            substanceId: ingredient.activeSubstanceId,
+            strengthValue: ingredient.strengthValue || null,
+            strengthUnit: ingredient.strengthUnit || null,
+            perUnitType: ingredient.perUnitType || null,
+          }
+        });
+
+        // Create if doesn't exist
+        if (!medIngredient) {
+          medIngredient = await tx.medicationIngredient.create({
+            data: {
+              substanceId: ingredient.activeSubstanceId,
+              strengthValue: ingredient.strengthValue || null,
+              strengthUnit: ingredient.strengthUnit || null,
+              perUnitValue: ingredient.perUnitValue || null,
+              perUnitType: ingredient.perUnitType || null,
+            },
+          });
+        }
+
+        // Link to medication via join table - FIXED FIELD NAME
+        await tx.medication_MedicationIngredient.create({
+          data: {
+            medicationId: med.id,
+            ingredientId: medIngredient.id, // ✅ Correct field name
+          },
+        });
+      }
+
+      return med;
+    });
+
+    console.log('Medication created:', { medicationId: medication.id });
     return medication;
   } catch (error) {
-    if (error.code === 'P2025') {
+    console.error('Error creating medication:', error);
+    throw error;
+  }
+}
+    
+
+
+// Fixed updateMedication function with correct field names
+async function updateMedication(id, data) {
+  try {
+    console.log('Update data received:', JSON.stringify(data, null, 2));
+
+    const medication = await prisma.medication.findUnique({ where: { id } });
+    if (!medication) {
       const err = new Error('Medication not found');
       err.status = 404;
       throw err;
     }
+
+    // Check NAFDAC code uniqueness if being updated
+    if (data.nafdacCode && data.nafdacCode !== medication.nafdacCode) {
+      const existingMed = await prisma.medication.findUnique({
+        where: { nafdacCode: data.nafdacCode }
+      });
+      if (existingMed) {
+        throw new Error('NAFDAC code already exists');
+      }
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      // Prepare update data
+      const updateData = {};
+      
+      if (data.brandName !== undefined) updateData.brandName = data.brandName;
+      if (data.brandDescription !== undefined) updateData.brandDescription = data.brandDescription;
+      if (data.manufacturerId !== undefined) updateData.manufacturerId = data.manufacturerId;
+      if (data.form !== undefined) updateData.form = data.form;
+      if (data.packSizeQuantity !== undefined) updateData.packSizeQuantity = data.packSizeQuantity;
+      if (data.packSizeUnit !== undefined) updateData.packSizeUnit = data.packSizeUnit;
+      if (data.nafdacCode !== undefined) updateData.nafdacCode = data.nafdacCode;
+      if (data.prescriptionRequired !== undefined) updateData.prescriptionRequired = !!data.prescriptionRequired;
+      if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
+      if (data.fullName !== undefined) updateData.fullName = data.fullName;
+
+      console.log('Update data to apply:', JSON.stringify(updateData, null, 2));
+
+      // Update medication fields
+      const updatedMedication = await tx.medication.update({
+        where: { id },
+        data: updateData,
+      });
+
+      // Handle ingredients if provided
+      if (Array.isArray(data.ingredients)) {
+        // Fetch current ingredient links - FIXED FIELD NAME
+        const currentLinks = await tx.medication_MedicationIngredient.findMany({
+          where: { medicationId: id },
+          include: { MedicationIngredient: true }
+        });
+
+        // Remove current links (unlink only)
+        await tx.medication_MedicationIngredient.deleteMany({
+          where: { medicationId: id }
+        });
+
+        const newIngredientIds = [];
+        for (const ingredient of data.ingredients) {
+          // Check if ingredient already exists
+          let medIngredient = await tx.medicationIngredient.findFirst({
+            where: {
+              substanceId: ingredient.activeSubstanceId,
+              strengthValue: ingredient.strengthValue || null,
+              strengthUnit: ingredient.strengthUnit || null,
+              perUnitType: ingredient.perUnitType || null,
+            }
+          });
+
+          // Create if doesn't exist
+          if (!medIngredient) {
+            medIngredient = await tx.medicationIngredient.create({
+              data: {
+                substanceId: ingredient.activeSubstanceId,
+                strengthValue: ingredient.strengthValue || null,
+                strengthUnit: ingredient.strengthUnit || null,
+                perUnitValue: ingredient.perUnitValue || null,
+                perUnitType: ingredient.perUnitType || null,
+              },
+            });
+          }
+
+          newIngredientIds.push(medIngredient.id);
+
+          // Link ingredient to medication - FIXED FIELD NAME
+          await tx.medication_MedicationIngredient.create({
+            data: {
+              medicationId: id,
+              ingredientId: medIngredient.id, // ✅ Correct field name
+            },
+          });
+        }
+
+        // Clean up orphaned ingredients - FIXED FIELD NAME
+        const previousIngredientIds = currentLinks.map(link => link.ingredientId); // ✅ Correct field name
+        const orphanedIngredientIds = previousIngredientIds.filter(
+          pid => !newIngredientIds.includes(pid)
+        );
+
+        if (orphanedIngredientIds.length > 0) {
+          // Only delete if no other medications are linked to them
+          await tx.medicationIngredient.deleteMany({
+            where: {
+              id: { in: orphanedIngredientIds },
+              Medication_MedicationIngredient: { none: {} } // ✅ Correct relation name
+            }
+          });
+        }
+      }
+
+      return updatedMedication;
+    });
+  } catch (error) {
+    console.error('Error updating medication:', error);
     throw error;
   }
 }
@@ -447,12 +714,12 @@ async function getPrescriptions({ page, limit, status, userIdentifier }) {
         fileUrl: true,
         status: true,
         createdAt: true,
-        orders: {
+        Order: {
           select: {
             id: true,
             trackingCode: true,
             status: true,
-            pharmacy: { select: { id: true, name: true } },
+            Pharmacy: { select: { id: true, name: true } },
           },
         },
       },
@@ -473,15 +740,15 @@ async function getPrescription(id) {
     where: { id },
     include: {
       prescriptionMedications: {
-        include: { medication: true },
+        include: { Medication: true },
       },
       orders: {
         include: {
-          pharmacy: true,
+          Pharmacy: true,
           items: {
             include: {
-              medicationAvailability: {
-                include: { medication: true },
+              MedicationAvailability: {
+                include: { Medication: true },
               },
             },
           },
@@ -544,10 +811,10 @@ async function getOrder(id) {
       paymentStatus: true,
       createdAt: true,
       updatedAt: true,
-      pharmacy: {
+      Pharmacy: {
         select: { id: true, name: true },
       },
-      prescription: {
+      Prescription: {
         select: {
           id: true,
           userIdentifier: true,
@@ -557,7 +824,7 @@ async function getOrder(id) {
       },
       items: {
         select: {
-          medicationAvailability: {
+          MedicationAvailability: {
             select: {
               medication: {
                 select: { id: true, brandName: true, genericMedication: { select: { name: true } } },
@@ -684,113 +951,838 @@ async function getPharmacyUser(id) {
   return user;
 }
 
-// CATEGORY SERVICES
-async function getCategories({ page = 1, limit = 20, name }) {
+
+
+
+// ==================== ANATOMICAL CLASS SERVICES ====================
+async function getAnatomicalClasses({ page = 1, limit = 20, name }) {
   const take = Number(limit);
   const skip = (Number(page) - 1) * take;
   const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
-  const [categories, total] = await prisma.$transaction([
-    prisma.category.findMany({ where, take, skip }),
-    prisma.category.count({ where }),
+  
+  const [anatomicalClasses, total] = await prisma.$transaction([
+    prisma.anatomicalClass.findMany({ 
+      where, 
+      take, 
+      skip,
+      orderBy: { name: 'asc' }
+    }),
+    prisma.anatomicalClass.count({ where }),
   ]);
-  return { categories, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
+  
+  return { 
+    anatomicalClasses, 
+    pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } 
+  };
 }
-async function getCategory(id) {
-  const category = await prisma.category.findUnique({ where: { id } });
-  if (!category) { const error = new Error('Category not found'); error.status = 404; throw error; }
-  return category;
-}
-async function createCategory(data) {
-  return prisma.category.create({ data });
-}
-async function updateCategory(id, data) {
-  try {
-    return await prisma.category.update({ where: { id }, data });
-  } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Category not found'); err.status = 404; throw err; }
-    throw error;
+
+async function getAnatomicalClass(id) {
+  const anatomicalClass = await prisma.anatomicalClass.findUnique({ 
+    where: { id },
+    include: {
+      TherapeuticClass: {
+        select: { id: true, name: true, atcCode: true }
+      }
+    }
+  });
+  if (!anatomicalClass) { 
+    const error = new Error('Anatomical class not found'); 
+    error.status = 404; 
+    throw error; 
   }
+  return anatomicalClass;
 }
-async function deleteCategory(id) {
+
+async function createAnatomicalClass(data) {
   try {
-    await prisma.category.delete({ where: { id } });
+    return await prisma.anatomicalClass.create({ data });
   } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Category not found'); err.status = 404; throw err; }
+    if (error.code === 'P2002') {
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
     throw error;
   }
 }
 
-// THERAPEUTIC CLASS SERVICES
-async function getTherapeuticClasses({ page = 1, limit = 20, name }) {
+async function updateAnatomicalClass(id, data) {
+  try {
+    return await prisma.anatomicalClass.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Anatomical class not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    if (error.code === 'P2002') {
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function deleteAnatomicalClass(id) {
+  try {
+    await prisma.anatomicalClass.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Anatomical class not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    throw error;
+  }
+}
+
+async function getTherapeuticClassesByAnatomical(anatomicalId) {
+  const children = await prisma.therapeuticClass.findMany({
+    where: { parentId: anatomicalId },
+    orderBy: { name: 'asc' }
+  });
+  return children;
+}
+
+// ==================== THERAPEUTIC CLASS SERVICES ====================
+async function getTherapeuticClasses({ page = 1, limit = 20, name, parentId }) {
   const take = Number(limit);
   const skip = (Number(page) - 1) * take;
-  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
+  const where = {};
+  if (name) where.name = { contains: name, mode: 'insensitive' };
+  if (parentId) where.parentId = Number(parentId); // filter by anatomical class
+
   const [therapeuticClasses, total] = await prisma.$transaction([
-    prisma.therapeuticClass.findMany({ where, take, skip }),
+    prisma.therapeuticClass.findMany({
+      where,
+      take,
+      skip,
+      include: {
+        AnatomicalClass: { select: { id: true, name: true, atcCode: true } }
+      },
+      orderBy: { name: 'asc' }
+    }),
     prisma.therapeuticClass.count({ where }),
   ]);
-  return { therapeuticClasses, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
+
+  return {
+    therapeuticClasses,
+    pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) }
+  };
 }
+
+// Get single therapeutic class by ID
 async function getTherapeuticClass(id) {
-  const therapeuticClass = await prisma.therapeuticClass.findUnique({ where: { id } });
-  if (!therapeuticClass) { const error = new Error('Therapeutic class not found'); error.status = 404; throw error; }
+  const therapeuticClass = await prisma.therapeuticClass.findUnique({
+    where: { id },
+    include: {
+      AnatomicalClass: { select: { id: true, name: true, atcCode: true } },
+      PharmacologicalClass: { select: { id: true, name: true, atcCode: true } }
+    }
+  });
+  if (!therapeuticClass) {
+    const error = new Error('Therapeutic class not found');
+    error.status = 404;
+    throw error;
+  }
   return therapeuticClass;
 }
+
+// Create therapeutic class
 async function createTherapeuticClass(data) {
-  return prisma.therapeuticClass.create({ data });
+  try {
+    return await prisma.therapeuticClass.create({ data });
+  } catch (error) {
+    if (error.code === 'P2002') { // unique constraint
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
+    if (error.code === 'P2003') { // invalid foreign key
+      const err = new Error('Invalid parent anatomical class');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
 }
+
+// Update therapeutic class
 async function updateTherapeuticClass(id, data) {
   try {
     return await prisma.therapeuticClass.update({ where: { id }, data });
   } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Therapeutic class not found'); err.status = 404; throw err; }
-    throw error;
-  }
-}
-async function deleteTherapeuticClass(id) {
-  try {
-    await prisma.therapeuticClass.delete({ where: { id } });
-  } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Therapeutic class not found'); err.status = 404; throw err; }
+    if (error.code === 'P2025') {
+      const err = new Error('Therapeutic class not found');
+      err.status = 404;
+      throw err;
+    }
+    if (error.code === 'P2002') {
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
+    if (error.code === 'P2003') {
+      const err = new Error('Invalid parent anatomical class');
+      err.status = 400;
+      throw err;
+    }
     throw error;
   }
 }
 
-// CHEMICAL CLASS SERVICES
-async function getChemicalClasses({ page = 1, limit = 20, name }) {
+// Delete therapeutic class
+async function deleteTherapeuticClass(id) {
+  try {
+    await prisma.therapeuticClass.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') {
+      const err = new Error('Therapeutic class not found');
+      err.status = 404;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+// Get pharmacological classes by therapeutic class
+async function getPharmacologicalClassesByTherapeutic(therapeuticId) {
+  const children = await prisma.pharmacologicalClass.findMany({
+    where: { parentId: therapeuticId },
+    orderBy: { name: 'asc' }
+  });
+  return children;
+}
+
+
+// ==================== PHARMACOLOGICAL CLASS SERVICES ====================
+async function getPharmacologicalClasses({ page = 1, limit = 20, name, parentId }) {
   const take = Number(limit);
   const skip = (Number(page) - 1) * take;
-  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
+  const where = {};
+  if (name) where.name = { contains: name, mode: 'insensitive' };
+  if (parentId) where.parentId = Number(parentId);
+  
+  const [pharmacologicalClasses, total] = await prisma.$transaction([
+    prisma.pharmacologicalClass.findMany({ 
+      where, 
+      take, 
+      skip,
+      include: {
+        TherapeuticClass: {
+          select: { id: true, name: true, atcCode: true }
+        }
+      },
+      orderBy: { name: 'asc' }
+    }),
+    prisma.pharmacologicalClass.count({ where }),
+  ]);
+  
+  return { 
+    pharmacologicalClasses, 
+    pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } 
+  };
+}
+
+async function getPharmacologicalClass(id) {
+  const pharmacologicalClass = await prisma.pharmacologicalClass.findUnique({ 
+    where: { id },
+    include: {
+      TherapeuticClass: {
+        select: { id: true, name: true, atcCode: true }
+      },
+      ChemicalClass: {
+        select: { id: true, name: true, atcCode: true }
+      }
+    }
+  });
+  if (!pharmacologicalClass) { 
+    const error = new Error('Pharmacological class not found'); 
+    error.status = 404; 
+    throw error; 
+  }
+  return pharmacologicalClass;
+}
+
+async function createPharmacologicalClass(data) {
+  try {
+    return await prisma.pharmacologicalClass.create({ data });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
+    if (error.code === 'P2003') {
+      const err = new Error('Invalid parent therapeutic class');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function updatePharmacologicalClass(id, data) {
+  try {
+    return await prisma.pharmacologicalClass.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Pharmacological class not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    if (error.code === 'P2002') {
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function deletePharmacologicalClass(id) {
+  try {
+    await prisma.pharmacologicalClass.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Pharmacological class not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    throw error;
+  }
+}
+
+async function getPharmacologicalClassesByTherapeutic(therapeuticId) {
+  const children = await prisma.pharmacologicalClass.findMany({
+    where: { parentId: therapeuticId },
+    orderBy: { name: 'asc' }
+  });
+  return children;
+}
+
+async function getChemicalClassesByPharmacological(pharmacologicalId) {
+  const children = await prisma.chemicalClass.findMany({
+    where: { parentId: pharmacologicalId },
+    orderBy: { name: 'asc' }
+  });
+  return children;
+}
+
+
+// ==================== CHEMICAL CLASS SERVICES ====================
+async function getChemicalClasses({ page = 1, limit = 20, name, parentId }) {
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
+  const where = {};
+  if (name) where.name = { contains: name, mode: "insensitive" };
+  if (parentId) where.parentId = Number(parentId);
+
   const [chemicalClasses, total] = await prisma.$transaction([
-    prisma.chemicalClass.findMany({ where, take, skip }),
+    prisma.chemicalClass.findMany({
+      where,
+      take,
+      skip,
+      include: {
+        PharmacologicalClass: { select: { id: true, name: true, atcCode: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
     prisma.chemicalClass.count({ where }),
   ]);
-  return { chemicalClasses, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
+
+  return {
+    chemicalClasses,
+    pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) },
+  };
 }
+
+// Get single chemical class by ID
 async function getChemicalClass(id) {
-  const chemicalClass = await prisma.chemicalClass.findUnique({ where: { id } });
-  if (!chemicalClass) { const error = new Error('Chemical class not found'); error.status = 404; throw error; }
+  const chemicalClass = await prisma.chemicalClass.findUnique({
+    where: { id },
+    include: {
+      PharmacologicalClass: { select: { id: true, name: true, atcCode: true } },
+      ChemicalSubstance: { select: { id: true, name: true, atcCode: true } },
+    },
+  });
+  if (!chemicalClass) {
+    const error = new Error("Chemical class not found");
+    error.status = 404;
+    throw error;
+  }
   return chemicalClass;
 }
+
+// Create a chemical class
 async function createChemicalClass(data) {
-  return prisma.chemicalClass.create({ data });
+  try {
+    return await prisma.chemicalClass.create({ data });
+  } catch (error) {
+    if (error.code === "P2002") { // unique constraint (ATC)
+      const err = new Error("ATC code already exists");
+      err.status = 400;
+      throw err;
+    }
+    if (error.code === "P2003") { // invalid foreign key
+      const err = new Error("Invalid parent pharmacological class");
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
 }
+
+// Update a chemical class
 async function updateChemicalClass(id, data) {
   try {
     return await prisma.chemicalClass.update({ where: { id }, data });
   } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Chemical class not found'); err.status = 404; throw err; }
+    if (error.code === "P2025") {
+      const err = new Error("Chemical class not found");
+      err.status = 404;
+      throw err;
+    }
+    if (error.code === "P2002") {
+      const err = new Error("ATC code already exists");
+      err.status = 400;
+      throw err;
+    }
+    if (error.code === "P2003") {
+      const err = new Error("Invalid parent pharmacological class");
+      err.status = 400;
+      throw err;
+    }
     throw error;
   }
 }
+
+// Delete a chemical class
 async function deleteChemicalClass(id) {
   try {
     await prisma.chemicalClass.delete({ where: { id } });
   } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Chemical class not found'); err.status = 404; throw err; }
+    if (error.code === "P2025") {
+      const err = new Error("Chemical class not found");
+      err.status = 404;
+      throw err;
+    }
     throw error;
   }
 }
+
+// Get chemical substances by chemical class
+async function getChemicalSubstancesByChemical(chemicalClassId) {
+  const children = await prisma.chemicalSubstance.findMany({
+    where: { parentId: chemicalClassId },
+    orderBy: { name: 'asc' },
+  });
+  return children;
+}
+
+
+// ==================== CHEMICAL SUBSTANCE SERVICES ====================
+async function getChemicalSubstances({ page = 1, limit = 20, name, parentId }) {
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
+  const where = {};
+  if (name) where.name = { contains: name, mode: 'insensitive' };
+  if (parentId) where.parentId = Number(parentId);
+  
+  const [chemicalSubstances, total] = await prisma.$transaction([
+    prisma.chemicalSubstance.findMany({ 
+      where, 
+      take, 
+      skip,
+      include: {
+        ChemicalClass: {
+          select: { id: true, name: true, atcCode: true }
+        }
+      },
+      orderBy: { name: 'asc' }
+    }),
+    prisma.chemicalSubstance.count({ where }),
+  ]);
+  
+  return { 
+    chemicalSubstances, 
+    pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } 
+  };
+}
+
+async function getChemicalSubstance(id) {
+  const chemicalSubstance = await prisma.chemicalSubstance.findUnique({ 
+    where: { id },
+    include: {
+      ChemicalClass: {
+        select: { id: true, name: true, atcCode: true }
+      }
+    }
+  });
+  if (!chemicalSubstance) { 
+    const error = new Error('Chemical substance not found'); 
+    error.status = 404; 
+    throw error; 
+  }
+  return chemicalSubstance;
+}
+
+async function createChemicalSubstance(data) {
+  try {
+    return await prisma.chemicalSubstance.create({ data });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
+    if (error.code === 'P2003') {
+      const err = new Error('Invalid parent chemical class');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function updateChemicalSubstance(id, data) {
+  try {
+    return await prisma.chemicalSubstance.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Chemical substance not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    if (error.code === 'P2002') {
+      const err = new Error('ATC code already exists');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function deleteChemicalSubstance(id) {
+  try {
+    await prisma.chemicalSubstance.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Chemical substance not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    throw error;
+  }
+}
+
+
+// ==================== GENERIC NAME SERVICES ====================
+async function getGenericNames({ page = 1, limit = 20, name }) {
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
+  const where = {};
+
+  if (name) where.name = { contains: name, mode: 'insensitive' };
+
+  const [genericNames, total] = await prisma.$transaction([
+    prisma.genericName.findMany({
+      where,
+      take,
+      skip,
+      include: {
+        ActiveSubstance: {
+          select: { id: true, name: true, type: true },
+        },
+        Indication: {
+          select: { id: true, description: true }, // only existing fields
+        },
+        Contraindication: {
+          select: { id: true, description: true }, // only existing fields
+        },
+        GenericNameChemicalSubstance: true, // include all fields
+      },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.genericName.count({ where }),
+  ]);
+
+  return {
+    genericNames,
+    pagination: {
+      page: Number(page),
+      limit: take,
+      total,
+      pages: Math.ceil(total / take),
+    },
+  };
+}
+
+
+
+async function getGenericName(id) {
+  const genericName = await prisma.genericName.findUnique({
+    where: { id: Number(id) },
+    include: {
+      ActiveSubstance: { select: { id: true, name: true, type: true } },
+      Indication: { select: { id: true, name: true, description: true } },
+      Contraindication: { select: { id: true, name: true, description: true } },
+      GenericNameChemicalSubstance: true,
+    },
+  });
+
+  if (!genericName) {
+    const error = new Error('Generic name not found');
+    error.status = 404;
+    throw error;
+  }
+
+  return genericName;
+}
+
+
+async function createGenericName(data) {
+  try {
+    return await prisma.genericName.create({ data });
+  } catch (error) {
+    // handle unique constraint violation
+    if (error.code === "P2002") {
+      const err = new Error("Generic name must be unique");
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function updateGenericName(id, data) {
+  try {
+    return await prisma.genericName.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === "P2025") {
+      const err = new Error("Generic name not found");
+      err.status = 404;
+      throw err;
+    }
+    if (error.code === "P2002") {
+      const err = new Error("Generic name must be unique");
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+
+async function deleteGenericName(id) {
+  try {
+    await prisma.genericName.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Generic name not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    throw error;
+  }
+}
+
+// ==================== ACTIVE SUBSTANCE SERVICES ====================
+async function getActiveSubstances({ page = 1, limit = 20, name, type, genericId }) {
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
+  const where = {};
+  if (name) where.name = { contains: name, mode: 'insensitive' };
+  if (type) where.type = type;
+  if (genericId) where.genericId = Number(genericId);
+  
+  const [activeSubstances, total] = await prisma.$transaction([
+    prisma.activeSubstance.findMany({ 
+      where, 
+      take, 
+      skip,
+      include: {
+        GenericName: {
+          select: { id: true, name: true }
+        }
+      },
+      orderBy: { name: 'asc' }
+    }),
+    prisma.activeSubstance.count({ where }),
+  ]);
+  
+  return { 
+    activeSubstances, 
+    pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } 
+  };
+}
+
+async function getActiveSubstance(id) {
+  const activeSubstance = await prisma.activeSubstance.findUnique({ 
+    where: { id },
+    include: {
+      GenericName: {
+        select: { id: true, name: true, description: true }
+      },
+      MedicationIngredient: {
+        select: { id: true, strengthValue: true, strengthUnit: true }
+      }
+    }
+  });
+  if (!activeSubstance) { 
+    const error = new Error('Active substance not found'); 
+    error.status = 404; 
+    throw error; 
+  }
+  return activeSubstance;
+}
+
+async function createActiveSubstance(data) {
+  try {
+    return await prisma.activeSubstance.create({ data });
+  } catch (error) {
+    if (error.code === 'P2003') {
+      const err = new Error('Invalid generic name ID');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function updateActiveSubstance(id, data) {
+  try {
+    return await prisma.activeSubstance.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Active substance not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    if (error.code === 'P2003') {
+      const err = new Error('Invalid generic name ID');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function deleteActiveSubstance(id) {
+  try {
+    await prisma.activeSubstance.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Active substance not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    throw error;
+  }
+}
+
+// ==================== MEDICATION INGREDIENT SERVICES ====================
+async function getMedicationIngredients({ page = 1, limit = 20, substanceId }) {
+  const take = Number(limit);
+  const skip = (Number(page) - 1) * take;
+  const where = {};
+  if (substanceId) where.substanceId = Number(substanceId);
+  
+  const [medicationIngredients, total] = await prisma.$transaction([
+    prisma.medicationIngredient.findMany({ 
+      where, 
+      take, 
+      skip,
+      include: {
+        ActiveSubstance: {
+          select: { id: true, name: true, type: true }
+        }
+      },
+      orderBy: { id: 'desc' }
+    }),
+    prisma.medicationIngredient.count({ where }),
+  ]);
+  
+  return { 
+    medicationIngredients, 
+    pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } 
+  };
+}
+
+async function getMedicationIngredient(id) {
+  const medicationIngredient = await prisma.medicationIngredient.findUnique({ 
+    where: { id },
+    include: {
+      ActiveSubstance: {
+        select: { id: true, name: true, type: true }
+      },
+      Medication_MedicationIngredient: {
+        select: {
+          Medication: {
+            select: { id: true, brandName: true }
+          }
+        }
+      }
+    }
+  });
+  if (!medicationIngredient) { 
+    const error = new Error('Medication ingredient not found'); 
+    error.status = 404; 
+    throw error; 
+  }
+  return medicationIngredient;
+}
+
+async function createMedicationIngredient(data) {
+  try {
+    return await prisma.medicationIngredient.create({ data });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      const err = new Error('Ingredient with this combination already exists');
+      err.status = 400;
+      throw err;
+    }
+    if (error.code === 'P2003') {
+      const err = new Error('Invalid active substance ID');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function updateMedicationIngredient(id, data) {
+  try {
+    return await prisma.medicationIngredient.update({ where: { id }, data });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Medication ingredient not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    if (error.code === 'P2002') {
+      const err = new Error('Ingredient with this combination already exists');
+      err.status = 400;
+      throw err;
+    }
+    throw error;
+  }
+}
+
+async function deleteMedicationIngredient(id) {
+  try {
+    await prisma.medicationIngredient.delete({ where: { id } });
+  } catch (error) {
+    if (error.code === 'P2025') { 
+      const err = new Error('Medication ingredient not found'); 
+      err.status = 404; 
+      throw err; 
+    }
+    throw error;
+  }
+}
+
 
 // MANUFACTURER SERVICES
 async function getManufacturers({ page = 1, limit = 20, name }) {
@@ -828,88 +1820,7 @@ async function deleteManufacturer(id) {
   }
 }
 
-// GENERIC MEDICATION SERVICES
-async function getGenericMedications({ page = 1, limit = 20, name }) {
-  const take = Number(limit);
-  const skip = (Number(page) - 1) * take;  
-  const where = name ? { name: { contains: name, mode: 'insensitive' } } : {};
-  const [genericMedications, total] = await prisma.$transaction([
-    prisma.genericMedication.findMany({ where, take, skip }),
-    prisma.genericMedication.count({ where }),
-  ]);
-  return { genericMedications, pagination: { page: Number(page), limit: take, total, pages: Math.ceil(total / take) } };
-}
-async function getGenericMedication(id) {
-  const genericMedication = await prisma.genericMedication.findUnique({ where: { id } });
-  if (!genericMedication) { const error = new Error('Generic medication not found'); error.status = 404; throw error; }
-  return genericMedication;
-}
-async function createGenericMedication(data) {
-  const {
-    categoryIds = [],
-    chemicalClassIds = [],
-    therapeuticClassIds = [],
-    ...rest
-  } = data;
 
-  return prisma.genericMedication.create({
-    data: {
-      ...rest,
-      categories: {
-        create: categoryIds.map(categoryId => ({
-          category: { connect: { id: categoryId } }
-        }))
-      },
-      chemicalClasses: {
-        create: chemicalClassIds.map(chemicalClassId => ({
-          chemicalClass: { connect: { id: chemicalClassId } }
-        }))
-      },
-      therapeuticClasses: {
-        create: therapeuticClassIds.map(therapeuticClassId => ({
-          therapeuticClass: { connect: { id: therapeuticClassId } }
-        }))
-      }
-    }
-  });
-}
-async function updateGenericMedication(id, data) {
-  const {
-    categoryIds = [],
-    chemicalClassIds = [],
-    therapeuticClassIds = [],
-    ...rest
-  } = data;
-  try {
-    return await prisma.genericMedication.update({
-      where: { id },
-      data: {
-        ...rest,
-        categories: {
-          // set replaces all existing relations
-          set: categoryIds.map(categoryId => ({ categoryId, genericMedicationId: id }))
-        },
-        chemicalClasses: {
-          set: chemicalClassIds.map(chemicalClassId => ({ chemicalClassId, genericMedicationId: id }))
-        },
-        therapeuticClasses: {
-          set: therapeuticClassIds.map(therapeuticClassId => ({ therapeuticClassId, genericMedicationId: id }))
-        }
-      }
-    });
-  } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Generic medication not found'); err.status = 404; throw err; }
-    throw error;
-  }
-}
-async function deleteGenericMedication(id) {
-  try {
-    await prisma.genericMedication.delete({ where: { id } });
-  } catch (error) {
-    if (error.code === 'P2025') { const err = new Error('Generic medication not found'); err.status = 404; throw err; }
-    throw error;
-  }
-}
 
 // INDICATION SERVICES
 async function getIndications({ page = 1, limit = 20, genericMedicationId }) {
@@ -967,34 +1878,74 @@ module.exports = {
   getAdminUser,
   getPharmacyUsers,
   getPharmacyUser,
-  getCategories,
-  getCategory,
-  createCategory,
-  updateCategory,
-  deleteCategory,
+
+
+  // ATC Classification
+  getAnatomicalClasses,
+  getAnatomicalClass,
+  createAnatomicalClass,
+  updateAnatomicalClass,
+  deleteAnatomicalClass,
+  getTherapeuticClassesByAnatomical,
+
   getTherapeuticClasses,
   getTherapeuticClass,
   createTherapeuticClass,
   updateTherapeuticClass,
   deleteTherapeuticClass,
+  
+  getPharmacologicalClasses,
+  getPharmacologicalClass,
+  createPharmacologicalClass,
+  updatePharmacologicalClass,
+  deletePharmacologicalClass,
+  getPharmacologicalClassesByTherapeutic,
+  getChemicalClassesByPharmacological,
+
   getChemicalClasses,
   getChemicalClass,
   createChemicalClass,
   updateChemicalClass,
   deleteChemicalClass,
+  getChemicalSubstancesByChemical,
+  
+  getChemicalSubstances,
+  getChemicalSubstance,
+  createChemicalSubstance,
+  updateChemicalSubstance,
+  deleteChemicalSubstance,
+  
+  // Generic Names
+  getGenericNames,
+  getGenericName,
+  createGenericName,
+  updateGenericName,
+  deleteGenericName,
+  
+  // Active Substances
+  getActiveSubstances,
+  getActiveSubstance,
+  createActiveSubstance,
+  updateActiveSubstance,
+  deleteActiveSubstance,
+  
+  // Medication Ingredients
+  getMedicationIngredients,
+  getMedicationIngredient,
+  createMedicationIngredient,
+  updateMedicationIngredient,
+  deleteMedicationIngredient,
+
+
   getManufacturers,
   getManufacturer,
   createManufacturer,
   updateManufacturer,
   deleteManufacturer,
-  getGenericMedications,
-  getGenericMedication,
-  createGenericMedication,
-  updateGenericMedication,
-  deleteGenericMedication,
   getIndications,
   getIndication,
   createIndication,
   updateIndication,
   deleteIndication,
+
 };

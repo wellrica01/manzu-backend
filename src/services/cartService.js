@@ -362,7 +362,7 @@ async function cleanupEmptyOrders(tx, userId, excludeOrderId) {
 }
 
 async function getCart(userId) {
-  // Fetch orders that should be displayed in cart (cart status + pending_prescription + pending for verified prescriptions)
+  // Fetch orders in cart/pending statuses
   const orders = await prisma.order.findMany({
     where: { 
       userIdentifier: userId, 
@@ -374,23 +374,28 @@ async function getCart(userId) {
           medicationAvailability: {
             include: {
               pharmacy: {
-                include: {
-                  OperatingHour: true 
-                }
+                include: { OperatingHour: true }
               },
               medication: {
                 include: {
-                  genericMedication: {
-                    include: {
-                      categories: { include: { category: true } },
+                  Medication_MedicationIngredient: {
+                    select: {
+                      MedicationIngredient: {
+                        select: {
+                          strengthValue: true,
+                          strengthUnit: true,
+                          ActiveSubstance: { select: { name: true } }
+                        }
+                      }
                     },
+                    take: 1 // pick first ingredient
                   },
                   manufacturer: true,
-                },
+                }
               },
-            },
+            }
           },
-        },
+        }
       },
       prescription: true,
     },
@@ -398,17 +403,17 @@ async function getCart(userId) {
   });
 
   if (!orders || orders.length === 0) {
-    return { items: [], totalPrice: 0, pharmacies: [], orderStatus: null };
+    return { pharmacies: [], totalPrice: 0, orderStatus: null };
   }
 
-  // Merge all orders into a single cart view with order information
+  // Merge orders into a single cart view
   const allItems = [];
   let totalPrice = 0;
   let prescriptionId = null;
   let orderStatus = null;
 
   for (const order of orders) {
-    // Get prescription status if order has a prescription
+    // Prescription status
     let prescriptionStatus = null;
     if (order.prescriptionId) {
       const prescription = await prisma.prescription.findUnique({
@@ -418,7 +423,6 @@ async function getCart(userId) {
       prescriptionStatus = prescription?.status || null;
     }
 
-    // Add order information to each item
     const itemsWithOrderInfo = order.items.map(item => ({
       ...item,
       orderInfo: {
@@ -428,99 +432,75 @@ async function getCart(userId) {
         prescriptionStatus: prescriptionStatus,
       }
     }));
-    
+
     allItems.push(...itemsWithOrderInfo);
     totalPrice += order.totalPrice;
-    if (order.prescriptionId) {
-      prescriptionId = order.prescriptionId;
-    }
-    // Track the most relevant status for display
-    if (order.status === 'PENDING_PRESCRIPTION') {
-      orderStatus = 'PENDING_PRESCRIPTION';
-    } else if (order.status === 'PENDING' && orderStatus !== 'PENDING_PRESCRIPTION') {
-      orderStatus = 'PENDING';
-    } else if (order.status === 'CART' && orderStatus !== 'PENDING_PRESCRIPTION' && orderStatus !== 'PENDING') {
-      orderStatus = 'CART';
-    }
+    if (order.prescriptionId) prescriptionId = order.prescriptionId;
+
+    if (order.status === 'PENDING_PRESCRIPTION') orderStatus = 'PENDING_PRESCRIPTION';
+    else if (order.status === 'PENDING' && orderStatus !== 'PENDING_PRESCRIPTION') orderStatus = 'PENDING';
+    else if (order.status === 'CART' && !orderStatus) orderStatus = 'CART';
   }
 
+  // Group items by pharmacy
   const pharmacyGroups = allItems.reduce((acc, item) => {
-    const pharmacyId = item.medicationAvailability?.pharmacy?.id;
-    if (!pharmacyId) return acc; // Skip if data is incomplete
+    const pharmacy = item.medicationAvailability?.pharmacy;
+    if (!pharmacy?.id) return acc;
 
-if (!acc[pharmacyId]) {
-  acc[pharmacyId] = {
-    pharmacy: {
-      id: pharmacyId,
-      name: item.medicationAvailability?.pharmacy?.name ?? "Unknown Pharmacy",
-      address: item.medicationAvailability?.pharmacy?.address ?? "No address",
-      phone: item.medicationAvailability?.pharmacy?.phone ?? null,
-      licenseNumber: item.medicationAvailability?.pharmacy?.licenseNumber ?? null,
-      ward: item.medicationAvailability?.pharmacy?.ward ?? null,
-      lga: item.medicationAvailability?.pharmacy?.lga ?? null,
-      state: item.medicationAvailability?.pharmacy?.state ?? null,
-      operatingHours: Array.isArray(item.medicationAvailability?.pharmacy?.OperatingHour) 
-        ? item.medicationAvailability.pharmacy.OperatingHour.map(h => ({
+    if (!acc[pharmacy.id]) {
+      acc[pharmacy.id] = {
+        pharmacy: {
+          id: pharmacy.id,
+          name: pharmacy.name ?? "Unknown Pharmacy",
+          address: pharmacy.address ?? "No address",
+          phone: pharmacy.phone ?? null,
+          licenseNumber: pharmacy.licenseNumber ?? null,
+          ward: pharmacy.ward ?? null,
+          lga: pharmacy.lga ?? null,
+          state: pharmacy.state ?? null,
+          operatingHours: Array.isArray(pharmacy.OperatingHour) ? pharmacy.OperatingHour.map(h => ({
             dayOfWeek: h.dayOfWeek,
             openTime: h.openTime,
-            closeTime: h.closeTime,
-          }))
-        : [],
-      status: item.medicationAvailability?.pharmacy?.status ?? "pending",
-      logoUrl: item.medicationAvailability?.pharmacy?.logoUrl ?? null,
-    },
-    items: [],
-    subtotal: 0,
-  };
-}
+            closeTime: h.closeTime
+          })) : [],
+          status: pharmacy.status ?? "pending",
+          logoUrl: pharmacy.logoUrl ?? null,
+        },
+        items: [],
+        subtotal: 0,
+      };
+    }
 
-
-    // Extract medication and related info
     const med = item.medicationAvailability?.medication;
-    const genericMed = med?.genericMedication;
-    const manufacturer = med?.manufacturer;
-    const categories = genericMed?.categories?.map(c => c.category?.name).filter(Boolean) ?? [];
+    const ingredient = med?.Medication_MedicationIngredient?.[0]?.MedicationIngredient;
 
-    acc[pharmacyId].items.push({
+    acc[pharmacy.id].items.push({
       id: item.id,
       medication: {
         id: med?.id,
         brandName: med?.brandName ?? "Unknown",
         brandDescription: med?.brandDescription ?? null,
         localNames: med?.localNames ?? [],
-        genericMedicationId: med?.genericMedicationId ?? null,
         manufacturerId: med?.manufacturerId ?? null,
+        manufacturerName: med?.manufacturer?.name ?? null,
+        manufacturerCountry: med?.manufacturer?.country ?? null,
         form: med?.form ?? null,
-        strengthValue: med?.strengthValue ?? null,
-        strengthUnit: med?.strengthUnit ?? null,
         route: med?.route ?? null,
         packSizeQuantity: med?.packSizeQuantity ?? null,
         packSizeUnit: med?.packSizeUnit ?? null,
-        isCombination: med?.isCombination ?? false,
-        combinationDescription: med?.combinationDescription ?? null,
         nafdacCode: med?.nafdacCode ?? null,
-        nafdacStatus: med?.nafdacStatus ?? null,
         prescriptionRequired: med?.prescriptionRequired ?? false,
-        regulatoryClass: med?.regulatoryClass ?? null,
-        restrictedTo: med?.restrictedTo ?? null,
-        insuranceCoverage: med?.insuranceCoverage ?? null,
         createdAt: med?.createdAt ?? null,
         approvalDate: med?.approvalDate ?? null,
         expiryDate: med?.expiryDate ?? null,
-        storageConditions: med?.storageConditions ?? null,
         imageUrl: med?.imageUrl ?? null,
-        genericName: genericMed?.name ?? null,
-        description: genericMed?.description ?? null,
-        manufacturerName: manufacturer?.name ?? null,
-        manufacturerCountry: manufacturer?.country ?? null,
-        category: categories,
-        fullName: `${med?.brandName ?? ""}${med?.strengthValue ? ` ${med.strengthValue}${med.strengthUnit ?? ""}` : ""}${med?.form ? ` (${med.form})` : ""}`,
+        strengthValue: ingredient?.strengthValue || null,
+        strengthUnit: ingredient?.strengthUnit || null,
+        activeSubstance: ingredient?.ActiveSubstance?.name || null,
+        fullName: `${med?.brandName ?? ""}${ingredient?.strengthValue ? ` ${ingredient.strengthValue}${ingredient.strengthUnit ?? ""}` : ""}${med?.form ? ` (${med.form})` : ""}`,
       },
       quantity: item.quantity,
       price: item.price,
-      medicationAvailabilityMedicationId: item.medicationAvailabilityMedicationId,
-      medicationAvailabilityPharmacyId: item.medicationAvailabilityPharmacyId,
-      // Add prescription status based on order status and prescription status
       prescriptionStatus: item.orderInfo.prescriptionId && med?.prescriptionRequired 
         ? (item.orderInfo.orderStatus === 'PENDING' ? 'VERIFIED' : 
            item.orderInfo.orderStatus === 'PENDING_PRESCRIPTION' ? 
@@ -528,25 +508,22 @@ if (!acc[pharmacyId]) {
         : 'NONE',
     });
 
-    acc[pharmacyId].subtotal += item.quantity * item.price;
-    console.log(acc);
+    acc[pharmacy.id].subtotal += item.quantity * item.price;
     return acc;
-  
   }, {});
 
   const pharmacies = Object.values(pharmacyGroups);
   const calculatedTotalPrice = pharmacies.reduce((sum, p) => sum + p.subtotal, 0);
 
-  console.log('GET /api/cart response:', { pharmacies, totalPrice: calculatedTotalPrice, orderStatus });
-
   return {
     pharmacies,
     totalPrice: calculatedTotalPrice,
-    prescriptionId: prescriptionId,
-    orderStatus: orderStatus,
-    orderId: orders[0]?.id, // Return the first order ID for compatibility
+    prescriptionId,
+    orderStatus,
+    orderId: orders[0]?.id,
   };
 }
+
 
 async function createMixedOrder({ userId, readyItems, prescriptionItems }) {
   // Create separate orders for ready items and prescription items

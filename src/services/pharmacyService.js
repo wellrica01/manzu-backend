@@ -5,30 +5,24 @@ const { ZodError } = require('zod');
 
 async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
-  // Get total count
+
+  // Total count
   const total = await prisma.order.count({
     where: {
       items: {
-        some: {
-          pharmacyId,
-        },
+        some: { pharmacyId },
       },
       status: {
-        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
+        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'],
       },
     },
   });
-  // Get paginated orders
+
+  // Fetch paginated orders
   const orders = await prisma.order.findMany({
     where: {
-      items: {
-        some: {
-          pharmacyId,
-        },
-      },
-      status: {
-        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
-      },
+      items: { some: { pharmacyId } },
+      status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
     },
     select: {
       id: true,
@@ -40,13 +34,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
       address: true,
       status: true,
       totalPrice: true,
-      prescription: {
-        select: {
-          id: true,
-          fileUrl: true,
-          status: true,
-        },
-      },
+      prescription: { select: { id: true, fileUrl: true, status: true } },
       items: {
         select: {
           id: true,
@@ -56,7 +44,21 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
           medicationId: true,
           medicationAvailability: {
             select: {
-              medication: { select: { brandName: true, strengthValue: true, strengthUnit: true, form: true, genericMedication: { select: { name: true } } } },
+              medication: {
+                select: {
+                  brandName: true,
+                  strengthValue: true,
+                  strengthUnit: true,
+                  form: true,
+                  Medication_MedicationIngredient: {
+                    select: {
+                      MedicationIngredient: {
+                        select: { ActiveSubstance: { select: { name: true } } },
+                      },
+                    },
+                  },
+                },
+              },
               pharmacy: { select: { name: true, address: true } },
             },
           },
@@ -80,28 +82,30 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
       status: order.status,
       totalPrice: order.totalPrice,
       prescription: order.prescription
-        ? {
-            id: order.prescription.id,
-            fileUrl: order.prescription.fileUrl,
-            status: order.prescription.status,
-          }
+        ? { id: order.prescription.id, fileUrl: order.prescription.fileUrl, status: order.prescription.status }
         : null,
       items: order.items
         .filter(item => item.pharmacyId === pharmacyId)
-        .map(item => ({
-          id: item.id,
-          medication: {
-            brandName: item.medicationAvailability.medication.brandName,
-            genericName: item.medicationAvailability.medication.genericMedication?.name || null,
-            displayName: `${item.medicationAvailability.medication.brandName ?? ""}${item.medicationAvailability.medication.strengthValue ? ` ${item.medicationAvailability.medication.strengthValue}${item.medicationAvailability.medication.strengthUnit ?? ""}` : ""}${item.medicationAvailability.medication.form ? ` (${item.medicationAvailability.medication.form})` : ""}`,
-          },
-          pharmacy: {
-            name: item.medicationAvailability.pharmacy.name,
-            address: item.medicationAvailability.pharmacy.address,
-          },
-          quantity: item.quantity,
-          price: item.price,
-        })),
+        .map(item => {
+          const activeSubstances = item.medicationAvailability.medication.Medication_MedicationIngredient
+            .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
+            .join(', ');
+
+          return {
+            id: item.id,
+            medication: {
+              brandName: item.medicationAvailability.medication.brandName,
+              activeSubstances,
+              displayName: `${item.medicationAvailability.medication.brandName} (${activeSubstances}) ${item.medicationAvailability.medication.strengthValue ?? ''}${item.medicationAvailability.medication.strengthUnit ?? ''} ${item.medicationAvailability.medication.form ?? ''}`,
+            },
+            pharmacy: {
+              name: item.medicationAvailability.pharmacy.name,
+              address: item.medicationAvailability.pharmacy.address,
+            },
+            quantity: item.quantity,
+            price: item.price,
+          };
+        }),
     })),
     total,
   };
@@ -139,38 +143,68 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
 async function fetchMedications(pharmacyId) {
   const medications = await prisma.medicationAvailability.findMany({
     where: { pharmacyId },
-    include: { medication: { include: { genericMedication: true } } },
+    include: {
+      medication: {
+        include: {
+          Medication_MedicationIngredient: {
+            include: {
+              MedicationIngredient: { include: { ActiveSubstance: true } },
+            },
+          },
+        },
+      },
+    },
   });
-  const allMedications = await prisma.medication.findMany({ include: { genericMedication: true } });
+
+  const allMedications = await prisma.medication.findMany({
+    include: {
+      Medication_MedicationIngredient: {
+        include: { MedicationIngredient: { include: { ActiveSubstance: true } } },
+      },
+    },
+  });
 
   return {
-    medications: medications.map(m => ({
-      pharmacyId: m.pharmacyId,
-      medicationId: m.medicationId,
-      brandName: m.medication.brandName,
-      genericName: m.medication.genericMedication?.name || null,
-      displayName: `${m.medication.brandName ?? ""}${m.medication.strengthValue ? ` ${m.medication.strengthValue}${m.medication.strengthUnit ?? ""}` : ""}${m.medication.form ? ` (${m.medication.form})` : ""}`,
-      stock: m.stock,
-      price: m.price,
-      expiryDate: m.expiryDate,
-      receivedDate: m.receivedDate,
-    })),
-    availableMedications: allMedications.map(m => ({
-      id: m.id,
-      brandName: m.brandName,
-      genericName: m.genericMedication?.name || null,
-      displayName: `${m.brandName ?? ""}${m.strengthValue ? ` ${m.strengthValue}${m.strengthUnit ?? ""}` : ""}${m.form ? ` (${m.form})` : ""}`,
-    })),
+    medications: medications.map(m => {
+      const activeSubstances = m.medication.Medication_MedicationIngredient
+        .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
+        .join(', ');
+
+      return {
+        pharmacyId: m.pharmacyId,
+        medicationId: m.medicationId,
+        brandName: m.medication.brandName,
+        activeSubstances,
+        displayName: `${m.medication.brandName} (${activeSubstances}) ${m.medication.strengthValue ?? ''}${m.medication.strengthUnit ?? ''} ${m.medication.form ?? ''}`,
+        stock: m.stock,
+        price: m.price,
+        expiryDate: m.expiryDate,
+        receivedDate: m.receivedDate,
+      };
+    }),
+    availableMedications: allMedications.map(m => {
+      const activeSubstances = m.Medication_MedicationIngredient
+        .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
+        .join(', ');
+
+      return {
+        id: m.id,
+        brandName: m.brandName,
+        activeSubstances,
+        displayName: `${m.brandName} (${activeSubstances}) ${m.strengthValue ?? ''}${m.strengthUnit ?? ''} ${m.form ?? ''}`,
+      };
+    }),
   };
 }
 
+/**
+ * Add medication to pharmacy inventory
+ */
 async function addMedication({ pharmacyId, medicationId, stock, price, receivedDate, expiryDate }) {
   const existing = await prisma.medicationAvailability.findUnique({
     where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
   });
-  if (existing) {
-    throw new Error('Medication already exists in pharmacy inventory');
-  }
+  if (existing) throw new Error('Medication already exists in pharmacy inventory');
 
   const medication = await prisma.medicationAvailability.create({
     data: {
@@ -181,15 +215,20 @@ async function addMedication({ pharmacyId, medicationId, stock, price, receivedD
       receivedDate: receivedDate ? new Date(receivedDate) : null,
       expiryDate: expiryDate ? new Date(expiryDate) : null,
     },
-    include: { medication: { include: { genericMedication: true } } },
+    include: {
+      medication: { include: { Medication_MedicationIngredient: { include: { MedicationIngredient: { include: { ActiveSubstance: true } } } } } },
+    },
   });
 
-  console.log('Medication added:', { pharmacyId: medication.pharmacyId, medicationId: medication.medicationId });
+  const activeSubstances = medication.medication.Medication_MedicationIngredient
+    .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
+    .join(', ');
+
   return {
     pharmacyId: medication.pharmacyId,
     medicationId: medication.medicationId,
     brandName: medication.medication.brandName,
-    genericName: medication.medication.genericMedication?.name || null,
+    activeSubstances,
     stock: medication.stock,
     price: medication.price,
     receivedDate: medication.receivedDate,
@@ -197,14 +236,17 @@ async function addMedication({ pharmacyId, medicationId, stock, price, receivedD
   };
 }
 
+/**
+ * Update medication in pharmacy inventory
+ */
 async function updateMedication({ pharmacyId, medicationId, stock, price, receivedDate, expiryDate }) {
   const medication = await prisma.medicationAvailability.findUnique({
     where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
-    include: { medication: { include: { genericMedication: true } } },
+    include: {
+      medication: { include: { Medication_MedicationIngredient: { include: { MedicationIngredient: { include: { ActiveSubstance: true } } } } } },
+    },
   });
-  if (!medication) {
-    throw new Error('Medication not found');
-  }
+  if (!medication) throw new Error('Medication not found');
 
   const updatedMedication = await prisma.medicationAvailability.update({
     where: { medicationId_pharmacyId: { medicationId, pharmacyId } },
@@ -214,15 +256,20 @@ async function updateMedication({ pharmacyId, medicationId, stock, price, receiv
       receivedDate: receivedDate ? new Date(receivedDate) : null,
       expiryDate: expiryDate ? new Date(expiryDate) : null,
     },
-    include: { medication: { include: { genericMedication: true } } },
+    include: {
+      medication: { include: { Medication_MedicationIngredient: { include: { MedicationIngredient: { include: { ActiveSubstance: true } } } } } },
+    },
   });
 
-  console.log('Medication updated:', { pharmacyId: updatedMedication.pharmacyId, medicationId: updatedMedication.medicationId });
+  const activeSubstances = updatedMedication.medication.Medication_MedicationIngredient
+    .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
+    .join(', ');
+
   return {
     pharmacyId: updatedMedication.pharmacyId,
     medicationId: updatedMedication.medicationId,
     brandName: updatedMedication.medication.brandName,
-    genericName: updatedMedication.medication.genericMedication?.name || null,
+    activeSubstances,
     stock: updatedMedication.stock,
     price: updatedMedication.price,
     receivedDate: updatedMedication.receivedDate,

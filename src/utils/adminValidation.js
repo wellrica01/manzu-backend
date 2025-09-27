@@ -46,37 +46,72 @@ const editPharmacySchema = z.object({
 
 const createMedicationSchema = z.object({
   brandName: z.string().min(1, 'Brand name required'),
-  genericMedicationId: z.number().int().positive(),
   brandDescription: z.string().optional(),
   manufacturerId: z.number().int().positive().optional(),
-  form: z.enum(['TABLET','CAPSULE','CAPLET','SYRUP','INJECTION','CREAM','OINTMENT','GEL','SUSPENSION','POWDER','SUPPOSITORY','EYE_DROP','EAR_DROP','DROPS','NASAL_SPRAY','INHALER','PATCH','LOZENGE','EFFERVESCENT']).optional(),
-  strengthValue: z.number().optional(),
-  strengthUnit: z.enum(['MG','ML','G','MCG','IU','NG','MMOL','PERCENT']).optional(),
-  route: z.enum(['ORAL','INTRAVENOUS','INTRAMUSCULAR','SUBCUTANEOUS','TOPICAL','INHALATION','RECTAL','VAGINAL','OPHTHALMIC','OTIC','NASAL','SUBLINGUAL','BUCCAL','TRANSDERMAL']).optional(),
-  packSizeQuantity: z.number().optional(),
-  packSizeUnit: z.enum(['TABLETS','CAPSULES','ML','VIALS','AMPOULES','SACHETS','PATCHES','BOTTLES','TUBES','BLISTERS']).optional(),
-  isCombination: z.boolean().optional(),
-  combinationDescription: z.string().optional(),
+  form: z.enum([
+    'TABLET','CAPSULE','CAPLET','SYRUP','INJECTION','CREAM','OINTMENT','GEL',
+    'SUSPENSION','POWDER','SUPPOSITORY','EYE_DROP','EAR_DROP','DROPS',
+    'NASAL_SPRAY','INHALER','PATCH','LOZENGE','EFFERVESCENT'
+  ]).optional(),
+  packSizeQuantity: z.number().int().optional(), // Changed to int to match DB
+  packSizeUnit: z.enum([
+    // Fixed to match DB schema (singular forms)
+    'TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER'
+  ]).optional(),
   nafdacCode: z.string().min(1, 'NAFDAC code required'),
-  nafdacStatus: z.enum(['VALID','EXPIRED','PENDING','SUSPENDED']).optional(),
-  prescriptionRequired: z.boolean(),
-  regulatoryClass: z.enum(['OTC','PRESCRIPTION_ONLY','SCHEDULE_I','SCHEDULE_II','SCHEDULE_III','SCHEDULE_IV','SCHEDULE_V','RESTRICTED']).optional(),
-  restrictedTo: z.enum(['GENERAL','HOSPITAL_ONLY','SPECIALTY_PHARMACY','CONTROLLED_SUBSTANCE']).optional(),
-  insuranceCoverage: z.boolean().optional(),
-  approvalDate: z.string().optional(),
-  expiryDate: z.string().optional(),
-  storageConditions: z.string().optional(),
+  prescriptionRequired: z.boolean().default(false), // Added default
   imageUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
+  
+  // Fixed ingredients validation
+  ingredients: z.array(
+    z.object({
+      activeSubstanceId: z.number().int().positive(),
+      strengthValue: z.number().positive().optional(),
+      strengthUnit: z.enum(['MG','ML','G','MCG','IU','NG','MMOL','PERCENT']).optional(),
+      perUnitValue: z.number().positive().optional(),
+      // Fixed to match PackSizeUnit enum (singular)
+      perUnitType: z.enum(['TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER']).optional(),
+      id: z.number().int().positive().optional() // for updates
+    }).refine(data => {
+      // If strengthValue is provided, strengthUnit should be provided too
+      if (data.strengthValue && !data.strengthUnit) return false;
+      if (data.perUnitValue && !data.perUnitType) return false;
+      return true;
+    }, { message: "Strength unit required when strength value is provided" })
+  ).min(1, 'At least one active substance is required'),
 });
 
-const updateMedicationSchema = createMedicationSchema.partial();
+const updateMedicationSchema = createMedicationSchema.partial().extend({
+  ingredients: z.array(
+    z.object({
+      activeSubstanceId: z.number().int().positive(),
+      strengthValue: z.number().positive().optional(),
+      strengthUnit: z.enum(['MG','ML','G','MCG','IU','NG','MMOL','PERCENT']).optional(),
+      perUnitValue: z.number().positive().optional(),
+      perUnitType: z.enum(['TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER']).optional(),
+      id: z.number().int().positive().optional(),
+      // Add action field for update operations
+      _action: z.enum(['CREATE', 'UPDATE', 'DELETE']).optional()
+    })
+  ).optional()
+});
 
-
+// Fixed filter schema to match service parameters
 const medicationFilterSchema = z.object({
-  brandName: z.string().optional(),
-  genericMedicationId: z.string().regex(/^\d+$/).optional().transform(Number),
-  prescriptionRequired: z.enum(['true', 'false']).optional().transform((val) => val === 'true'),
+  brandName: z.string().optional(), // Fixed parameter name
+  activeSubstance: z.string().optional(), // Added missing parameter
+  prescriptionRequired: z
+  .enum(['true','false'])
+  .optional()
+  .transform(val => (val === undefined ? undefined : val === 'true')),
   pharmacyId: z.string().regex(/^\d+$/).optional().transform(Number),
+  manufacturerId: z.string().regex(/^\d+$/).optional().transform(Number), // Added
+  form: z.enum([
+    'TABLET','CAPSULE','CAPLET','SYRUP','INJECTION','CREAM','OINTMENT','GEL',
+    'SUSPENSION','POWDER','SUPPOSITORY','EYE_DROP','EAR_DROP','DROPS',
+    'NASAL_SPRAY','INHALER','PATCH','LOZENGE','EFFERVESCENT'
+  ]).optional(),
+  nafdacStatus: z.enum(['VALID','EXPIRED','PENDING','SUSPENDED']).optional()
 }).merge(paginationSchema);
 
 
@@ -195,20 +230,75 @@ const adminLoginSchema = z.object({
   password: z.string().min(1, 'Password required'),
 });
 
-// CATEGORY
-const categorySchema = z.object({
-  name: z.string().min(1, 'Category name required'),
+
+// --- GENERIC NAMES ---
+
+const GenericNameSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
 });
 
-// THERAPEUTIC CLASS
-const therapeuticClassSchema = z.object({
-  name: z.string().min(1, 'Therapeutic class name required'),
+const GenericNameUpdateSchema = GenericNameSchema.partial();
+
+
+
+// ACTIVE SUBSTANCE
+const ActiveSubstanceSchema = z.object({
+  name: z.string().min(1, "Active substance name is required"),
+  description: z.string().optional(),
+  atcCode: z.string().optional(), // optional link to ATC
+  parentId: z.number().int().positive().optional(), // if substances are hierarchical
 });
 
-// CHEMICAL CLASS
-const chemicalClassSchema = z.object({
-  name: z.string().min(1, 'Chemical class name required'),
+const ActiveSubstanceUpdateSchema = ActiveSubstanceSchema.partial();
+
+// --- MEDICATION INGREDIENTS ---
+const MedicationIngredientSchema = z.object({
+  substanceId: z.number().int().positive(),
+  strengthValue: z.number().optional(),
+  strengthUnit: z.string().optional(),  // You might want to restrict to enum values
+  perUnitValue: z.number().optional(),
+  perUnitType: z.string().optional(),   // Same here, can be tied to PackSizeUnit enum
 });
+
+const MedicationIngredientUpdateSchema = MedicationIngredientSchema.partial();
+
+// --- ATC ADMIN ROUTES ---
+// Covers: AnatomicalClass, TherapeuticClass, PharmacologicalClass, ChemicalClass, ChemicalSubstance
+const AnatomicalClassSchema = z.object({
+  atcCode: z.string().length(1, "ATC code must be a single character"),
+  name: z.string().min(1, "Name is required"),
+});
+const AnatomicalClassUpdateSchema = AnatomicalClassSchema.partial();
+
+const TherapeuticClassSchema = z.object({
+  atcCode: z.string().length(3, "ATC code must be 3 characters"),
+  name: z.string().min(1, "Name is required"),
+  parentId: z.number().int().positive(),
+});
+const TherapeuticClassUpdateSchema = TherapeuticClassSchema.partial();
+
+const PharmacologicalClassSchema = z.object({
+  atcCode: z.string().length(4, "ATC code must be 4 characters"),
+  name: z.string().min(1, "Name is required"),
+  parentId: z.number().int().positive(),
+});
+const PharmacologicalClassUpdateSchema = PharmacologicalClassSchema.partial();
+
+const ChemicalClassSchema = z.object({
+  atcCode: z.string().length(5, "ATC code must be 5 characters"),
+  name: z.string().min(1, "Name is required"),
+  parentId: z.number().int().positive(),
+});
+const ChemicalClassUpdateSchema = ChemicalClassSchema.partial();
+
+const ChemicalSubstanceSchema = z.object({
+  atcCode: z.string().length(7, "ATC code must be 7 characters"),
+  name: z.string().min(1, "Name is required"),
+  parentId: z.number().int().positive(),
+});
+const ChemicalSubstanceUpdateSchema = ChemicalSubstanceSchema.partial();
+
 
 // MANUFACTURER
 const manufacturerSchema = z.object({
@@ -237,26 +327,58 @@ const indicationSchema = z.object({
 });
 
 module.exports = {
+  // Core
+  paginationSchema,
+
+  // Pharmacy
   editPharmacySchema,
+  registerSchema,
+  editProfileSchema,
+
+  // Users
+  loginSchema,
+  addUserSchema,
+  editUserSchema,
+  adminRegisterSchema,
+  adminLoginSchema,
+
+  // Medications
   createMedicationSchema,
   updateMedicationSchema,
   medicationFilterSchema,
+
+  // Filters
   prescriptionFilterSchema,
   orderFilterSchema,
   adminUserFilterSchema,
   pharmacyUserFilterSchema,
-  registerSchema,
-  loginSchema,
-  addUserSchema,
-  editUserSchema,
-  editProfileSchema,
-  adminRegisterSchema,
-  adminLoginSchema,
-  paginationSchema,
-  categorySchema,
-  therapeuticClassSchema,
-  chemicalClassSchema,
+
+  // Manufacturers & Generics
   manufacturerSchema,
   genericMedicationSchema,
   indicationSchema,
+
+  // Generic Names
+  GenericNameSchema,
+  GenericNameUpdateSchema,
+
+  // Active Substances
+  ActiveSubstanceSchema,
+  ActiveSubstanceUpdateSchema,
+
+  // Medication Ingredients
+  MedicationIngredientSchema,
+  MedicationIngredientUpdateSchema,
+
+  // ATC Classification
+  AnatomicalClassSchema,
+  AnatomicalClassUpdateSchema,
+  TherapeuticClassSchema,
+  TherapeuticClassUpdateSchema,
+  PharmacologicalClassSchema,
+  PharmacologicalClassUpdateSchema,
+  ChemicalClassSchema,
+  ChemicalClassUpdateSchema,
+  ChemicalSubstanceSchema,
+  ChemicalSubstanceUpdateSchema,
 };

@@ -12,10 +12,10 @@ const cleanupPendingPrescriptionOrders = async () => {
         status: 'PENDING_PRESCRIPTION',
         createdAt: { lte: timeoutThreshold },
       },
-      include: { items: true },
+      include: { OrderItem: true }, // ✅ corrected relation name
     });
 
-    if (orders.length === 0) {
+    if (!orders.length) {
       console.log('No timed-out prescription orders found');
       return;
     }
@@ -32,7 +32,7 @@ const cleanupPendingPrescriptionOrders = async () => {
           },
         });
 
-        for (const item of order.items) {
+        for (const item of order.OrderItem) {
           await tx.medicationAvailability.update({
             where: {
               medicationId_pharmacyId: {
@@ -64,10 +64,10 @@ const cleanupPendingPaymentOrders = async () => {
         status: 'PENDING',
         createdAt: { lte: timeoutThreshold },
       },
-      include: { items: true },
+      include: { OrderItem: true }, // ✅ corrected relation name
     });
 
-    if (orders.length === 0) {
+    if (!orders.length) {
       console.log('No timed-out payment orders found');
       return;
     }
@@ -84,7 +84,7 @@ const cleanupPendingPaymentOrders = async () => {
           },
         });
 
-        for (const item of order.items) {
+        for (const item of order.OrderItem) {
           await tx.medicationAvailability.update({
             where: {
               medicationId_pharmacyId: {

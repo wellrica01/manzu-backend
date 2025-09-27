@@ -246,6 +246,19 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
     pharmacyIdsWithDistance.map(entry => [entry.id, entry.distance_km])
   );
 
+    const activeSubstances = await prisma.medication_MedicationIngredient.findMany({
+    where: { medicationId: medication.id },
+    select: {
+      MedicationIngredient: {
+        select: {
+          ActiveSubstance: { select: { name: true } }
+        }
+      }
+    }
+  });
+
+  const activeSubstanceNames = activeSubstances.map(s => s.MedicationIngredient.ActiveSubstance.name);
+
   const medications = await Promise.all(
     prescription.prescriptionMedications.map(async prescriptionMed => {
       const medication = prescriptionMed.medication;
@@ -306,7 +319,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
         fullName: medication.fullName,
         quantity: prescriptionMed.quantity,
         dosageInstructions: prescriptionMed.dosageInstructions,
-        genericName: medication.genericMedication?.name,
+        activeSubstances: activeSubstanceNames,
         manufacturerName: medication.manufacturer?.name || null,
         manufacturerCountry: medication.manufacturer?.country || null,
         form: medication.form,
