@@ -1060,7 +1060,7 @@ router.delete('/indications/:id', authenticate, authenticateAdmin, async (req, r
 
 router.get('/search/active-substances', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const { search, limit = 50 } = req.query;
+    const { search, limit = 20 } = req.query;
     const result = await adminService.searchActiveSubstances({ search, limit: parseInt(limit) });
     standardResponse(res, 200, 'Active substances fetched successfully', { result });
   } catch (error) {
@@ -1070,7 +1070,7 @@ router.get('/search/active-substances', authenticate, authenticateAdmin, async (
 
 router.get('/search/medication-ingredients', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const { search, limit = 50 } = req.query;
+    const { search, limit = 20 } = req.query;
     const result = await adminService.searchMedicationIngredients({ search, limit: parseInt(limit) });
     standardResponse(res, 200, 'Medication ingredients fetched successfully', { result });
   } catch (error) {
@@ -1080,7 +1080,7 @@ router.get('/search/medication-ingredients', authenticate, authenticateAdmin, as
 
 router.get('/search/manufacturers', authenticate, authenticateAdmin, async (req, res) => {
   try {
-    const { search, limit = 50 } = req.query;
+    const { search, limit = 20 } = req.query;
     const result = await adminService.searchManufacturers({ search, limit: parseInt(limit) });
     standardResponse(res, 200, 'Manufacturers fetched successfully', { result });
   } catch (error) {

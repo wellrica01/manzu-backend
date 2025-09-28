@@ -1907,7 +1907,7 @@ async function deleteIndication(id) {
 
 // SEARCH FILTER CODE -----
 
-async function searchActiveSubstances({ search = '', limit = 50 }) {
+async function searchActiveSubstances({ search = '', limit = 20 }) {
   const where = search ? { name: { contains: search, mode: 'insensitive' } } : {};
   
   const activeSubstances = await prisma.activeSubstance.findMany({
@@ -1920,14 +1920,39 @@ async function searchActiveSubstances({ search = '', limit = 50 }) {
   return { activeSubstances };
 }
 
-async function searchMedicationIngredients({ search = '', limit = 50 }) {
-  const where = search ? {
-    OR: [
-      { ActiveSubstance: { name: { contains: search, mode: 'insensitive' } } },
-      { strengthValue: { contains: search } }
-    ]
-  } : {};
-  
+async function searchMedicationIngredients({ search = '', limit = 20 }) {
+  let substanceIds = [];
+  let strengthValueFilter;
+
+  if (search) {
+    // 1️⃣ Search by ActiveSubstance name
+    substanceIds = await prisma.activeSubstance.findMany({
+      where: { name: { contains: search, mode: 'insensitive' } },
+      select: { id: true },
+      take: limit, // optional
+    }).then(results => results.map(r => r.id));
+
+    // 2️⃣ Check if the search term is a number for strengthValue
+    const parsed = parseFloat(search);
+    if (!isNaN(parsed)) {
+      strengthValueFilter = parsed;
+    }
+  }
+
+  // Build where clause
+  const where = {};
+  if (substanceIds.length || strengthValueFilter !== undefined) {
+    where.OR = [];
+
+    if (substanceIds.length) {
+      where.OR.push({ substanceId: { in: substanceIds } });
+    }
+
+    if (strengthValueFilter !== undefined) {
+      where.OR.push({ strengthValue: strengthValueFilter });
+    }
+  }
+
   const medicationIngredients = await prisma.medicationIngredient.findMany({
     where,
     select: {
@@ -1936,16 +1961,17 @@ async function searchMedicationIngredients({ search = '', limit = 50 }) {
       strengthUnit: true,
       perUnitValue: true,
       perUnitType: true,
-      ActiveSubstance: { select: { id: true, name: true } }
+      ActiveSubstance: { select: { id: true, name: true } },
     },
     take: limit,
-    orderBy: { ActiveSubstance: { name: 'asc' } }
+    orderBy: { id: 'asc' }, // safer than ordering by relation name
   });
-  
+
   return { medicationIngredients };
 }
 
-async function searchManufacturers({ search = '', limit = 50 }) {
+
+async function searchManufacturers({ search = '', limit = 20 }) {
   const where = search ? { name: { contains: search, mode: 'insensitive' } } : {};
   
   const manufacturers = await prisma.manufacturer.findMany({
