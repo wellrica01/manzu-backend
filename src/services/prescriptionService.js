@@ -27,7 +27,7 @@ async function addMedications(prescriptionId, medications) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const prescriptionMedications = [];
+    const PrescriptionMedication = [];
     for (const med of medications) {
       const { medicationId, quantity, dosageInstructions } = med;
       const medication = await tx.medication.findUnique({
@@ -44,12 +44,12 @@ async function addMedications(prescriptionId, medications) {
           dosageInstructions: dosageInstructions || null,
         },
       });
-      prescriptionMedications.push(prescriptionMedication);
+      PrescriptionMedication.push(prescriptionMedication);
     }
-    return { prescriptionMedications };
+    return { PrescriptionMedication };
   });
 
-  console.log('Medications added:', { prescriptionId, medications: result.prescriptionMedications });
+  console.log('Medications added:', { prescriptionId, medications: result.PrescriptionMedication });
 
   return result;
 }
@@ -59,13 +59,13 @@ async function verifyPrescription(prescriptionId, status) {
   const prescription = await prisma.prescription.findUnique({
     where: { id: prescriptionId },
     include: {
-      orders: {
+      Order: {
         include: {
-          pharmacy: true,
-          items: {
+          Pharmacy: true,
+          OrderItem: {
             include: {
-              medicationAvailability: {
-                include: { medication: true },
+              MedicationAvailability: {
+                include: { Medication: true },
               },
             },
           },
@@ -172,14 +172,14 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
     where: { userIdentifier, status: { in: ['PENDING', 'VERIFIED'] } },
     orderBy: { createdAt: 'desc' },
     include: {
-      prescriptionMedications: {
+      PrescriptionMedication: {
         include: {
-          medication: {
+          Medication: {
             select: {
               id: true,
               brandName: true,
               fullName: true,
-              manufacturer: { select: { name: true, country: true } },
+              Manufacturer: { select: { name: true, country: true } },
               form: true,
               strengthValue: true,
               strengthUnit: true,
@@ -260,7 +260,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
   const activeSubstanceNames = activeSubstances.map(s => s.MedicationIngredient.ActiveSubstance.name);
 
   const medications = await Promise.all(
-    prescription.prescriptionMedications.map(async prescriptionMed => {
+    prescription.PrescriptionMedication.map(async prescriptionMed => {
       const medication = prescriptionMed.medication;
       let pharmacyFilter = {
         medicationId: medication.id,
@@ -286,10 +286,10 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
             : [-1],
         };
       }
-      const availability = await prisma.medicationAvailability.findMany({
+      const availability = await prisma.MedicationAvailability.findMany({
         where: pharmacyFilter,
         include: {
-          pharmacy: { 
+          Pharmacy: { 
             select: {
               id: true,
               name: true,
@@ -366,7 +366,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
   );
 
   // Compute pharmacy recommendations
-  const medicationIds = prescription.prescriptionMedications.map(pm => pm.medicationId);
+  const medicationIds = prescription.PrescriptionMedication.map(pm => pm.medicationId);
   let recommendationFilter = {
     medicationId: { in: medicationIds },
     stock: { gte: 1 }, // Ensure sufficient stock (can refine to match prescriptionMed.quantity)
@@ -526,7 +526,7 @@ async function getPrescriptionStatuses({ userIdentifier, medicationIds }) {
       },
       orderBy: { createdAt: 'desc' },
       include: {
-        prescriptionMedications: {
+        PrescriptionMedication: {
           include: {
             medication: {
               select: { id: true },
@@ -545,7 +545,7 @@ async function getPrescriptionStatuses({ userIdentifier, medicationIds }) {
       return statuses;
     }
 
-    const coveredMedicationIds = prescription.prescriptionMedications
+    const coveredMedicationIds = prescription.PrescriptionMedication
       .map(pm => pm.medicationId.toString());
 
     for (const medId of validMedicationIds) {

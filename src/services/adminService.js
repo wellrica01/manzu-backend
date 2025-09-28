@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const NodeGeocoder = require('node-geocoder');
 const prisma = new PrismaClient();
+const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit } = require('../utils/medicationUtils')
 
 const geocoder = NodeGeocoder({
   provider: 'opencage',
@@ -346,14 +347,16 @@ async function getMedications({
     // Improved ingredient mapping
     const medsWithIngredients = medications.map(med => ({
       ...med,
+      form: capitalize(med.form),
+      packSizeUnit: formatPackSizeUnit(med.packSizeUnit),
       ingredients: med.Medication_MedicationIngredient.map(mmi => ({
         id: mmi.MedicationIngredient.id,
         activeSubstanceId: mmi.MedicationIngredient.ActiveSubstance?.id || null,
         activeSubstanceName: mmi.MedicationIngredient.ActiveSubstance?.name || null,
         strengthValue: mmi.MedicationIngredient.strengthValue,
-        strengthUnit: mmi.MedicationIngredient.strengthUnit,
+        strengthUnit: formatStrengthUnit(mmi.MedicationIngredient.strengthUnit),
         perUnitValue: mmi.MedicationIngredient.perUnitValue,
-        perUnitType: mmi.MedicationIngredient.perUnitType,
+        perUnitType: formatPerUnitType(mmi.MedicationIngredient.perUnitType),
       }))
     }));
 
@@ -703,8 +706,12 @@ async function deleteMedication(id) {
 async function getPrescriptions({ page, limit, status, userIdentifier }) {
   const skip = (page - 1) * limit;
   const where = {};
+  
   if (status) where.status = status.toUpperCase();
-  if (userIdentifier) where.userIdentifier = { contains: userIdentifier, mode: 'insensitive' };
+  if (userIdentifier) {
+    where.userIdentifier = { contains: userIdentifier, mode: 'insensitive' };
+  }
+
   const [prescriptions, total] = await prisma.$transaction([
     prisma.prescription.findMany({
       where,
@@ -723,12 +730,17 @@ async function getPrescriptions({ page, limit, status, userIdentifier }) {
           },
         },
       },
+      orderBy: {
+        createdAt: 'desc', // 👈 newest first
+      },
       take: limit,
       skip,
     }),
     prisma.prescription.count({ where }),
   ]);
+
   console.log('Prescriptions fetched:', { count: prescriptions.length, total });
+
   return {
     prescriptions,
     pagination: { page, limit, total, pages: Math.ceil(total / limit) },
@@ -739,13 +751,13 @@ async function getPrescription(id) {
   const prescription = await prisma.prescription.findUnique({
     where: { id },
     include: {
-      prescriptionMedications: {
+      PrescriptionMedication: {
         include: { Medication: true },
       },
-      orders: {
+      Order: {
         include: {
           Pharmacy: true,
-          items: {
+          OrderItem: {
             include: {
               MedicationAvailability: {
                 include: { Medication: true },
@@ -764,11 +776,17 @@ async function getPrescription(id) {
   console.log('Prescription fetched:', { prescriptionId: id });
   return prescription;
 }
+
+
 async function getOrders({ page, limit, status, userIdentifier }) {
   const skip = (page - 1) * limit;
   const where = {};
+
   if (status) where.status = status.toUpperCase();
-  if (userIdentifier) where.userIdentifier = { contains: userIdentifier, mode: 'insensitive' };
+  if (userIdentifier) {
+    where.userIdentifier = { contains: userIdentifier, mode: 'insensitive' };
+  }
+
   const [orders, total] = await prisma.$transaction([
     prisma.order.findMany({
       where,
@@ -779,12 +797,17 @@ async function getOrders({ page, limit, status, userIdentifier }) {
         totalPrice: true,
         createdAt: true,
       },
+      orderBy: {
+        createdAt: 'desc', // 👈 newest first
+      },
       take: limit,
       skip,
     }),
     prisma.order.count({ where }),
   ]);
+
   console.log('Orders fetched:', { count: orders.length, total });
+
   return {
     orders,
     pagination: { page, limit, total, pages: Math.ceil(total / limit) },
@@ -822,14 +845,34 @@ async function getOrder(id) {
           fileUrl: true,
         },
       },
-      items: {
+      OrderItem: {
         select: {
           MedicationAvailability: {
             select: {
-              medication: {
-                select: { id: true, brandName: true, genericMedication: { select: { name: true } } },
+              Medication: {
+                select: {
+                  id: true,
+                  brandName: true,
+                  // Pull active ingredients via join table
+                  Medication_MedicationIngredient: {
+                    select: {
+                      MedicationIngredient: {
+                        select: {
+                          id: true,
+                          strengthValue: true,
+                          strengthUnit: true,
+                          perUnitValue: true,
+                          perUnitType: true,
+                          ActiveSubstance: {
+                            select: { id: true, name: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
               },
-              pharmacy: {
+              Pharmacy: {
                 select: { id: true, name: true },
               },
             },
@@ -840,14 +883,17 @@ async function getOrder(id) {
       },
     },
   });
+
   if (!order) {
     const error = new Error('Order not found');
     error.status = 404;
     throw error;
   }
+
   console.log('Order fetched:', { orderId: id });
   return order;
 }
+
 
 async function getAdminUsers({ page, limit, role, email }) {
   const skip = (page - 1) * limit;
@@ -1858,6 +1904,61 @@ async function deleteIndication(id) {
 }
 
 
+
+// SEARCH FILTER CODE -----
+
+async function searchActiveSubstances({ search = '', limit = 50 }) {
+  const where = search ? { name: { contains: search, mode: 'insensitive' } } : {};
+  
+  const activeSubstances = await prisma.activeSubstance.findMany({
+    where,
+    select: { id: true, name: true, type: true },
+    take: limit,
+    orderBy: { name: 'asc' }
+  });
+  
+  return { activeSubstances };
+}
+
+async function searchMedicationIngredients({ search = '', limit = 50 }) {
+  const where = search ? {
+    OR: [
+      { ActiveSubstance: { name: { contains: search, mode: 'insensitive' } } },
+      { strengthValue: { contains: search } }
+    ]
+  } : {};
+  
+  const medicationIngredients = await prisma.medicationIngredient.findMany({
+    where,
+    select: {
+      id: true,
+      strengthValue: true,
+      strengthUnit: true,
+      perUnitValue: true,
+      perUnitType: true,
+      ActiveSubstance: { select: { id: true, name: true } }
+    },
+    take: limit,
+    orderBy: { ActiveSubstance: { name: 'asc' } }
+  });
+  
+  return { medicationIngredients };
+}
+
+async function searchManufacturers({ search = '', limit = 50 }) {
+  const where = search ? { name: { contains: search, mode: 'insensitive' } } : {};
+  
+  const manufacturers = await prisma.manufacturer.findMany({
+    where,
+    select: { id: true, name: true },
+    take: limit,
+    orderBy: { name: 'asc' }
+  });
+  
+  return { manufacturers };
+}
+
+
 module.exports = {
   getDashboardOverview,
   getPharmacies,
@@ -1947,5 +2048,10 @@ module.exports = {
   createIndication,
   updateIndication,
   deleteIndication,
+
+
+  searchActiveSubstances,
+  searchMedicationIngredients,
+  searchManufacturers,
 
 };
