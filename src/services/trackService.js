@@ -12,11 +12,11 @@ async function trackOrders(trackingCode) {
       },
     },
     include: {
-      items: {
+      OrderItem: {
         include: {
-          medicationAvailability: {
+          MedicationAvailability: {
             include: {
-              medication: {
+              Medication: {
                 include: {
                   Medication_MedicationIngredient: {
                     select: {
@@ -31,18 +31,16 @@ async function trackOrders(trackingCode) {
                   },
                 },
               },
-              pharmacy: true,
-              receivedDate: true,
-              expiryDate: true,
+              Pharmacy: true,
             },
           },
         },
       },
-      prescription: {
+      Prescription: {
         include: {
-          prescriptionMedications: {
+          PrescriptionMedication: {
             include: {
-              medication: {
+              Medication: {
                 include: {
                   Medication_MedicationIngredient: {
                     select: {
@@ -61,7 +59,7 @@ async function trackOrders(trackingCode) {
           },
         },
       },
-      pharmacy: true,
+      Pharmacy: true,
     },
   });
 
@@ -86,13 +84,13 @@ async function trackOrders(trackingCode) {
       filledAt: order.filledAt,
       cancelledAt: order.cancelledAt,
       cancelReason: order.cancelReason,
-      prescription: order.prescription
+      prescription: order.Prescription
         ? {
-            id: order.prescription.id,
-            status: order.prescription.status,
-            fileUrl: order.prescription.fileUrl,
-            verified: order.prescription.status === 'VERIFIED',
-            medications: order.prescription.prescriptionMedications.map(pm => ({
+            id: order.Prescription.id,
+            status: order.Prescription.status,
+            fileUrl: order.Prescription.fileUrl,
+            verified: order.Prescription.status === 'VERIFIED',
+            medications: order.Prescription.PrescriptionMedications.map(pm => ({
               medicationId: pm.medicationId,
               ingredients: pm.medication.Medication_MedicationIngredient.map(mmi => ({
                 activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
@@ -103,11 +101,11 @@ async function trackOrders(trackingCode) {
             })),
           }
         : null,
-      pharmacy: order.pharmacy
-        ? { id: order.pharmacy.id, name: order.pharmacy.name, address: order.pharmacy.address }
+      pharmacy: order.Pharmacy
+        ? { id: order.Pharmacy.id, name: order.Pharmacy.name, address: order.Pharmacy.address }
         : null,
-      items: order.items.map(item => {
-        const med = item.medicationAvailability?.medication;
+      items: order.OrderItem.map(item => {
+        const med = item.MedicationAvailability?.Medication;
         const ingredients = med?.Medication_MedicationIngredient.map(mmi => ({
           activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
           strengthValue: mmi.MedicationIngredient.strengthValue,
@@ -126,13 +124,12 @@ async function trackOrders(trackingCode) {
                 displayName,
               }
             : null,
-          pharmacy: item.medicationAvailability?.pharmacy
-            ? { name: item.medicationAvailability.pharmacy.name, address: item.medicationAvailability.pharmacy.address }
+          pharmacy: item.MedicationAvailability?.Pharmacy
+            ? { name: item.MedicationAvailability.Pharmacy.name, address: item.MedicationAvailability.Pharmacy.address }
             : null,
           quantity: item.quantity,
           price: item.price,
-          receivedDate: item.medicationAvailability?.receivedDate,
-          expiryDate: item.medicationAvailability?.expiryDate,
+          expiryDate: item.MedicationAvailability?.expiryDate,
         };
       }),
     })),

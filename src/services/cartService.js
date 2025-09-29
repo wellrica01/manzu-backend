@@ -46,7 +46,7 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       where: {
         userIdentifier: userId,
         status: 'VERIFIED',
-        prescriptionMedications: {
+        PrescriptionMedication: {
           some: { medicationId: medicationId }
         }
       },
@@ -203,7 +203,7 @@ async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId })
   // Check if prescription exists and is verified
   const prescription = await prisma.prescription.findFirst({
     where: { id: prescriptionId, userIdentifier: userId, status: 'VERIFIED' },
-    include: { prescriptionMedications: true },
+    include: { PrescriptionMedication: true },
   });
   if (!prescription) {
     throw new Error('Valid prescription not found');
@@ -239,7 +239,7 @@ async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId })
 
       // Verify prescription coverage
       if (medication.prescriptionRequired) {
-        const isCovered = prescription.prescriptionMedications.some(
+        const isCovered = prescription.PrescriptionMedication.some(
           pm => pm.medicationId === medicationId && pm.quantity >= quantity
         );
         if (!isCovered) {
@@ -346,7 +346,7 @@ async function cleanupEmptyOrders(tx, userId, excludeOrderId) {
       status: { in: ['CART', 'PENDING_PRESCRIPTION'] },
     },
     include: {
-      items: true,
+      OrderItem: true,
     },
   });
 
@@ -369,14 +369,14 @@ async function getCart(userId) {
       status: { in: ['CART', 'PENDING_PRESCRIPTION', 'PENDING'] }
     },
     include: {
-      items: {
+      OrderItem: {
         include: {
-          medicationAvailability: {
+          MedicationAvailability: {
             include: {
-              pharmacy: {
+              Pharmacy: {
                 include: { OperatingHour: true }
               },
-              medication: {
+              Medication: {
                 include: {
                   Medication_MedicationIngredient: {
                     select: {
@@ -387,17 +387,16 @@ async function getCart(userId) {
                           ActiveSubstance: { select: { name: true } }
                         }
                       }
-                    },
-                    take: 1 // pick first ingredient
+                    }
                   },
-                  manufacturer: true,
+                  Manufacturer: true,
                 }
               },
             }
           },
         }
       },
-      prescription: true,
+      Prescription: true,
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -423,7 +422,7 @@ async function getCart(userId) {
       prescriptionStatus = prescription?.status || null;
     }
 
-    const itemsWithOrderInfo = order.items.map(item => ({
+    const itemsWithOrderInfo = order.OrderItem.map(item => ({
       ...item,
       orderInfo: {
         orderId: order.id,
@@ -432,6 +431,7 @@ async function getCart(userId) {
         prescriptionStatus: prescriptionStatus,
       }
     }));
+
 
     allItems.push(...itemsWithOrderInfo);
     totalPrice += order.totalPrice;
@@ -444,7 +444,7 @@ async function getCart(userId) {
 
   // Group items by pharmacy
   const pharmacyGroups = allItems.reduce((acc, item) => {
-    const pharmacy = item.medicationAvailability?.pharmacy;
+    const pharmacy = item.MedicationAvailability?.Pharmacy;
     if (!pharmacy?.id) return acc;
 
     if (!acc[pharmacy.id]) {
@@ -471,42 +471,44 @@ async function getCart(userId) {
       };
     }
 
-    const med = item.medicationAvailability?.medication;
-    const ingredient = med?.Medication_MedicationIngredient?.[0]?.MedicationIngredient;
+  const med = item.MedicationAvailability?.Medication;
+  const ingredients = med?.Medication_MedicationIngredient?.map(mi => ({
+    strengthValue: mi.MedicationIngredient.strengthValue,
+    strengthUnit: mi.MedicationIngredient.strengthUnit,
+    activeSubstance: mi.MedicationIngredient.ActiveSubstance?.name,
+  })) ?? [];
 
-    acc[pharmacy.id].items.push({
-      id: item.id,
-      medication: {
-        id: med?.id,
-        brandName: med?.brandName ?? "Unknown",
-        brandDescription: med?.brandDescription ?? null,
-        localNames: med?.localNames ?? [],
-        manufacturerId: med?.manufacturerId ?? null,
-        manufacturerName: med?.manufacturer?.name ?? null,
-        manufacturerCountry: med?.manufacturer?.country ?? null,
-        form: med?.form ?? null,
-        route: med?.route ?? null,
-        packSizeQuantity: med?.packSizeQuantity ?? null,
-        packSizeUnit: med?.packSizeUnit ?? null,
-        nafdacCode: med?.nafdacCode ?? null,
-        prescriptionRequired: med?.prescriptionRequired ?? false,
-        createdAt: med?.createdAt ?? null,
-        approvalDate: med?.approvalDate ?? null,
-        expiryDate: med?.expiryDate ?? null,
-        imageUrl: med?.imageUrl ?? null,
-        strengthValue: ingredient?.strengthValue || null,
-        strengthUnit: ingredient?.strengthUnit || null,
-        activeSubstance: ingredient?.ActiveSubstance?.name || null,
-        fullName: `${med?.brandName ?? ""}${ingredient?.strengthValue ? ` ${ingredient.strengthValue}${ingredient.strengthUnit ?? ""}` : ""}${med?.form ? ` (${med.form})` : ""}`,
+  acc[pharmacy.id].items.push({
+    id: item.id,
+    medication: {
+      id: med?.id,
+      brandName: med?.brandName ?? "Unknown",
+      brandDescription: med?.brandDescription ?? null,
+      manufacturerId: med?.manufacturerId ?? null,
+      manufacturerName: med?.Manufacturer?.name ?? null,
+      manufacturerCountry: med?.Manufacturer?.country ?? null,
+      form: med?.form ?? null,
+      packSizeQuantity: med?.packSizeQuantity ?? null,
+      packSizeUnit: med?.packSizeUnit ?? null,
+      nafdacCode: med?.nafdacCode ?? null,
+      prescriptionRequired: med?.prescriptionRequired ?? false,
+      createdAt: med?.createdAt ?? null,
+      approvalDate: med?.approvalDate ?? null,
+      expiryDate: med?.expiryDate ?? null,
+      imageUrl: med?.imageUrl ?? null,
+      ingredients,
+      fullName: `${med?.brandName ?? ""} ` + 
+              (med?.form ? ` (${med.form})` : ""),
       },
-      quantity: item.quantity,
-      price: item.price,
-      prescriptionStatus: item.orderInfo.prescriptionId && med?.prescriptionRequired 
-        ? (item.orderInfo.orderStatus === 'PENDING' ? 'VERIFIED' : 
-           item.orderInfo.orderStatus === 'PENDING_PRESCRIPTION' ? 
-             (item.orderInfo.prescriptionStatus === 'REJECTED' ? 'REJECTED' : 'PENDING') : 'NONE')
-        : 'NONE',
-    });
+    quantity: item.quantity,
+    price: item.price,
+    prescriptionStatus: item.orderInfo.prescriptionId && med?.prescriptionRequired 
+      ? (item.orderInfo.orderStatus === 'PENDING' ? 'VERIFIED' : 
+        item.orderInfo.orderStatus === 'PENDING_PRESCRIPTION' ? 
+          (item.orderInfo.prescriptionStatus === 'REJECTED' ? 'REJECTED' : 'PENDING') : 'NONE')
+      : 'NONE',
+  });
+
 
     acc[pharmacy.id].subtotal += item.quantity * item.price;
     return acc;
@@ -589,13 +591,13 @@ async function handlePrescriptionVerification({ prescriptionId, status }) {
   const prescription = await prisma.prescription.findUnique({
     where: { id: prescriptionId },
     include: {
-      orders: {
+      Order: {
         where: { status: 'PENDING_PRESCRIPTION' },
         include: {
-          items: {
+          OrderItem: {
             include: {
-              medicationAvailability: {
-                include: { medication: true },
+              MedicationAvailability: {
+                include: { Medication: true },
               },
             },
           },
@@ -632,8 +634,8 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
   const orderItem = await prisma.orderItem.findFirst({
     where: { id: orderItemId },
     include: { 
-      order: true,
-      medicationAvailability: true 
+      Order: true,
+      MedicationAvailability: true 
     },
   });
   
@@ -681,7 +683,7 @@ async function removeFromCart({ orderItemId, userId }) {
   // Find the order that contains this item
   const orderItem = await prisma.orderItem.findFirst({
     where: { id: orderItemId },
-    include: { order: true },
+    include: { Order: true },
   });
   
   if (!orderItem) {
@@ -741,8 +743,8 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
   const orderItems = await prisma.orderItem.findMany({
     where: { orderId: order.id },
     include: {
-      medicationAvailability: {
-        include: { medication: true },
+      MedicationAvailability: {
+        include: { Medication: true },
       },
     },
   });
@@ -844,21 +846,21 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         status: { in: ['CART', 'PENDING_PRESCRIPTION'] }
       },
       include: {
-        prescription: {
+        Prescription: {
           include: {
-            prescriptionMedications: {
+            PrescriptionMedication: {
               include: {
-                medication: {
+                Medication: {
                   select: { id: true },
                 },
               },
             },
           },
         },
-        items: {
+        OrderItem: {
           include: {
-            medicationAvailability: {
-              include: { medication: true },
+            MedicationAvailability: {
+              include: { Medication: true },
             },
           },
         },
@@ -883,7 +885,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         );
 
         // Map medicationIds covered by the prescription
-        const coveredMedicationIds = prescription.prescriptionMedications
+        const coveredMedicationIds = prescription.PrescriptionMedication
           .map(pm => pm.medication.id.toString());
 
         // Update statuses for medications in this order that are covered by prescription
@@ -910,10 +912,10 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
       status: { in: ['CART', 'PENDING_PRESCRIPTION'] },
     },
     include: {
-      items: {
+      OrderItem: {
         include: {
-          medicationAvailability: {
-            include: { medication: true },
+          MedicationAvailability: {
+            include: { Medication: true },
           },
         },
       },
@@ -972,7 +974,7 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
 
   // Check if the specified medications are prescription items
   const specifiedPrescriptionItems = prescriptionItems.filter(item => 
-    medicationIds.includes(item.medicationAvailability.medication.id.toString())
+    medicationIds.includes(item.MedicationAvailability.Medication.id.toString())
   );
 
   if (specifiedPrescriptionItems.length === 0) {

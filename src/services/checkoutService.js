@@ -18,11 +18,11 @@ const cartOrders = await prisma.order.findMany({
     status: { in: ['CART', 'PENDING'] } // uppercase enums
   },
   include: {
-    items: {
+    OrderItem: {
       include: {
-        medicationAvailability: {
+        MedicationAvailability: {
           include: {
-            medication: {
+            Medication: {
               include: {
                 Medication_MedicationIngredient: {
                   select: {
@@ -38,7 +38,7 @@ const cartOrders = await prisma.order.findMany({
                 }
               }
             },
-            pharmacy: {
+            Pharmacy: {
               include: {
                 OperatingHour: true
               }
@@ -60,9 +60,9 @@ const cartOrders = await prisma.order.findMany({
   const readyItems = [];
   
   for (const order of cartOrders) {
-    for (const item of order.items) {
-      const isOTC = !item.medicationAvailability.medication.prescriptionRequired;
-      const isVerifiedPrescription = item.medicationAvailability.medication.prescriptionRequired && 
+    for (const item of order.OrderItem) {
+      const isOTC = !item.MedicationAvailability.Medication.prescriptionRequired;
+      const isVerifiedPrescription = item.MedicationAvailability.Medication.prescriptionRequired && 
                                    order.status === 'PENDING' && 
                                    order.prescriptionId;
       
@@ -84,7 +84,7 @@ const cartOrders = await prisma.order.findMany({
   const itemsByPharmacy = readyItems.reduce((acc, item) => {
     const pharmacyId = item.pharmacyId;
     if (!acc[pharmacyId]) {
-      acc[pharmacyId] = { items: [], pharmacy: item.medicationAvailability.pharmacy };
+      acc[pharmacyId] = { items: [], pharmacy: item.MedicationAvailability.Pharmacy };
     }
     acc[pharmacyId].items.push(item);
     return acc;
@@ -97,26 +97,26 @@ const cartOrders = await prisma.order.findMany({
   for (const pharmacyId of pharmacyIds) {
     const { items } = itemsByPharmacy[pharmacyId];
     for (const item of items) {
-      if ((item.medicationAvailability.stock || 0) < item.quantity) {
-        throw new Error(`Insufficient stock for ${item.medicationAvailability.medication.brandName}`);
+      if ((item.MedicationAvailability.stock || 0) < item.quantity) {
+        throw new Error(`Insufficient stock for ${item.MedicationAvailability.Medication.brandName}`);
       }
       
       // Check if prescription medications have verified prescriptions
-      if (item.medicationAvailability.medication.prescriptionRequired) {
+      if (item.MedicationAvailability.Medication.prescriptionRequired) {
         const verifiedPrescription = await prisma.prescription.findFirst({
           where: { 
             userIdentifier, 
             status: 'VERIFIED',
-            prescriptionMedications: {
+            PrescriptionMedication: {
               some: {
-                medicationId: item.medicationAvailability.medicationId
+                medicationId: item.MedicationAvailability.medicationId
               }
             }
           },
         });
         
         if (!verifiedPrescription) {
-          throw new Error(`Prescription required for ${item.medicationAvailability.medication.brandName} but not verified`);
+          throw new Error(`Prescription required for ${item.MedicationAvailability.Medication.brandName} but not verified`);
         }
       }
     }
@@ -157,7 +157,7 @@ const cartOrders = await prisma.order.findMany({
           data: {
             orderId: createdOrder.id,
             pharmacyId: item.pharmacyId,
-            medicationId: item.medicationAvailability.medicationId,
+            medicationId: item.MedicationAvailability.medicationId,
             quantity: item.quantity,
             price: item.price,
           },
@@ -166,7 +166,7 @@ const cartOrders = await prisma.order.findMany({
         await tx.medicationAvailability.update({
           where: {
             medicationId_pharmacyId: {
-              medicationId: item.medicationAvailability.medicationId,
+              medicationId: item.MedicationAvailability.medicationId,
               pharmacyId: item.pharmacyId,
             },
           },

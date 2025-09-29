@@ -34,11 +34,11 @@ async function confirmOrder({ reference, session, userId }) {
     orders = await prisma.order.findMany({
       where: orderWhere,
       include: {
-        items: {
+        OrderItem: {
           include: {
-            medicationAvailability: {
+            MedicationAvailability: {
               include: {
-                medication: {
+                Medication: {
                   include: {
                     Medication_MedicationIngredient: {
                       select: {
@@ -53,13 +53,13 @@ async function confirmOrder({ reference, session, userId }) {
                     }
                   }
                 },
-                pharmacy: { include: { OperatingHour: true } },
+                Pharmacy: { include: { OperatingHour: true } },
               }
             }
           }
         },
-        prescription: { include: { prescriptionMedications: true } },
-        pharmacy: { include: { OperatingHour: true } },
+        Prescription: { include: { PrescriptionMedication: true } },
+        Pharmacy: { include: { OperatingHour: true } },
       }
     });
 
@@ -100,7 +100,7 @@ async function confirmOrder({ reference, session, userId }) {
     // Check verified prescriptions
     const verifiedPrescription = await prisma.prescription.findFirst({
       where: { userIdentifier: userId, status: 'VERIFIED' },
-      include: { prescriptionMedications: true },
+      include: { PrescriptionMedication: true },
       orderBy: [{ createdAt: 'desc' }],
     });
 
@@ -112,15 +112,15 @@ async function confirmOrder({ reference, session, userId }) {
         let newPaymentStatus = order.paymentStatus;
         let newPrescriptionId = order.prescriptionId;
 
-        const requiresPrescription = order.items.some(
-          item => item.medicationAvailability.medication.prescriptionRequired
+        const requiresPrescription = order.OrderItem.some(
+          item => item.MedicationAvailability.Medication.prescriptionRequired
         );
 
         if (requiresPrescription && verifiedPrescription) {
-          const orderMedicationIds = order.items
-            .filter(item => item.medicationAvailability.medication.prescriptionRequired)
-            .map(item => item.medicationAvailability.medicationId);
-          const prescriptionMedicationIds = verifiedPrescription.prescriptionMedications.map(pm => pm.medicationId);
+          const orderMedicationIds = order.OrderItem
+            .filter(item => item.MedicationAvailability.Medication.prescriptionRequired)
+            .map(item => item.MedicationAvailability.medicationId);
+          const prescriptionMedicationIds = verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId);
           const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
 
           if (isPrescriptionValid && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
@@ -141,11 +141,11 @@ async function confirmOrder({ reference, session, userId }) {
           where: { id: order.id },
           data: { paymentStatus: newPaymentStatus, status: newStatus, trackingCode, prescriptionId: newPrescriptionId, updatedAt: new Date() },
           include: {
-            items: {
+            OrderItem: {
               include: {
-                medicationAvailability: {
+                MedicationAvailability: {
                   include: {
-                    medication: {
+                    Medication: {
                       include: {
                         Medication_MedicationIngredient: {
                           select: {
@@ -160,13 +160,13 @@ async function confirmOrder({ reference, session, userId }) {
                         }
                       }
                     },
-                    pharmacy: { include: { OperatingHour: true } },
+                    Pharmacy: { include: { OperatingHour: true } },
                   }
                 }
               }
             },
-            prescription: true,
-            pharmacy: { include: { OperatingHour: true } },
+            Prescription: true,
+            Pharmacy: { include: { OperatingHour: true } },
           }
         });
 
@@ -184,20 +184,20 @@ async function confirmOrder({ reference, session, userId }) {
           acc[pharmacyId] = {
             pharmacy: {
               id: pharmacyId,
-              name: order.pharmacy?.name || 'Unknown',
-              address: order.pharmacy?.address || '',
-              logoUrl: order.pharmacy?.logoUrl || '',
-              phone: order.pharmacy?.phone || '',
-              operatingHours: Array.isArray(order.pharmacy?.OperatingHour)
-                ? order.pharmacy.OperatingHour.map(h => ({
+              name: order.Pharmacy?.name || 'Unknown',
+              address: order.Pharmacy?.address || '',
+              logoUrl: order.Pharmacy?.logoUrl || '',
+              phone: order.Pharmacy?.phone || '',
+              operatingHours: Array.isArray(order.Pharmacy?.OperatingHour)
+                ? order.Pharmacy.OperatingHour.map(h => ({
                     dayOfWeek: h.dayOfWeek,
                     openTime: h.openTime,
                     closeTime: h.closeTime,
                   }))
                 : [],
-              ward: order.pharmacy?.ward || '',
-              lga: order.pharmacy?.lga || '',
-              state: order.pharmacy?.state || '',
+              ward: order.Pharmacy?.ward || '',
+              lga: order.Pharmacy?.lga || '',
+              state: order.Pharmacy?.state || '',
             },
             orders: [],
             subtotal: 0,
@@ -212,15 +212,15 @@ async function confirmOrder({ reference, session, userId }) {
           deliveryMethod: order.deliveryMethod,
           address: order.address,
           paymentReference: order.paymentReference,
-          prescription: order.prescription
+          prescription: order.Prescription
             ? {
-                id: order.prescription.id,
-                status: order.prescription.status,
-                fileUrl: order.prescription.fileUrl,
+                id: order.Prescription.id,
+                status: order.Prescription.status,
+                fileUrl: order.Prescription.fileUrl,
               }
             : null,
-          items: order.items.map(item => {
-            const ingredients = item.medicationAvailability.medication.Medication_MedicationIngredient.map(
+          items: order.OrderItem.map(item => {
+            const ingredients = item.MedicationAvailability.Medication.Medication_MedicationIngredient.map(
               mmi => ({
                 activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name || null,
                 strengthValue: mmi.MedicationIngredient.strengthValue || null,
@@ -231,9 +231,9 @@ async function confirmOrder({ reference, session, userId }) {
             return {
               id: item.id,
               medication: {
-                brandName: item.medicationAvailability.medication.brandName,
-                fullName: item.medicationAvailability.medication.fullName,
-                prescriptionRequired: item.medicationAvailability.medication.prescriptionRequired,
+                brandName: item.MedicationAvailability.Medication.brandName,
+                fullName: item.MedicationAvailability.Medication.fullName,
+                prescriptionRequired: item.MedicationAvailability.Medication.prescriptionRequired,
                 ingredients, // <-- all ingredients included
               },
               quantity: item.quantity,

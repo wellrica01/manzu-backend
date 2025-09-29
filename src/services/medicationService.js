@@ -27,7 +27,7 @@ async function getSampleMedication() {
       form: true,
       nafdacCode: true,
       imageUrl: true,
-      manufacturer: { select: { name: true } },
+      Manufacturer: { select: { name: true } },
       Medication_MedicationIngredient: {
         select: {
           MedicationIngredient: {
@@ -53,7 +53,7 @@ async function getSampleMedication() {
           form: medication.form,
           nafdacCode: medication.nafdacCode,
           imageUrl: medication.imageUrl,
-          manufacturerName: medication.manufacturer?.name || null,
+          manufacturerName: medication.Manufacturer?.name || null,
           ingredients: mapIngredients(medication),
         }
       : null,
@@ -120,7 +120,7 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
   const skip = (page - 1) * limit;
   const radiusKm = parseFloat(radius) || 0;
 
-  let pharmacyFilter = { pharmacy: { status: 'VERIFIED', isActive: true }, stock: { gt: 0 } };
+  let pharmacyFilter = { Pharmacy: { status: 'VERIFIED', isActive: true }, stock: { gt: 0 } };
   if (state) pharmacyFilter.pharmacy.state = { equals: state, mode: 'insensitive' };
   if (lga) pharmacyFilter.pharmacy.lga = { equals: lga, mode: 'insensitive' };
   if (ward) pharmacyFilter.pharmacy.ward = { equals: ward, mode: 'insensitive' };
@@ -191,7 +191,7 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
       prescriptionRequired: true,
       nafdacCode: true,
       imageUrl: true,
-      manufacturer: { select: { name: true, country: true } },
+      Manufacturer: { select: { name: true, country: true } },
       Medication_MedicationIngredient: {
         select: {
           MedicationIngredient: {
@@ -203,7 +203,7 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
           }
         }
       },
-      availabilities: {
+      MedicationAvailability: {
         where: pharmacyFilter,
         select: {
           stock: true,
@@ -211,7 +211,7 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
           pharmacyId: true,
           receivedDate: true,
           expiryDate: true,
-          pharmacy: {
+          Pharmacy: {
             select: {
               name: true,
               address: true,
@@ -238,19 +238,19 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
   return medications.map(med => {
     const ingredients = mapIngredients(med);
 
-    let availability = med.availabilities.map(av => ({
+    let availability = med.MedicationAvailability.map(av => ({
       pharmacyId: av.pharmacyId,
-      pharmacyName: av.pharmacy.name,
-      logoUrl: av.pharmacy.logoUrl,
-      address: av.pharmacy.address,
-      phone: av.pharmacy.phone,
-      licenseNumber: av.pharmacy.licenseNumber,
-      status: av.pharmacy.status,
-      isActive: av.pharmacy.isActive,
-      ward: av.pharmacy.ward,
-      lga: av.pharmacy.lga,
-      state: av.pharmacy.state,
-      operatingHours: av.pharmacy.OperatingHour.map(h => ({
+      pharmacyName: av.Pharmacy.name,
+      logoUrl: av.Pharmacy.logoUrl,
+      address: av.Pharmacy.address,
+      phone: av.Pharmacy.phone,
+      licenseNumber: av.Pharmacy.licenseNumber,
+      status: av.Pharmacy.status,
+      isActive: av.Pharmacy.isActive,
+      ward: av.Pharmacy.ward,
+      lga: av.Pharmacy.lga,
+      state: av.Pharmacy.state,
+      operatingHours: av.Pharmacy.OperatingHour.map(h => ({
         dayOfWeek: h.dayOfWeek,
         openTime: h.openTime instanceof Date ? h.openTime.toISOString().slice(11,16) : h.openTime,
         closeTime: h.closeTime instanceof Date ? h.closeTime.toISOString().slice(11,16) : h.closeTime
@@ -273,8 +273,8 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
       id: med.id,
       brandName: med.brandName,
       fullName: med.fullName,
-      manufacturerName: med.manufacturer?.name || null,
-      manufacturerCountry: med.manufacturer?.country || null,
+      manufacturerName: med.Manufacturer?.name || null,
+      manufacturerCountry: med.Manufacturer?.country || null,
       prescriptionRequired: med.prescriptionRequired || false,
       form: med.form,
       ingredients,
