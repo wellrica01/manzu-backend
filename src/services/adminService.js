@@ -1,12 +1,13 @@
 const { PrismaClient } = require('@prisma/client');
 const NodeGeocoder = require('node-geocoder');
 const prisma = new PrismaClient();
-const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit } = require('../utils/medicationUtils')
+const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, resolveManufacturer, computePackSizeQuantity, linkIngredients } = require('../utils/medicationUtils')
 
 const geocoder = NodeGeocoder({
   provider: 'opencage',
   apiKey: process.env.OPENCAGE_API_KEY,
 });
+
 
 async function getDashboardOverview() {
   const now = new Date();
@@ -445,8 +446,10 @@ async function getMedications({
           localNames: true, 
           fullName: true, 
           Manufacturer: { select: { id: true, name: true } },
+          pharmacopeia: true,
           form: true,
           route: true,
+          packSizeExpression: true,
           packSizeQuantity: true,
           packSizeUnit: true,
           nafdacCode: true,
@@ -532,8 +535,10 @@ async function getMedication(id) {
         fullName: true,
         manufacturerId: true,
         Manufacturer: { select: { id: true, name: true } },
+        pharmacopeia: true,
         form: true,
         route: true,
+        packSizeExpression: true,
         packSizeQuantity: true,
         packSizeUnit: true,
         nafdacCode: true,
@@ -600,224 +605,127 @@ async function getMedication(id) {
   }
 }
 
-// Fixed createMedication function with correct field names
+
+// CREATE MEDICATION --
+
 async function createMedication(data) {
   try {
     console.log('Received data:', JSON.stringify(data, null, 2));
 
-    // Validate manufacturer if provided
-    if (data.manufacturerId) {
-      const manufacturer = await prisma.manufacturer.findUnique({ 
-        where: { id: data.manufacturerId } 
-      });
-      if (!manufacturer) {
-        throw new Error('Manufacturer not found');
-      }
-    }
-
-    // Validate ingredients
+    // 1️⃣ Validate ingredients before starting the transaction
     if (!data.ingredients || !Array.isArray(data.ingredients) || data.ingredients.length === 0) {
       throw new Error('At least one active substance is required');
     }
 
     const activeSubstanceIds = data.ingredients.map(i => i.activeSubstanceId);
-    const activeSubstances = await prisma.activeSubstance.findMany({
-      where: { id: { in: activeSubstanceIds } },
-    });
-
+    const activeSubstances = await prisma.activeSubstance.findMany({ where: { id: { in: activeSubstanceIds } } });
     if (activeSubstances.length !== activeSubstanceIds.length) {
       throw new Error('One or more active substances not found');
     }
 
-    // Check for duplicate NAFDAC code
-    const existingMed = await prisma.medication.findUnique({
-      where: { nafdacCode: data.nafdacCode }
-    });
-    if (existingMed) {
-      throw new Error('NAFDAC code already exists');
-    }
+    // 2️⃣ Check for duplicate NAFDAC code
+    const existingMed = await prisma.medication.findUnique({ where: { nafdacCode: data.nafdacCode } });
+    if (existingMed) throw new Error('NAFDAC code already exists');
 
+    // 3️⃣ Run everything inside a single transaction
     const medication = await prisma.$transaction(async (tx) => {
-      // Create medication with correct field mapping
-      const medicationData = {
-        brandName: data.brandName,
-        nafdacCode: data.nafdacCode,
-        prescriptionRequired: data.prescriptionRequired ?? false,
-        brandDescription: data.brandDescription || null,
-        manufacturerId: data.manufacturerId || null,
-        form: data.form || null,
-        packSizeQuantity: data.packSizeQuantity || null,
-        packSizeUnit: data.packSizeUnit || null,
-        imageUrl: data.imageUrl || null,
-      };
+      // Resolve manufacturer ID (existing or newly created)
+      const manufacturerId = await resolveManufacturer(tx, data);
 
-      console.log('Medication data to create:', JSON.stringify(medicationData, null, 2));
+      // Compute pack size quantity from expression like "10 x 10"
+      const computedQty = computePackSizeQuantity(data.packSizeExpression);
 
-      // Create Medication
+      // Create medication record
       const med = await tx.medication.create({
-        data: medicationData,
+        data: {
+          brandName: data.brandName,
+          nafdacCode: data.nafdacCode,
+          prescriptionRequired: data.prescriptionRequired ?? false,
+          brandDescription: data.brandDescription || null,
+          manufacturerId,
+          pharmacopeia: data.pharmacopeia || null,
+          form: data.form || null,
+          packSizeExpression: data.packSizeExpression || null,
+          packSizeQuantity: computedQty,
+          packSizeUnit: data.packSizeUnit || null,
+          imageUrl: data.imageUrl || null,
+        },
       });
 
-      // Create MedicationIngredient entries and link to medication
-      for (const ingredient of data.ingredients) {
-        // Check if ingredient with same properties already exists
-        let medIngredient = await tx.medicationIngredient.findFirst({
-          where: {
-            substanceId: ingredient.activeSubstanceId,
-            strengthValue: ingredient.strengthValue || null,
-            strengthUnit: ingredient.strengthUnit || null,
-            perUnitType: ingredient.perUnitType || null,
-          }
-        });
-
-        // Create if doesn't exist
-        if (!medIngredient) {
-          medIngredient = await tx.medicationIngredient.create({
-            data: {
-              substanceId: ingredient.activeSubstanceId,
-              strengthValue: ingredient.strengthValue || null,
-              strengthUnit: ingredient.strengthUnit || null,
-              perUnitValue: ingredient.perUnitValue || null,
-              perUnitType: ingredient.perUnitType || null,
-            },
-          });
-        }
-
-        // Link to medication via join table - FIXED FIELD NAME
-        await tx.medication_MedicationIngredient.create({
-          data: {
-            medicationId: med.id,
-            ingredientId: medIngredient.id, // ✅ Correct field name
-          },
-        });
-      }
+      // Link ingredients to this medication
+      await linkIngredients(tx, med.id, data.ingredients);
 
       return med;
     });
 
     console.log('Medication created:', { medicationId: medication.id });
     return medication;
+
   } catch (error) {
     console.error('Error creating medication:', error);
     throw error;
   }
 }
-    
 
 
-// Fixed updateMedication function with correct field names
+// UPDATE MEDICATION --
+
 async function updateMedication(id, data) {
   try {
     console.log('Update data received:', JSON.stringify(data, null, 2));
 
     const medication = await prisma.medication.findUnique({ where: { id } });
-    if (!medication) {
-      const err = new Error('Medication not found');
-      err.status = 404;
-      throw err;
-    }
+    if (!medication) throw Object.assign(new Error('Medication not found'), { status: 404 });
 
     // Check NAFDAC code uniqueness if being updated
     if (data.nafdacCode && data.nafdacCode !== medication.nafdacCode) {
-      const existingMed = await prisma.medication.findUnique({
-        where: { nafdacCode: data.nafdacCode }
-      });
-      if (existingMed) {
-        throw new Error('NAFDAC code already exists');
-      }
+      const existingMed = await prisma.medication.findUnique({ where: { nafdacCode: data.nafdacCode } });
+      if (existingMed) throw new Error('NAFDAC code already exists');
     }
 
     return await prisma.$transaction(async (tx) => {
-      // Prepare update data
       const updateData = {};
-      
+
+      // Update basic fields if provided
       if (data.brandName !== undefined) updateData.brandName = data.brandName;
       if (data.brandDescription !== undefined) updateData.brandDescription = data.brandDescription;
-      if (data.manufacturerId !== undefined) updateData.manufacturerId = data.manufacturerId;
+
+      // Manufacturer handling
+      if (data.manufacturerId !== undefined) {
+        const manufacturer = await tx.manufacturer.findUnique({ where: { id: data.manufacturerId } });
+        if (!manufacturer) throw new Error('Manufacturer not found');
+        updateData.manufacturerId = data.manufacturerId;
+      } else if (data.manufacturerName) {
+        const manufacturerId = await resolveManufacturer(tx, data);
+        updateData.manufacturerId = manufacturerId;
+      }
+
       if (data.form !== undefined) updateData.form = data.form;
-      if (data.packSizeQuantity !== undefined) updateData.packSizeQuantity = data.packSizeQuantity;
+
+      // Update pack size expression and quantity
+      if (data.packSizeExpression !== undefined) {
+        updateData.packSizeExpression = data.packSizeExpression;
+        updateData.packSizeQuantity = computePackSizeQuantity(data.packSizeExpression);
+      }
+
       if (data.packSizeUnit !== undefined) updateData.packSizeUnit = data.packSizeUnit;
+      if (data.pharmacopeia !== undefined) updateData.pharmacopeia = data.pharmacopeia;
       if (data.nafdacCode !== undefined) updateData.nafdacCode = data.nafdacCode;
       if (data.prescriptionRequired !== undefined) updateData.prescriptionRequired = !!data.prescriptionRequired;
       if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
       if (data.fullName !== undefined) updateData.fullName = data.fullName;
 
-      console.log('Update data to apply:', JSON.stringify(updateData, null, 2));
+      // Apply updates to medication
+      const updatedMedication = await tx.medication.update({ where: { id }, data: updateData });
 
-      // Update medication fields
-      const updatedMedication = await tx.medication.update({
-        where: { id },
-        data: updateData,
-      });
-
-      // Handle ingredients if provided
+      // Update ingredients if provided
       if (Array.isArray(data.ingredients)) {
-        // Fetch current ingredient links - FIXED FIELD NAME
-        const currentLinks = await tx.medication_MedicationIngredient.findMany({
-          where: { medicationId: id },
-          include: { MedicationIngredient: true }
-        });
-
-        // Remove current links (unlink only)
-        await tx.medication_MedicationIngredient.deleteMany({
-          where: { medicationId: id }
-        });
-
-        const newIngredientIds = [];
-        for (const ingredient of data.ingredients) {
-          // Check if ingredient already exists
-          let medIngredient = await tx.medicationIngredient.findFirst({
-            where: {
-              substanceId: ingredient.activeSubstanceId,
-              strengthValue: ingredient.strengthValue || null,
-              strengthUnit: ingredient.strengthUnit || null,
-              perUnitType: ingredient.perUnitType || null,
-            }
-          });
-
-          // Create if doesn't exist
-          if (!medIngredient) {
-            medIngredient = await tx.medicationIngredient.create({
-              data: {
-                substanceId: ingredient.activeSubstanceId,
-                strengthValue: ingredient.strengthValue || null,
-                strengthUnit: ingredient.strengthUnit || null,
-                perUnitValue: ingredient.perUnitValue || null,
-                perUnitType: ingredient.perUnitType || null,
-              },
-            });
-          }
-
-          newIngredientIds.push(medIngredient.id);
-
-          // Link ingredient to medication - FIXED FIELD NAME
-          await tx.medication_MedicationIngredient.create({
-            data: {
-              medicationId: id,
-              ingredientId: medIngredient.id, // ✅ Correct field name
-            },
-          });
-        }
-
-        // Clean up orphaned ingredients - FIXED FIELD NAME
-        const previousIngredientIds = currentLinks.map(link => link.ingredientId); // ✅ Correct field name
-        const orphanedIngredientIds = previousIngredientIds.filter(
-          pid => !newIngredientIds.includes(pid)
-        );
-
-        if (orphanedIngredientIds.length > 0) {
-          // Only delete if no other medications are linked to them
-          await tx.medicationIngredient.deleteMany({
-            where: {
-              id: { in: orphanedIngredientIds },
-              Medication_MedicationIngredient: { none: {} } // ✅ Correct relation name
-            }
-          });
-        }
+        await linkIngredients(tx, id, data.ingredients, true); // true = remove orphaned ingredients
       }
 
       return updatedMedication;
     });
+
   } catch (error) {
     console.error('Error updating medication:', error);
     throw error;

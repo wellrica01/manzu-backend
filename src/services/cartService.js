@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
 const { recalculateOrderTotal } = require('../utils/cartUtils');
+const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils')
 const prisma = new PrismaClient();
 
 async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
@@ -472,11 +473,14 @@ async function getCart(userId) {
     }
 
   const med = item.MedicationAvailability?.Medication;
+
   const ingredients = med?.Medication_MedicationIngredient?.map(mi => ({
-    strengthValue: mi.MedicationIngredient.strengthValue,
-    strengthUnit: mi.MedicationIngredient.strengthUnit,
-    activeSubstance: mi.MedicationIngredient.ActiveSubstance?.name,
-  })) ?? [];
+  strengthValue: mi.MedicationIngredient.strengthValue,
+  strengthUnit: formatStrengthUnit(mi.MedicationIngredient.strengthUnit),
+  perUnitValue: mi.MedicationIngredient.perUnitValue,
+  perUnitType: formatPerUnitType(mi.MedicationIngredient.perUnitType),
+  activeSubstance: mi.MedicationIngredient.ActiveSubstance?.name,
+})) ?? [];
 
   acc[pharmacy.id].items.push({
     id: item.id,
@@ -488,17 +492,19 @@ async function getCart(userId) {
       manufacturerName: med?.Manufacturer?.name ?? null,
       manufacturerCountry: med?.Manufacturer?.country ?? null,
       form: med?.form ?? null,
+      pharmacopeia: med?.pharmacopeia ?? null,
+      packSizeExpression: med?.packSizeExpression ?? null,
       packSizeQuantity: med?.packSizeQuantity ?? null,
-      packSizeUnit: med?.packSizeUnit ?? null,
+      packSizeUnit: formatPackSizeUnit(med?.packSizeUnit ?? null),
       nafdacCode: med?.nafdacCode ?? null,
       prescriptionRequired: med?.prescriptionRequired ?? false,
       createdAt: med?.createdAt ?? null,
-      approvalDate: med?.approvalDate ?? null,
       expiryDate: med?.expiryDate ?? null,
       imageUrl: med?.imageUrl ?? null,
       ingredients,
-      fullName: `${med?.brandName ?? ""} ` + 
-              (med?.form ? ` (${med.form})` : ""),
+      displayName: med?.brandName
+        ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''}${med.form ? ` (${capitalize(med.form)})` : ''}`
+        : "Unknown",
       },
     quantity: item.quantity,
     price: item.price,
@@ -749,8 +755,8 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
     },
   });
 
-  const otcItems = orderItems.filter(item => !item.medicationAvailability.medication.prescriptionRequired);
-  const prescriptionItems = orderItems.filter(item => item.medicationAvailability.medication.prescriptionRequired);
+  const otcItems = orderItems.filter(item => !item.MedicationAvailability.Medication.prescriptionRequired);
+  const prescriptionItems = orderItems.filter(item => item.MedicationAvailability.Medication.prescriptionRequired);
 
   // If we have both OTC and prescription items, create separate orders
   if (otcItems.length > 0 && prescriptionItems.length > 0) {
@@ -876,17 +882,17 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
 
     // Check each order for prescription coverage
     for (const order of orders) {
-      if (order.prescription) {
-        const prescription = order.prescription;
+      if (order.Prescription) {
+        const prescription = order.Prescription;
         
         // Get medication IDs in this order
         const orderMedicationIds = order.items.map(item => 
-          item.medicationAvailability.medication.id.toString()
+          item.MedicationAvailability.Medication.id.toString()
         );
 
         // Map medicationIds covered by the prescription
         const coveredMedicationIds = prescription.PrescriptionMedication
-          .map(pm => pm.medication.id.toString());
+          .map(pm => pm.Medication.id.toString());
 
         // Update statuses for medications in this order that are covered by prescription
         for (const medId of medicationIds) {
@@ -932,7 +938,7 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
 
   for (const order of orders) {
     const orderMeds = order.items.map(item => 
-    item.medicationAvailability.medication.id.toString()
+    item.MedicationAvailability.Medication.id.toString()
   );
 
   const hasSpecifiedMedications = medicationIds.some(medId => 
@@ -965,11 +971,11 @@ async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicat
 
   // Separate OTC and prescription items
   const otcItems = targetOrder.items.filter(item => 
-    !item.medicationAvailability.medication.prescriptionRequired
+    !item.MedicationAvailability.Medication.prescriptionRequired
   );
   
   const prescriptionItems = targetOrder.items.filter(item => 
-    item.medicationAvailability.medication.prescriptionRequired
+    item.MedicationAvailability.Medication.prescriptionRequired
   );
 
   // Check if the specified medications are prescription items

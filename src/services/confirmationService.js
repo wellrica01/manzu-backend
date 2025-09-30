@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { isValidOrderReference } = require('../utils/validation');
 const { generateTrackingCode } = require('../utils/tracking');
+const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils')
 const prisma = new PrismaClient();
 
 async function confirmOrder({ reference, session, userId }) {
@@ -219,27 +220,41 @@ async function confirmOrder({ reference, session, userId }) {
                 fileUrl: order.Prescription.fileUrl,
               }
             : null,
-          items: order.OrderItem.map(item => {
-            const ingredients = item.MedicationAvailability.Medication.Medication_MedicationIngredient.map(
-              mmi => ({
-                activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name || null,
-                strengthValue: mmi.MedicationIngredient.strengthValue || null,
-                strengthUnit: mmi.MedicationIngredient.strengthUnit || null,
-              })
-            );
+        items: order.OrderItem.map(item => {
+          const med = item.MedicationAvailability.Medication;
 
+          // Map ingredients with formatted strengthUnit
+          const ingredients = med.Medication_MedicationIngredient.map(mmi => {
+            const ingredient = mmi.MedicationIngredient;
             return {
-              id: item.id,
-              medication: {
-                brandName: item.MedicationAvailability.Medication.brandName,
-                fullName: item.MedicationAvailability.Medication.fullName,
-                prescriptionRequired: item.MedicationAvailability.Medication.prescriptionRequired,
-                ingredients, // <-- all ingredients included
-              },
-              quantity: item.quantity,
-              price: item.price,
+              activeSubstance: ingredient.ActiveSubstance?.name || null,
+              strengthValue: ingredient.strengthValue || null,
+              strengthUnit: formatStrengthUnit(ingredient.strengthUnit), 
+              perUnitValue: ingredient.perUnitValue || null,
+              perUnitType: formatPerUnitType(ingredient.perUnitType), 
             };
-          }),
+          });
+
+          // Build displayName
+          const displayName = med.form
+            ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
+            : med.brandName;
+
+          return {
+            id: item.id,
+            medication: {
+              id: med.id,
+              brandName: med.brandName,
+              displayName, 
+              prescriptionRequired: med.prescriptionRequired,
+              packSizeUnit: formatPackSizeUnit(med.packSizeUnit), 
+              ingredients, 
+            },
+            quantity: item.quantity,
+            price: item.price,
+          };
+        }),
+
         });
 
         acc[pharmacyId].subtotal += order.totalPrice;

@@ -152,7 +152,7 @@ router.delete('/pharmacies/:id', authenticate, authenticateAdmin, async (req, re
   }
 });
 
-// ==================== MEDICATIONS ====================
+// ==================== GET MEDICATIONS ====================
 router.get('/medications', authenticate, authenticateAdmin, async (req, res) => {
   try {
     const query = medicationFilterSchema.parse(req.query);
@@ -175,7 +175,7 @@ router.get('/medications/:id', authenticate, authenticateAdmin, async (req, res)
   }
 });
 
-// Fixed POST route for creating medications
+// ==================== CREATE MEDICATION ====================
 router.post(
   '/medications',
   authenticate,
@@ -278,7 +278,7 @@ router.post(
   }
 );
 
-// Fixed PATCH route for updating medications
+// ==================== UPDATE MEDICATION ====================
 router.patch(
   '/medications/:id',
   authenticate,
@@ -337,6 +337,28 @@ router.patch(
 
       return standardResponse(res, 200, 'Medication updated successfully', { medication });
     } catch (error) {
+      handleError(res, error);
+    }
+  }
+);
+
+// ==================== DELETE MEDICATION ====================
+router.delete(
+  '/medications/:id',
+  authenticate,
+  authenticateAdmin,
+  async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return standardResponse(res, 400, 'Invalid medication ID');
+
+      await adminService.deleteMedication(id);
+
+      return standardResponse(res, 200, 'Medication deleted successfully');
+    } catch (error) {
+      if (error.status === 404) {
+        return standardResponse(res, 404, error.message);
+      }
       handleError(res, error);
     }
   }

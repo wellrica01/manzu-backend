@@ -136,6 +136,8 @@ model Medication {
   storageConditions               String?
   imageUrl                        String?
   fullName                        String?
+  packSizeExpression              String?                           @db.VarChar(50)
+  pharmacopeia                    Pharmacopeia?
   Manufacturer                    Manufacturer?                     @relation(fields: [manufacturerId], references: [id])
   MedicationAvailability          MedicationAvailability[]
   Medication_MedicationIngredient Medication_MedicationIngredient[]
@@ -574,4 +576,11 @@ enum SubstanceType {
   PRODRUG
   ENANTIOMER
   POLYMORPH
+}
+
+enum Pharmacopeia {
+  USP
+  BP
+  IP
+  OTHER
 }

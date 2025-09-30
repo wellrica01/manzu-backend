@@ -1,5 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils')
+
 
 async function trackOrders(trackingCode) {
   console.log('Searching for orders by tracking code:', { trackingCode });
@@ -24,6 +26,8 @@ async function trackOrders(trackingCode) {
                         select: {
                           strengthValue: true,
                           strengthUnit: true,
+                          perUnitValue: true,
+                          perUnitType: true,
                           ActiveSubstance: { select: { name: true } },
                         },
                       },
@@ -48,6 +52,8 @@ async function trackOrders(trackingCode) {
                         select: {
                           strengthValue: true,
                           strengthUnit: true,
+                          perUnitValue: true,
+                          perUnitType: true,
                           ActiveSubstance: { select: { name: true } },
                         },
                       },
@@ -84,34 +90,65 @@ async function trackOrders(trackingCode) {
       filledAt: order.filledAt,
       cancelledAt: order.cancelledAt,
       cancelReason: order.cancelReason,
+      
+      // Prescription info with formatted ingredients
       prescription: order.Prescription
         ? {
             id: order.Prescription.id,
             status: order.Prescription.status,
             fileUrl: order.Prescription.fileUrl,
             verified: order.Prescription.status === 'VERIFIED',
-            medications: order.Prescription.PrescriptionMedications.map(pm => ({
-              medicationId: pm.medicationId,
-              ingredients: pm.medication.Medication_MedicationIngredient.map(mmi => ({
-                activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
-                strengthValue: mmi.MedicationIngredient.strengthValue,
-                strengthUnit: mmi.MedicationIngredient.strengthUnit,
-              })),
-              quantity: pm.quantity,
-            })),
+            medications: order.Prescription.PrescriptionMedication.map(pm => {
+              const med = pm.medication;
+              const ingredients = med.Medication_MedicationIngredient.map(mmi => {
+                const ingredient = mmi.MedicationIngredient;
+                return {
+                  activeSubstance: ingredient.ActiveSubstance?.name || null,
+                  strengthValue: ingredient.strengthValue || null,
+                  strengthUnit: formatStrengthUnit(ingredient.strengthUnit),
+                  perUnitValue: ingredient.perUnitValue || null,
+                  perUnitType: formatPerUnitType(ingredient.perUnitType),
+                };
+              });
+
+              const displayName = med.form
+                ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
+                : med.brandName;
+
+              return {
+                medicationId: pm.medicationId,
+                ingredients,
+                displayName,
+                quantity: pm.quantity,
+              };
+            }),
           }
         : null,
+
       pharmacy: order.Pharmacy
         ? { id: order.Pharmacy.id, name: order.Pharmacy.name, address: order.Pharmacy.address }
         : null,
+
+      // Order items with formatted ingredients and displayName
       items: order.OrderItem.map(item => {
         const med = item.MedicationAvailability?.Medication;
-        const ingredients = med?.Medication_MedicationIngredient.map(mmi => ({
-          activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
-          strengthValue: mmi.MedicationIngredient.strengthValue,
-          strengthUnit: mmi.MedicationIngredient.strengthUnit,
-        }));
-        const displayName = ingredients?.map(i => `${i.activeSubstance} ${i.strengthValue ?? ''}${i.strengthUnit ?? ''}`).join(' + ');
+
+        const ingredients = med?.Medication_MedicationIngredient.map(mmi => {
+          const ingredient = mmi.MedicationIngredient;
+          return {
+            activeSubstance: ingredient.ActiveSubstance?.name || null,
+            strengthValue: ingredient.strengthValue || null,
+            strengthUnit: formatStrengthUnit(ingredient.strengthUnit),
+            perUnitValue: ingredient.perUnitValue || null,
+            perUnitType: formatPerUnitType(ingredient.perUnitType),
+          };
+        }) || [];
+
+        const displayName = med
+          ? med.form
+            ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
+            : med.brandName
+          : null;
 
         return {
           id: item.id,
@@ -120,6 +157,7 @@ async function trackOrders(trackingCode) {
                 id: med.id,
                 brandName: med.brandName,
                 prescriptionRequired: med.prescriptionRequired,
+                packSizeUnit: formatPackSizeUnit(med.packSizeUnit),
                 ingredients,
                 displayName,
               }

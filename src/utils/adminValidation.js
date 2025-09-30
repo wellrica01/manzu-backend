@@ -1,5 +1,18 @@
 const z = require('zod');
 
+// Allowed enums for forms, units, and strengths
+const MedicationForms = [
+  'TABLET','CAPSULE','CAPLET','SYRUP','INJECTION','CREAM','OINTMENT','GEL',
+  'SUSPENSION','POWDER','SUPPOSITORY','EYE_DROP','EAR_DROP','DROPS',
+  'NASAL_SPRAY','INHALER','PATCH','LOZENGE','EFFERVESCENT'
+];
+
+const PackSizeUnits = [
+  'TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER'
+];
+
+const StrengthUnits = ['MG','ML','G','MCG','IU','NG','MMOL','PERCENT'];
+
 const paginationSchema = z.object({
   page: z.preprocess(
     (val) => parseInt(val ?? '1', 10), // fallback to '1' if undefined/null
@@ -44,57 +57,64 @@ const editPharmacySchema = z.object({
 }).merge(paginationSchema);
 
 
+// ------------------ CREATE MEDICATION SCHEMA ------------------
 const createMedicationSchema = z.object({
   brandName: z.string().min(1, 'Brand name required'),
   brandDescription: z.string().optional(),
+
+  // Either manufacturerId (existing) OR manufacturerName (new) must be provided
   manufacturerId: z.number().int().positive().optional(),
-  form: z.enum([
-    'TABLET','CAPSULE','CAPLET','SYRUP','INJECTION','CREAM','OINTMENT','GEL',
-    'SUSPENSION','POWDER','SUPPOSITORY','EYE_DROP','EAR_DROP','DROPS',
-    'NASAL_SPRAY','INHALER','PATCH','LOZENGE','EFFERVESCENT'
-  ]).optional(),
-  packSizeQuantity: z.number().int().optional(), // Changed to int to match DB
-  packSizeUnit: z.enum([
-    // Fixed to match DB schema (singular forms)
-    'TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER'
-  ]).optional(),
+  manufacturerName: z.string().min(1).optional(),
+  manufacturerCountry: z.string().optional(),
+  manufacturerContact: z.string().optional(),
+
+  form: z.enum(MedicationForms).optional(),
+
+  pharmacopeia: z.enum(['USP', 'BP', 'IP', 'OTHER']).nullable().optional(),
+
+  packSizeExpression: z.string().optional(),
+  packSizeQuantity: z.number().int().optional(),
+  packSizeUnit: z.enum(PackSizeUnits).optional(),
+
   nafdacCode: z.string().min(1, 'NAFDAC code required'),
-  prescriptionRequired: z.boolean().default(false), // Added default
+  prescriptionRequired: z.boolean().default(false),
   imageUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
-  
-  // Fixed ingredients validation
+
   ingredients: z.array(
     z.object({
       activeSubstanceId: z.number().int().positive(),
       strengthValue: z.number().positive().optional(),
-      strengthUnit: z.enum(['MG','ML','G','MCG','IU','NG','MMOL','PERCENT']).optional(),
+      strengthUnit: z.enum(StrengthUnits).optional(),
       perUnitValue: z.number().positive().optional(),
-      // Fixed to match PackSizeUnit enum (singular)
-      perUnitType: z.enum(['TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER']).optional(),
-      id: z.number().int().positive().optional() // for updates
+      perUnitType: z.enum(PackSizeUnits).optional(),
+      id: z.number().int().positive().optional()
     }).refine(data => {
-      // If strengthValue is provided, strengthUnit should be provided too
       if (data.strengthValue && !data.strengthUnit) return false;
       if (data.perUnitValue && !data.perUnitType) return false;
       return true;
-    }, { message: "Strength unit required when strength value is provided" })
+    }, { message: "Units are required when values are provided" })
   ).min(1, 'At least one active substance is required'),
 });
 
+// ------------------ UPDATE MEDICATION SCHEMA ------------------
 const updateMedicationSchema = createMedicationSchema.partial().extend({
   ingredients: z.array(
     z.object({
       activeSubstanceId: z.number().int().positive(),
       strengthValue: z.number().positive().optional(),
-      strengthUnit: z.enum(['MG','ML','G','MCG','IU','NG','MMOL','PERCENT']).optional(),
+      strengthUnit: z.enum(StrengthUnits).optional(),
       perUnitValue: z.number().positive().optional(),
-      perUnitType: z.enum(['TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER']).optional(),
+      perUnitType: z.enum(PackSizeUnits).optional(),
       id: z.number().int().positive().optional(),
-      // Add action field for update operations
       _action: z.enum(['CREATE', 'UPDATE', 'DELETE']).optional()
-    })
+    }).refine(data => {
+      if (data.strengthValue && !data.strengthUnit) return false;
+      if (data.perUnitValue && !data.perUnitType) return false;
+      return true;
+    }, { message: "Units are required when values are provided" })
   ).optional()
 });
+
 
 // Fixed filter schema to match service parameters
 const medicationFilterSchema = z.object({
