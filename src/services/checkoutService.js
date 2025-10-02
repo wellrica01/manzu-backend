@@ -70,7 +70,8 @@ const cartOrders = await prisma.order.findMany({
         readyItems.push({
           ...item,
           orderId: order.id,
-          orderStatus: order.status
+          orderStatus: order.status,
+          prescriptionId: order.prescriptionId,
         });
       }
     }
@@ -132,6 +133,10 @@ const cartOrders = await prisma.order.findMany({
     const paymentReference = `order_${Date.now()}_${pharmacyId}`;
     
     const newOrder = await prisma.$transaction(async (tx) => {
+      const prescriptionIdForGroup = items.find(
+        i => i.MedicationAvailability.Medication.prescriptionRequired && i.orderStatus === 'PENDING'
+      )?.prescriptionId || null;
+
       const createdOrder = await tx.order.create({
         data: {
           userIdentifier,
@@ -148,7 +153,8 @@ const cartOrders = await prisma.order.findMany({
           checkoutSessionId,
           createdAt: new Date(),
           updatedAt: new Date(),
-          prescriptionId: null, // Prescriptions are handled at cart level
+          prescriptionId: prescriptionIdForGroup,
+
         },
       });
 
@@ -211,7 +217,7 @@ const cartOrders = await prisma.order.findMany({
   // Paystack requires an email, so we'll use a placeholder if none provided
   const paystackEmail = email || `guest-${userIdentifier}@manzu.com`;
   
-  const callbackUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/med-confirmation/callback?session=${checkoutSessionId}`;
+  const callbackUrl = `${process.env.BACKEND_URL || 'http://192.168.36.67:5000'}/api/med-confirmation/callback?session=${checkoutSessionId}`;
   
   const paystackResponse = await axios.post(
     'https://api.paystack.co/transaction/initialize',

@@ -353,7 +353,7 @@ async function cleanupEmptyOrders(tx, userId, excludeOrderId) {
 
   // Delete empty orders (except the excluded one)
   for (const order of orders) {
-    if (order.id !== excludeOrderId && order.items.length === 0) {
+    if (order.id !== excludeOrderId && order.OrderItem.length === 0) {
       await tx.order.delete({
         where: { id: order.id },
       });
@@ -649,7 +649,7 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
     throw new Error('Item not found');
   }
 
-  const order = orderItem.order;
+  const order = orderItem.Order;
   
   // Check if the order belongs to this user and has appropriate status
   if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION', 'PENDING'].includes(order.status)) {
@@ -696,7 +696,7 @@ async function removeFromCart({ orderItemId, userId }) {
     throw new Error('Item not found');
   }
 
-  const order = orderItem.order;
+  const order = orderItem.Order;
   
   // Check if the order belongs to this user and has appropriate status
   if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION', 'PENDING'].includes(order.status)) {
@@ -886,7 +886,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         const prescription = order.Prescription;
         
         // Get medication IDs in this order
-        const orderMedicationIds = order.items.map(item => 
+        const orderMedicationIds = order.OrderItem.map(item => 
           item.MedicationAvailability.Medication.id.toString()
         );
 
@@ -910,208 +910,63 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
   }
 }
 
-async function linkPrescriptionToSpecificOrder({ prescriptionId, userId, medicationIds }) {
-  // Find orders that contain the specified medications (both cart and pending_prescription status)
-  const orders = await prisma.order.findMany({
-    where: {
-      userIdentifier: userId,
-      status: { in: ['CART', 'PENDING_PRESCRIPTION'] },
-    },
-    include: {
-      OrderItem: {
-        include: {
-          MedicationAvailability: {
-            include: { Medication: true },
-          },
-        },
+async function linkPrescriptionToSpecificOrder({ userId, prescriptionId, medicationIds }) {
+  return await prisma.$transaction(async (tx) => {
+    // 🔎 Find active orders that can still accept prescriptions
+    const orders = await tx.order.findMany({
+      where: {
+        userIdentifier: userId,
+        status: { in: ['CART', 'PENDING_PRESCRIPTION', 'PENDING'] }, // ✅ now includes PENDING
       },
-    },
-  });
+      include: {
+        OrderItem: true,
+      },
+    });
 
-  if (!orders || orders.length === 0) {
-    throw new Error('Cart not found');
-  }
-
-  // Find the order that contains the specified medications
-  let targetOrder = null;
-  let orderMedicationIds = [];
-
-  for (const order of orders) {
-    const orderMeds = order.items.map(item => 
-    item.MedicationAvailability.Medication.id.toString()
-  );
-
-  const hasSpecifiedMedications = medicationIds.some(medId => 
-      orderMeds.includes(medId)
-  );
-
-    if (hasSpecifiedMedications) {
-      targetOrder = order;
-      orderMedicationIds = orderMeds;
-      break;
-    }
-  }
-
-  if (!targetOrder) {
-    throw new Error('Specified medications not found in cart');
-  }
-
-  if (medicationIds.length === 0) {
-    throw new Error('No medication IDs provided');
-  }
-
-  // Get prescription contact info
-  const prescription = await prisma.prescription.findUnique({
-    where: { id: prescriptionId },
-  });
-
-  if (!prescription) {
-    throw new Error('Prescription not found');
-  }
-
-  // Separate OTC and prescription items
-  const otcItems = targetOrder.items.filter(item => 
-    !item.MedicationAvailability.Medication.prescriptionRequired
-  );
-  
-  const prescriptionItems = targetOrder.items.filter(item => 
-    item.MedicationAvailability.Medication.prescriptionRequired
-  );
-
-  // Check if the specified medications are prescription items
-  const specifiedPrescriptionItems = prescriptionItems.filter(item => 
-    medicationIds.includes(item.MedicationAvailability.Medication.id.toString())
-  );
-
-  if (specifiedPrescriptionItems.length === 0) {
-    throw new Error('Specified medications are not prescription items');
-  }
-
-  // Use transaction to handle order updates
-  const result = await prisma.$transaction(async (tx) => {
-    // If this is a rejected prescription case (order already has prescriptionId), 
-    // just update the existing order with the new prescriptionId
-    if (targetOrder.prescriptionId && targetOrder.status === 'PENDING_PRESCRIPTION') {
-      const updatedOrder = await tx.order.update({
-        where: { id: targetOrder.id },
-        data: {
-          prescriptionId: prescriptionId,
-          email: prescription.email,
-          phone: prescription.phone,
-          updatedAt: new Date(),
-        },
-      });
-
-      console.log('Updated existing prescription order with new prescription:', {
-        orderId: updatedOrder.id,
-        oldPrescriptionId: targetOrder.prescriptionId,
-        newPrescriptionId: prescriptionId,
-        medicationIds: medicationIds,
-        email: prescription.email,
-        phone: prescription.phone
-      });
-
-      return updatedOrder;
+    if (!orders || orders.length === 0) {
+      throw new Error('Cart not found');
     }
 
-    // If we have both OTC and prescription items, create separate orders
-    if (otcItems.length > 0 && prescriptionItems.length > 0) {
-      // Create new order for OTC items (keep as cart)
-      const otcOrder = await tx.order.create({
-        data: {
-          userIdentifier: userId,
-          status: 'CART',
-          totalPrice: 0,
-          deliveryMethod: 'UNSPECIFIED',
-          paymentStatus: 'PENDING',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
+    // 🔎 Find the prescription
+    const prescription = await tx.prescription.findUnique({
+      where: { id: prescriptionId },
+    });
 
-      // Create new order for prescription items (pending verification)
-      const prescriptionOrder = await tx.order.create({
-        data: {
-          userIdentifier: userId,
-          status: 'PENDING_PRESCRIPTION',
-          totalPrice: 0,
-          deliveryMethod: 'UNSPECIFIED',
-          paymentStatus: 'PENDING',
-          prescriptionId: prescriptionId,
-          email: prescription.email,
-          phone: prescription.phone,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
+    if (!prescription) {
+      throw new Error('Prescription not found');
+    }
 
-      // Move OTC items to OTC order
-      for (const item of otcItems) {
-        await tx.orderItem.update({
-          where: { id: item.id },
-          data: { orderId: otcOrder.id },
-        });
-      }
+    // ✅ Find the target order containing the medications
+    const targetOrder = orders.find(order =>
+      order.OrderItem.some(item => medicationIds.includes(item.medicationId.toString()))
+    );
 
-      // Move prescription items to prescription order
-      for (const item of prescriptionItems) {
-        await tx.orderItem.update({
-          where: { id: item.id },
-          data: { orderId: prescriptionOrder.id },
-        });
-      }
+    if (!targetOrder) {
+      throw new Error('No matching order found for prescription medications');
+    }
 
-      // Recalculate totals for both orders
-      const { updatedOrder: updatedOtcOrder } = await recalculateOrderTotal(tx, otcOrder.id);
-      const { updatedOrder: updatedPrescriptionOrder } = await recalculateOrderTotal(tx, prescriptionOrder.id);
-
-      // Delete the original mixed order
-      await tx.order.delete({
-        where: { id: targetOrder.id },
-      });
-
-      console.log('Separated orders after prescription upload:', {
-        otcOrderId: updatedOtcOrder.id,
-        prescriptionOrderId: updatedPrescriptionOrder.id,
+    // ✅ Update only the matched order
+    const updatedOrder = await tx.order.update({
+      where: { id: targetOrder.id },
+      data: {
         prescriptionId: prescriptionId,
-        medicationIds: medicationIds,
-        email: prescription.email,
-        phone: prescription.phone
-      });
+        // ✅ Only promote CART → PENDING_PRESCRIPTION
+        // ✅ Preserve PENDING or PENDING_PRESCRIPTION as-is
+        status: targetOrder.status === 'CART'
+          ? 'PENDING_PRESCRIPTION'
+          : targetOrder.status,
+        email: prescription.email || targetOrder.email,
+        phone: prescription.phone || targetOrder.phone,
+        updatedAt: new Date(),
+      },
+      include: {
+        OrderItem: true,
+        Prescription: true,
+      },
+    });
 
-      return {
-        otcOrder: updatedOtcOrder,
-        prescriptionOrder: updatedPrescriptionOrder,
-      };
-    } else if (prescriptionItems.length > 0) {
-      // Only prescription items - update existing order
-      const updatedOrder = await tx.order.update({
-        where: { id: targetOrder.id },
-        data: {
-          prescriptionId: prescriptionId,
-          status: 'PENDING_PRESCRIPTION',
-          email: prescription.email,
-          phone: prescription.phone,
-          updatedAt: new Date(),
-        },
-      });
-
-      console.log('Updated prescription order:', {
-        orderId: updatedOrder.id,
-        prescriptionId: prescriptionId,
-        medicationIds: medicationIds,
-        email: prescription.email,
-        phone: prescription.phone
-      });
-
-      return updatedOrder;
-    } else {
-      // Only OTC items - this shouldn't happen but handle gracefully
-      throw new Error('No prescription items found in cart');
-    }
+    return updatedOrder;
   });
-
-  return result;
 }
 
 module.exports = {

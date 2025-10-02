@@ -2,7 +2,13 @@ const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { isValidOrderReference } = require('../utils/validation');
 const { generateTrackingCode } = require('../utils/tracking');
-const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils')
+const {
+  capitalize,
+  formatPerUnitType,
+  formatPackSizeUnit,
+  formatStrengthUnit,
+} = require('../utils/medicationUtils');
+
 const prisma = new PrismaClient();
 
 async function confirmOrder({ reference, session, userId }) {
@@ -11,28 +17,36 @@ async function confirmOrder({ reference, session, userId }) {
 
     let transactionRef = null;
 
-    // Validate reference if provided
+    // ✅ Validate and fetch transaction reference if provided
     if (reference) {
       if (!isValidOrderReference(reference)) {
         throw new Error('Invalid payment reference format');
       }
 
-      transactionRef = await prisma.transactionReference.findFirst({
-        where: { transactionReference: reference },
-      }) || await prisma.transactionReference.findFirst({
-        where: { orderReferences: { has: reference } },
-      });
+      transactionRef =
+        (await prisma.transactionReference.findFirst({
+          where: { transactionReference: reference },
+        })) ||
+        (await prisma.transactionReference.findFirst({
+          where: { orderReferences: { has: reference } },
+        }));
 
       if (!transactionRef) throw new Error('Transaction reference not found');
     }
 
-    // Fetch orders
-    let orders = [];
+    // ✅ Fetch orders linked to reference/session
     const orderWhere = transactionRef
-      ? { userIdentifier: userId, paymentReference: { in: transactionRef.orderReferences } }
-      : { userIdentifier: userId, checkoutSessionId: session, status: { in: ['PENDING', 'CONFIRMED'] } };
+      ? {
+          userIdentifier: userId,
+          paymentReference: { in: transactionRef.orderReferences },
+        }
+      : {
+          userIdentifier: userId,
+          checkoutSessionId: session,
+          status: { in: ['PENDING', 'CONFIRMED'] },
+        };
 
-    orders = await prisma.order.findMany({
+    const orders = await prisma.order.findMany({
       where: orderWhere,
       include: {
         OrderItem: {
@@ -47,39 +61,47 @@ async function confirmOrder({ reference, session, userId }) {
                           select: {
                             strengthValue: true,
                             strengthUnit: true,
-                            ActiveSubstance: { select: { name: true } }
-                          }
-                        }
-                      }
-                    }
-                  }
+                            ActiveSubstance: { select: { name: true } },
+                          },
+                        },
+                      },
+                    },
+                  },
                 },
                 Pharmacy: { include: { OperatingHour: true } },
-              }
-            }
-          }
+              },
+            },
+          },
         },
         Prescription: { include: { PrescriptionMedication: true } },
         Pharmacy: { include: { OperatingHour: true } },
-      }
+      },
     });
 
     if (orders.length === 0) throw new Error('Orders not found');
 
-    // Generate or reuse tracking code
+    // ✅ Generate or reuse tracking code
     const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
     const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
     let status = 'COMPLETED';
 
-    // Verify Paystack transaction if reference exists
+    // ✅ Verify Paystack transaction
     if (transactionRef) {
       try {
         const paystackResponse = await axios.get(
           `https://api.paystack.co/transaction/verify/${transactionRef.transactionReference}`,
-          { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' } }
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+              'Content-Type': 'application/json',
+            },
+          }
         );
 
-        if (!paystackResponse.data.status || paystackResponse.data.data.status !== 'success') {
+        if (
+          !paystackResponse.data.status ||
+          paystackResponse.data.data.status !== 'success'
+        ) {
           await prisma.$transaction(async tx => {
             for (const order of orders) {
               if (transactionRef.orderReferences.includes(order.paymentReference)) {
@@ -98,20 +120,21 @@ async function confirmOrder({ reference, session, userId }) {
       }
     }
 
-    // Check verified prescriptions
+    // ✅ Get latest verified prescription
     const verifiedPrescription = await prisma.prescription.findFirst({
       where: { userIdentifier: userId, status: 'VERIFIED' },
       include: { PrescriptionMedication: true },
       orderBy: [{ createdAt: 'desc' }],
     });
 
-    // Update orders in a transaction
+    // ✅ Update orders transactionally
     const updatedOrders = await prisma.$transaction(async tx => {
       const updated = [];
+
       for (const order of orders) {
         let newStatus = order.status;
         let newPaymentStatus = order.paymentStatus;
-        let newPrescriptionId = order.prescriptionId;
+        let newPrescriptionId = order.prescriptionId; // preserve if already linked
 
         const requiresPrescription = order.OrderItem.some(
           item => item.MedicationAvailability.Medication.prescriptionRequired
@@ -121,26 +144,48 @@ async function confirmOrder({ reference, session, userId }) {
           const orderMedicationIds = order.OrderItem
             .filter(item => item.MedicationAvailability.Medication.prescriptionRequired)
             .map(item => item.MedicationAvailability.medicationId);
-          const prescriptionMedicationIds = verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId);
-          const isPrescriptionValid = orderMedicationIds.every(id => prescriptionMedicationIds.includes(id));
 
-          if (isPrescriptionValid && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
+          const prescriptionMedicationIds =
+            verifiedPrescription.PrescriptionMedication.map(pm => pm.medicationId);
+
+          const isPrescriptionValid = orderMedicationIds.every(id =>
+            prescriptionMedicationIds.includes(id)
+          );
+
+          if (
+            isPrescriptionValid &&
+            (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)
+          ) {
             newStatus = 'CONFIRMED';
             newPaymentStatus = 'PAID';
+            // ✅ attach prescription only if Rx items are present
             newPrescriptionId = verifiedPrescription.id;
           } else if (order.status === 'PENDING_PRESCRIPTION') {
             status = 'PENDING_PRESCRIPTION';
           }
-        } else if (!requiresPrescription && (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)) {
+        } else if (
+          !requiresPrescription &&
+          (transactionRef?.orderReferences.includes(order.paymentReference) || !transactionRef)
+        ) {
           newStatus = 'CONFIRMED';
           newPaymentStatus = 'PAID';
+          // ✅ do NOT attach prescription if only OTC
+          newPrescriptionId = null;
         } else if (order.status === 'PENDING_PRESCRIPTION') {
           status = 'PENDING_PRESCRIPTION';
         }
 
         const updatedOrder = await tx.order.update({
           where: { id: order.id },
-          data: { paymentStatus: newPaymentStatus, status: newStatus, trackingCode, prescriptionId: newPrescriptionId, updatedAt: new Date() },
+          data: {
+            paymentStatus: newPaymentStatus,
+            status: newStatus,
+            trackingCode,
+            ...(requiresPrescription && newPrescriptionId
+              ? { prescriptionId: newPrescriptionId }
+              : {}), // ✅ conditionally attach only for Rx orders
+            updatedAt: new Date(),
+          },
           include: {
             OrderItem: {
               include: {
@@ -154,29 +199,30 @@ async function confirmOrder({ reference, session, userId }) {
                               select: {
                                 strengthValue: true,
                                 strengthUnit: true,
-                                ActiveSubstance: { select: { name: true } }
-                              }
-                            }
-                          }
-                        }
-                      }
+                                ActiveSubstance: { select: { name: true } },
+                              },
+                            },
+                          },
+                        },
+                      },
                     },
                     Pharmacy: { include: { OperatingHour: true } },
-                  }
-                }
-              }
+                  },
+                },
+              },
             },
             Prescription: true,
             Pharmacy: { include: { OperatingHour: true } },
-          }
+          },
         });
 
         updated.push(updatedOrder);
       }
+
       return updated;
     });
 
-    // Format response grouped by pharmacy
+    // ✅ Format response grouped by pharmacy
     const ordersByPharmacy = updatedOrders
       .filter(o => o.status === 'CONFIRMED' && o.paymentStatus === 'PAID')
       .reduce((acc, order) => {
@@ -220,41 +266,40 @@ async function confirmOrder({ reference, session, userId }) {
                 fileUrl: order.Prescription.fileUrl,
               }
             : null,
-        items: order.OrderItem.map(item => {
-          const med = item.MedicationAvailability.Medication;
+          items: order.OrderItem.map(item => {
+            const med = item.MedicationAvailability.Medication;
 
-          // Map ingredients with formatted strengthUnit
-          const ingredients = med.Medication_MedicationIngredient.map(mmi => {
-            const ingredient = mmi.MedicationIngredient;
+            const ingredients = med.Medication_MedicationIngredient.map(mmi => {
+              const ingredient = mmi.MedicationIngredient;
+              return {
+                activeSubstance: ingredient.ActiveSubstance?.name || null,
+                strengthValue: ingredient.strengthValue || null,
+                strengthUnit: formatStrengthUnit(ingredient.strengthUnit),
+                perUnitValue: ingredient.perUnitValue || null,
+                perUnitType: formatPerUnitType(ingredient.perUnitType),
+              };
+            });
+
+            const displayName = med.form
+              ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(
+                  med.form
+                )})`
+              : med.brandName;
+
             return {
-              activeSubstance: ingredient.ActiveSubstance?.name || null,
-              strengthValue: ingredient.strengthValue || null,
-              strengthUnit: formatStrengthUnit(ingredient.strengthUnit), 
-              perUnitValue: ingredient.perUnitValue || null,
-              perUnitType: formatPerUnitType(ingredient.perUnitType), 
+              id: item.id,
+              medication: {
+                id: med.id,
+                brandName: med.brandName,
+                displayName,
+                prescriptionRequired: med.prescriptionRequired,
+                packSizeUnit: formatPackSizeUnit(med.packSizeUnit),
+                ingredients,
+              },
+              quantity: item.quantity,
+              price: item.price,
             };
-          });
-
-          // Build displayName
-          const displayName = med.form
-            ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
-            : med.brandName;
-
-          return {
-            id: item.id,
-            medication: {
-              id: med.id,
-              brandName: med.brandName,
-              displayName, 
-              prescriptionRequired: med.prescriptionRequired,
-              packSizeUnit: formatPackSizeUnit(med.packSizeUnit), 
-              ingredients, 
-            },
-            quantity: item.quantity,
-            price: item.price,
-          };
-        }),
-
+          }),
         });
 
         acc[pharmacyId].subtotal += order.totalPrice;
@@ -262,13 +307,15 @@ async function confirmOrder({ reference, session, userId }) {
       }, {});
 
     return {
-      message: status === 'COMPLETED' ? 'Payment verified' : 'Orders retrieved, some awaiting verification',
+      message:
+        status === 'COMPLETED'
+          ? 'Payment verified'
+          : 'Orders retrieved, some awaiting verification',
       status,
       checkoutSessionId: session,
       trackingCode,
       pharmacies: Object.values(ordersByPharmacy),
     };
-
   } catch (error) {
     console.error('Error in confirmOrder:', error);
     throw error;

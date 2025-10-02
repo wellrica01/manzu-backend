@@ -1,11 +1,21 @@
 const z = require('zod');
 
 // Allowed enums for forms, units, and strengths
+// Constants
 const MedicationForms = [
-  'TABLET','CAPSULE','CAPLET','SYRUP','INJECTION','CREAM','OINTMENT','GEL',
-  'SUSPENSION','POWDER','SUPPOSITORY','EYE_DROP','EAR_DROP','DROPS',
-  'NASAL_SPRAY','INHALER','PATCH','LOZENGE','EFFERVESCENT'
+  "TABLET",   "CAPSULE",   "CAPLET", 
+  "SYRUP",   "INJECTION",   "CREAM", 
+  "OINTMENT",   "GEL",   "SUSPENSION", 
+  "POWDER",   "SUPPOSITORY",   "EYE_DROP", 
+  "EAR_DROP",   "DROPS",   "NASAL_SPRAY", 
+  "INHALER",   "PATCH",   "LOZENGE", 
+  "EFFERVESCENT",   "GRANULES",   "SOLUTION", 
+  "ORODISPERSIBLE_FILM",   "INFUSION",   "LYOPHILIZED_POWDER", 
+  "NEBULIZER_SOLUTION",   "EYE_OINTMENT",   "EAR_SPRAY", 
+  "LOTION",   "PASTE",   "FOAM", 
+  "MOUTHWASH",   "IMPLANT",   "MICROSPHERES"
 ];
+
 
 const PackSizeUnits = [
   'TABLET','CAPSULE','ML','VIAL','AMPOULE','SACHET','PATCH','BOTTLE','TUBE','BLISTER'

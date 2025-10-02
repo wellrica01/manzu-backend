@@ -99,7 +99,7 @@ async function trackOrders(trackingCode) {
             fileUrl: order.Prescription.fileUrl,
             verified: order.Prescription.status === 'VERIFIED',
             medications: order.Prescription.PrescriptionMedication.map(pm => {
-              const med = pm.medication;
+              const med = pm.Medication;
               const ingredients = med.Medication_MedicationIngredient.map(mmi => {
                 const ingredient = mmi.MedicationIngredient;
                 return {

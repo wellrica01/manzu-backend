@@ -179,20 +179,22 @@ function validateMedicationSuggestions(data) {
 
 function validateMedicationSearch(data) {
   const schema = Joi.object({
-    q: Joi.string().trim().optional(),
+    q: Joi.string().trim().max(100).optional(),
     medicationId: Joi.number().integer().optional(),
-    page: Joi.string().pattern(/^\d+$/).default('1'),
-    limit: Joi.string().pattern(/^\d+$/).default('10'),
-    lat: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
-    lng: Joi.string().pattern(/^-?\d+(\.\d+)?$/).optional(),
-    radius: Joi.string().pattern(/^\d+(\.\d+)?$/).default('10'),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).default(10),
+    lat: Joi.number().min(-90).max(90).optional(),
+    lng: Joi.number().min(-180).max(180).optional(),
+    radius: Joi.number().min(0).default(10),
     state: Joi.string().optional(),
     lga: Joi.string().optional(),
     ward: Joi.string().optional(),
     sortBy: Joi.string().valid('cheapest', 'nearest').default('cheapest'),
   }).or('q', 'medicationId');
+
   return schema.validate(data, { abortEarly: false });
 }
+
 
 function validatePrescriptionUpload(data) {
   const schema = Joi.object({

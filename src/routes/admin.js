@@ -1,6 +1,7 @@
 const express = require('express');
 const supabase = require('../utils/supabaseClient')
 const upload = require('../utils/upload')
+const { normalizeMedicationFields, handleImageUpload } = require('../utils/medicationUtils')
 const z = require('zod');
 const adminService = require('../services/adminService');
 const {
@@ -175,172 +176,55 @@ router.get('/medications/:id', authenticate, authenticateAdmin, async (req, res)
   }
 });
 
-// ==================== CREATE MEDICATION ====================
+// CREATE MEDICATION
 router.post(
   '/medications',
   authenticate,
   authenticateAdmin,
   upload.single('image'),
+  normalizeMedicationFields,
   async (req, res) => {
     try {
-      const formFields = { ...req.body };
-      const image = req.file;
+      const data = createMedicationSchema.parse(req.normalizedFields);
 
-      // Convert numeric fields (FormData values are strings)
-      formFields.manufacturerId = formFields.manufacturerId && formFields.manufacturerId !== '' 
-        ? parseInt(formFields.manufacturerId, 10) 
-        : undefined;
-      
-      formFields.packSizeQuantity = formFields.packSizeQuantity && formFields.packSizeQuantity !== ''
-        ? parseInt(formFields.packSizeQuantity, 10) 
-        : undefined;
-
-      // Convert boolean fields (FormData booleans come as strings)
-      formFields.prescriptionRequired = formFields.prescriptionRequired === 'true';
-
-      // Parse ingredients JSON string into array
-      if (!formFields.ingredients || formFields.ingredients === '') {
-        formFields.ingredients = [];
-      } else {
-        try {
-          formFields.ingredients = JSON.parse(formFields.ingredients);
-        } catch (e) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid ingredients JSON',
-          });
-        }
+      if (req.file) {
+        data.imageUrl = await handleImageUpload(req.file, supabase);
       }
 
-      // Image validation
-      if (image) {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        const maxSize = 5 * 1024 * 1024; // 5MB
-
-        if (!allowedTypes.includes(image.mimetype)) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid file type. Only JPEG, PNG, WebP allowed.',
-          });
-        }
-
-        if (image.size > maxSize) {
-          return res.status(400).json({
-            success: false,
-            message: 'File too large. Max 5MB.',
-          });
-        }
-      }
-
-      // Validate all fields with Zod
-      const data = createMedicationSchema.parse(formFields);
-
-      // Upload image to Supabase if exists
-      if (image) {
-        const fileName = `medications/${Date.now()}-${image.originalname}`;
-        const { error: uploadError } = await supabase.storage
-          .from('medications')
-          .upload(fileName, image.buffer, { contentType: image.mimetype });
-
-        if (uploadError) throw new Error('Image upload failed: ' + uploadError.message);
-
-        const { data: publicUrlData } = supabase.storage
-          .from('medications')
-          .getPublicUrl(fileName);
-
-        data.imageUrl = publicUrlData.publicUrl;
-      }
-
-      console.log('Data being sent to service:', JSON.stringify(data, null, 2));
-      console.log('Data keys:', Object.keys(data));
-
-      // Create medication
       const medication = await adminService.createMedication(data);
-
-      return res.status(201).json({
-        success: true,
-        message: 'Medication created successfully',
-        medication,
-      });
-
+      return res.status(201).json({ success: true, message: 'Medication created successfully', medication });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({
-          success: false,
-          message: 'Validation error',
-          errors: error.errors,
-        });
-      }
-
-      console.error('Error creating medication:', error);
-      return res.status(500).json({ success: false, message: error.message });
+      handleError(res, error);
     }
   }
 );
 
-// ==================== UPDATE MEDICATION ====================
+// UPDATE MEDICATION
 router.patch(
   '/medications/:id',
   authenticate,
   authenticateAdmin,
   upload.single('image'),
+  normalizeMedicationFields,
   async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return standardResponse(res, 400, 'Invalid medication ID');
 
-      const { body: formFields, file } = req;
+      const validatedData = updateMedicationSchema.parse(req.normalizedFields);
 
-      const data = {
-        ...formFields,
-        manufacturerId: formFields.manufacturerId && formFields.manufacturerId !== ''
-          ? parseInt(formFields.manufacturerId, 10) 
-          : undefined,
-        packSizeQuantity: formFields.packSizeQuantity && formFields.packSizeQuantity !== ''
-          ? parseInt(formFields.packSizeQuantity, 10) 
-          : undefined,
-        prescriptionRequired: formFields.prescriptionRequired === 'true' || formFields.prescriptionRequired === true,
-      };
-
-      // Handle ingredients
-      if (formFields.ingredients && formFields.ingredients !== '') {
-        try {
-          data.ingredients = JSON.parse(formFields.ingredients);
-        } catch (e) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid ingredients JSON',
-          });
-        }
-      }
-
-      // Validate with Zod
-      const validatedData = updateMedicationSchema.parse(data);
-
-      // Handle image update
-      if (file) {
-        const fileName = `medications/${Date.now()}-${file.originalname}`;
-        const { error: uploadError } = await supabase.storage
-          .from('medications')
-          .upload(fileName, file.buffer, { contentType: file.mimetype });
-
-        if (uploadError) throw new Error('Image upload failed: ' + uploadError.message);
-
-        const { data: publicUrlData } = supabase.storage
-          .from('medications')
-          .getPublicUrl(fileName);
-
-        validatedData.imageUrl = publicUrlData.publicUrl;
+      if (req.file) {
+        validatedData.imageUrl = await handleImageUpload(req.file, supabase);
       }
 
       const medication = await adminService.updateMedication(id, validatedData);
-
       return standardResponse(res, 200, 'Medication updated successfully', { medication });
     } catch (error) {
       handleError(res, error);
     }
   }
 );
+
 
 // ==================== DELETE MEDICATION ====================
 router.delete(
