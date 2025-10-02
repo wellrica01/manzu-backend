@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs/promises'); // for cleanup after upload if needed
 const prescriptionService = require('../services/prescriptionService');
 const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validatePrescriptionRetrieve, validatePrescriptionOrder } = require('../utils/validation');
-const { authenticate, authenticateAdmin } = require('../middleware/auth');
+const { authenticate, authorizeRoles } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
 
@@ -76,7 +76,7 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
 });
 
 // POST /prescription/:id/medications - Add medications to a prescription
-router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/:id/medications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
     const { medications } = req.body;
@@ -98,7 +98,7 @@ router.post('/:id/medications', authenticate, authenticateAdmin, async (req, res
 });
 
 // PATCH /prescription/:id/verify - Verify or reject a prescription
-router.patch('/:id/verify', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/:id/verify', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;

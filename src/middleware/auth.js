@@ -1,41 +1,61 @@
+// auth.js
 const jwt = require('jsonwebtoken');
 
+// Placeholder logger; replace with Winston, Pino, or another logger in production
+const logger = {
+  info: console.log,
+  error: console.error,
+};
+
+/**
+ * Middleware: Authenticate JWT and attach user info to req.user
+ */
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.error('No token provided');
-    return res.status(401).json({ message: 'No token provided' });
+
+  if (!authHeader) {
+    logger.error('Authentication failed: No Authorization header');
+    return res.status(401).json({ error: 'NO_TOKEN', message: 'No token provided' });
   }
-  const token = authHeader.split(' ')[1];
+
+  const [scheme, token] = authHeader.split(' ');
+
+  if (scheme !== 'Bearer' || !token) {
+    logger.error('Authentication failed: Malformed Authorization header');
+    return res.status(401).json({ error: 'INVALID_FORMAT', message: 'Authorization header must be in Bearer token format' });
+  }
+
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // { userId, pharmacyId, role } or { adminId, role }
-    console.log('Token verified:', { userId: decoded.userId, pharmacyId: decoded.pharmacyId, adminId: decoded.adminId, role: decoded.role });
+    // Enforce HS256 algorithm explicitly
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+
+    // Attach user info to request
+    req.user = decoded;
+
+    logger.info('Token verified', { userId: decoded.userId, pharmacyId: decoded.pharmacyId, adminId: decoded.adminId, role: decoded.role });
     next();
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Token expired' });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      logger.error('Authentication failed: Token expired');
+      return res.status(401).json({ error: 'TOKEN_EXPIRED', message: 'Token expired' });
     }
-    console.error('Invalid token:', { message: error.message });
-    return res.status(401).json({ message: 'Invalid token' });
+    logger.error('Authentication failed: Invalid token', { message: err.message });
+    return res.status(401).json({ error: 'INVALID_TOKEN', message: 'Invalid token' });
   }
 }
 
-function authenticateAdmin(req, res, next) {
-  if (!req.user || (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN')) {
-    console.error('Unauthorized: Not an admin', { adminId: req.user?.adminId });
-    return res.status(403).json({ message: 'Only admins can perform this action' });
-  }
-  next();
+/**
+ * Middleware: Authorize by role(s)
+ * Usage: authorizeRoles('ADMIN', 'SUPER_ADMIN')
+ */
+function authorizeRoles(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      logger.error('Authorization failed: Insufficient permissions', { userId: req.user?.userId, adminId: req.user?.adminId, role: req.user?.role });
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have permission to perform this action' });
+    }
+    next();
+  };
 }
 
-
-function authenticateManager(req, res, next) {
-  if (!req.user || req.user.role !== 'MANAGER') {
-    console.error('Unauthorized: Not a manager', { userId: req.user?.userId });
-    return res.status(403).json({ message: 'Only managers can perform this action' });
-  }
-  next();
-}
-
-module.exports = { authenticate, authenticateAdmin, authenticateManager };
+module.exports = { authenticate, authorizeRoles };

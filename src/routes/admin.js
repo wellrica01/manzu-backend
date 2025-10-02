@@ -54,7 +54,7 @@ const {
 } = require('../utils/adminValidation');
 
 const { handleError } = require('../utils/handleError');
-const { authenticate, authenticateAdmin } = require('../middleware/auth');
+const { authenticate, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
 
 console.log('Loaded admin.js version: 2025-07-15-v3 (new schema)');
@@ -77,7 +77,7 @@ const standardResponse = (res, status, message, data = null, pagination = null) 
 };
 
 // ==================== DASHBOARD ====================
-router.get('/dashboard', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/dashboard', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const summary = await adminService.getDashboardOverview();
     standardResponse(res, 200, 'Dashboard data fetched successfully', { summary });
@@ -88,7 +88,7 @@ router.get('/dashboard', authenticate, authenticateAdmin, async (req, res) => {
 });
 
 // ==================== PHARMACIES ====================
-router.get('/pharmacies', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacies', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = {
       ...paginationSchema.parse(req.query),
@@ -103,7 +103,7 @@ router.get('/pharmacies', authenticate, authenticateAdmin, async (req, res) => {
   }
 });
 
-router.get('/pharmacies/simple', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacies/simple', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const simplePharmacies = await adminService.getSimplePharmacies();
     standardResponse(res, 200, 'Pharmacies fetched successfully', { simplePharmacies });
@@ -113,7 +113,7 @@ router.get('/pharmacies/simple', authenticate, authenticateAdmin, async (req, re
   }
 });
 
-router.get('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacies/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -125,7 +125,7 @@ router.get('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res) 
   }
 });
 
-router.patch('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/pharmacies/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -141,7 +141,7 @@ router.patch('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res
   }
 });
 
-router.delete('/pharmacies/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/pharmacies/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -154,7 +154,7 @@ router.delete('/pharmacies/:id', authenticate, authenticateAdmin, async (req, re
 });
 
 // ==================== GET MEDICATIONS ====================
-router.get('/medications', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/medications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = medicationFilterSchema.parse(req.query);
     const { medications, pagination } = await adminService.getMedications(query);
@@ -164,7 +164,7 @@ router.get('/medications', authenticate, authenticateAdmin, async (req, res) => 
   }
 });
 
-router.get('/medications/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/medications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -180,7 +180,7 @@ router.get('/medications/:id', authenticate, authenticateAdmin, async (req, res)
 router.post(
   '/medications',
   authenticate,
-  authenticateAdmin,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
   upload.single('image'),
   normalizeMedicationFields,
   async (req, res) => {
@@ -203,7 +203,7 @@ router.post(
 router.patch(
   '/medications/:id',
   authenticate,
-  authenticateAdmin,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
   upload.single('image'),
   normalizeMedicationFields,
   async (req, res) => {
@@ -230,7 +230,7 @@ router.patch(
 router.delete(
   '/medications/:id',
   authenticate,
-  authenticateAdmin,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
   async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -249,7 +249,7 @@ router.delete(
 );
 
 // ==================== PRESCRIPTIONS ====================
-router.get('/prescriptions', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/prescriptions', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = prescriptionFilterSchema.parse(req.query);
     const { prescriptions, pagination } = await adminService.getPrescriptions(query);
@@ -259,7 +259,7 @@ router.get('/prescriptions', authenticate, authenticateAdmin, async (req, res) =
   }
 });
 
-router.get('/prescriptions/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/prescriptions/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -272,7 +272,7 @@ router.get('/prescriptions/:id', authenticate, authenticateAdmin, async (req, re
 });
 
 // ==================== ORDERS ====================
-router.get('/orders', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/orders', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = orderFilterSchema.parse(req.query);
     const { orders, pagination } = await adminService.getOrders(query);
@@ -282,7 +282,7 @@ router.get('/orders', authenticate, authenticateAdmin, async (req, res) => {
   }
 });
 
-router.get('/orders/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/orders/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -295,7 +295,7 @@ router.get('/orders/:id', authenticate, authenticateAdmin, async (req, res) => {
 });
 
 // ==================== USER MANAGEMENT ====================
-router.get('/admin-users', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/admin-users', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = adminUserFilterSchema.parse(req.query);
     const { users, pagination } = await adminService.getAdminUsers(query);
@@ -305,7 +305,7 @@ router.get('/admin-users', authenticate, authenticateAdmin, async (req, res) => 
   }
 });
 
-router.get('/admin-users/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/admin-users/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -317,7 +317,7 @@ router.get('/admin-users/:id', authenticate, authenticateAdmin, async (req, res)
   }
 });
 
-router.get('/pharmacy-users', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacy-users', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = pharmacyUserFilterSchema.parse(req.query);
     const { users, pagination } = await adminService.getPharmacyUsers(query);
@@ -327,7 +327,7 @@ router.get('/pharmacy-users', authenticate, authenticateAdmin, async (req, res) 
   }
 });
 
-router.get('/pharmacy-users/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacy-users/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -342,7 +342,7 @@ router.get('/pharmacy-users/:id', authenticate, authenticateAdmin, async (req, r
 // ==================== ATC CLASSIFICATION ====================
 
 // ANATOMICAL CLASSES
-router.get('/anatomical-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/anatomical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { anatomicalClasses, pagination } = await adminService.getAnatomicalClasses(req.query);
     standardResponse(res, 200, 'Anatomical classes fetched successfully', { anatomicalClasses }, pagination);
@@ -351,7 +351,7 @@ router.get('/anatomical-classes', authenticate, authenticateAdmin, async (req, r
   }
 });
 
-router.get('/anatomical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/anatomical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -363,7 +363,7 @@ router.get('/anatomical-classes/:id', authenticate, authenticateAdmin, async (re
   }
 });
 
-router.post('/anatomical-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/anatomical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = AnatomicalClassSchema.parse(req.body);
     const anatomicalClass = await adminService.createAnatomicalClass(data);
@@ -373,7 +373,7 @@ router.post('/anatomical-classes', authenticate, authenticateAdmin, async (req, 
   }
 });
 
-router.patch('/anatomical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/anatomical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -386,7 +386,7 @@ router.patch('/anatomical-classes/:id', authenticate, authenticateAdmin, async (
   }
 });
 
-router.delete('/anatomical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/anatomical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -398,7 +398,7 @@ router.delete('/anatomical-classes/:id', authenticate, authenticateAdmin, async 
   }
 });
 
-router.get('/anatomical-classes/:id/children', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/anatomical-classes/:id/children', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -411,7 +411,7 @@ router.get('/anatomical-classes/:id/children', authenticate, authenticateAdmin, 
 });
 
 // THERAPEUTIC CLASSES
-router.get('/therapeutic-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/therapeutic-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { therapeuticClasses, pagination } = await adminService.getTherapeuticClasses(req.query);
     standardResponse(res, 200, 'Therapeutic classes fetched successfully', { therapeuticClasses }, pagination);
@@ -420,7 +420,7 @@ router.get('/therapeutic-classes', authenticate, authenticateAdmin, async (req, 
   }
 });
 
-router.get('/therapeutic-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/therapeutic-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -432,7 +432,7 @@ router.get('/therapeutic-classes/:id', authenticate, authenticateAdmin, async (r
   }
 });
 
-router.post('/therapeutic-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/therapeutic-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = TherapeuticClassSchema.parse(req.body);
     const therapeuticClass = await adminService.createTherapeuticClass(data);
@@ -442,7 +442,7 @@ router.post('/therapeutic-classes', authenticate, authenticateAdmin, async (req,
   }
 });
 
-router.patch('/therapeutic-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/therapeutic-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -455,7 +455,7 @@ router.patch('/therapeutic-classes/:id', authenticate, authenticateAdmin, async 
   }
 });
 
-router.delete('/therapeutic-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/therapeutic-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -467,7 +467,7 @@ router.delete('/therapeutic-classes/:id', authenticate, authenticateAdmin, async
   }
 });
 
-router.get('/therapeutic-classes/:id/children', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/therapeutic-classes/:id/children', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -480,7 +480,7 @@ router.get('/therapeutic-classes/:id/children', authenticate, authenticateAdmin,
 });
 
 // PHARMACOLOGICAL CLASSES
-router.get('/pharmacological-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacological-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { pharmacologicalClasses, pagination } = await adminService.getPharmacologicalClasses(req.query);
     standardResponse(res, 200, 'Pharmacological classes fetched successfully', { pharmacologicalClasses }, pagination);
@@ -489,7 +489,7 @@ router.get('/pharmacological-classes', authenticate, authenticateAdmin, async (r
   }
 });
 
-router.get('/pharmacological-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacological-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -501,7 +501,7 @@ router.get('/pharmacological-classes/:id', authenticate, authenticateAdmin, asyn
   }
 });
 
-router.post('/pharmacological-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/pharmacological-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = PharmacologicalClassSchema.parse(req.body);
     const pharmacologicalClass = await adminService.createPharmacologicalClass(data);
@@ -511,7 +511,7 @@ router.post('/pharmacological-classes', authenticate, authenticateAdmin, async (
   }
 });
 
-router.patch('/pharmacological-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/pharmacological-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -524,7 +524,7 @@ router.patch('/pharmacological-classes/:id', authenticate, authenticateAdmin, as
   }
 });
 
-router.delete('/pharmacological-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/pharmacological-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -536,7 +536,7 @@ router.delete('/pharmacological-classes/:id', authenticate, authenticateAdmin, a
   }
 });
 
-router.get('/pharmacological-classes/:id/children', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/pharmacological-classes/:id/children', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -549,7 +549,7 @@ router.get('/pharmacological-classes/:id/children', authenticate, authenticateAd
 });
 
 // CHEMICAL CLASSES
-router.get('/chemical-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/chemical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { chemicalClasses, pagination } = await adminService.getChemicalClasses(req.query);
     standardResponse(res, 200, 'Chemical classes fetched successfully', { chemicalClasses }, pagination);
@@ -558,7 +558,7 @@ router.get('/chemical-classes', authenticate, authenticateAdmin, async (req, res
   }
 });
 
-router.get('/chemical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/chemical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -570,7 +570,7 @@ router.get('/chemical-classes/:id', authenticate, authenticateAdmin, async (req,
   }
 });
 
-router.post('/chemical-classes', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/chemical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = ChemicalClassSchema.parse(req.body);
     const chemicalClass = await adminService.createChemicalClass(data);
@@ -580,7 +580,7 @@ router.post('/chemical-classes', authenticate, authenticateAdmin, async (req, re
   }
 });
 
-router.patch('/chemical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/chemical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -593,7 +593,7 @@ router.patch('/chemical-classes/:id', authenticate, authenticateAdmin, async (re
   }
 });
 
-router.delete('/chemical-classes/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/chemical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -605,7 +605,7 @@ router.delete('/chemical-classes/:id', authenticate, authenticateAdmin, async (r
   }
 });
 
-router.get('/chemical-classes/:id/children', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/chemical-classes/:id/children', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -618,7 +618,7 @@ router.get('/chemical-classes/:id/children', authenticate, authenticateAdmin, as
 });
 
 // CHEMICAL SUBSTANCES
-router.get('/chemical-substances', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/chemical-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { chemicalSubstances, pagination } = await adminService.getChemicalSubstances(req.query);
     standardResponse(res, 200, 'Chemical substances fetched successfully', { chemicalSubstances }, pagination);
@@ -627,7 +627,7 @@ router.get('/chemical-substances', authenticate, authenticateAdmin, async (req, 
   }
 });
 
-router.get('/chemical-substances/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -639,7 +639,7 @@ router.get('/chemical-substances/:id', authenticate, authenticateAdmin, async (r
   }
 });
 
-router.post('/chemical-substances', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/chemical-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = ChemicalSubstanceSchema.parse(req.body);
     const chemicalSubstance = await adminService.createChemicalSubstance(data);
@@ -649,7 +649,7 @@ router.post('/chemical-substances', authenticate, authenticateAdmin, async (req,
   }
 });
 
-router.patch('/chemical-substances/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -662,7 +662,7 @@ router.patch('/chemical-substances/:id', authenticate, authenticateAdmin, async 
   }
 });
 
-router.delete('/chemical-substances/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res); 
   if (!id) return;
   
@@ -675,7 +675,7 @@ router.delete('/chemical-substances/:id', authenticate, authenticateAdmin, async
 });
 
 // ==================== GENERIC NAMES ====================
-router.get('/generic-names', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/generic-names', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { genericNames, pagination } = await adminService.getGenericNames(req.query);
     standardResponse(res, 200, 'Generic names fetched successfully', { genericNames }, pagination);
@@ -684,7 +684,7 @@ router.get('/generic-names', authenticate, authenticateAdmin, async (req, res) =
   }
 });
 
-router.get('/generic-names/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -696,7 +696,7 @@ router.get('/generic-names/:id', authenticate, authenticateAdmin, async (req, re
   }
 });
 
-router.post('/generic-names', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/generic-names', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = GenericNameSchema.parse(req.body);
     const genericName = await adminService.createGenericName(data);
@@ -706,7 +706,7 @@ router.post('/generic-names', authenticate, authenticateAdmin, async (req, res) 
   }
 });
 
-router.patch('/generic-names/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -719,7 +719,7 @@ router.patch('/generic-names/:id', authenticate, authenticateAdmin, async (req, 
   }
 });
 
-router.delete('/generic-names/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -732,7 +732,7 @@ router.delete('/generic-names/:id', authenticate, authenticateAdmin, async (req,
 });
 
 // ==================== ACTIVE SUBSTANCES ====================
-router.get('/active-substances', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/active-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { activeSubstances, pagination } = await adminService.getActiveSubstances(req.query);
     standardResponse(res, 200, 'Active substances fetched successfully', { activeSubstances }, pagination);
@@ -741,7 +741,7 @@ router.get('/active-substances', authenticate, authenticateAdmin, async (req, re
   }
 });
 
-router.get('/active-substances/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -753,7 +753,7 @@ router.get('/active-substances/:id', authenticate, authenticateAdmin, async (req
   }
 });
 
-router.post('/active-substances', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/active-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = ActiveSubstanceSchema.parse(req.body);
     const activeSubstance = await adminService.createActiveSubstance(data);
@@ -763,7 +763,7 @@ router.post('/active-substances', authenticate, authenticateAdmin, async (req, r
   }
 });
 
-router.patch('/active-substances/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -776,7 +776,7 @@ router.patch('/active-substances/:id', authenticate, authenticateAdmin, async (r
   }
 });
 
-router.delete('/active-substances/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -789,7 +789,7 @@ router.delete('/active-substances/:id', authenticate, authenticateAdmin, async (
 });
 
 // ==================== MEDICATION INGREDIENTS ====================
-router.get('/medication-ingredients', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/medication-ingredients', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { medicationIngredients, pagination } = await adminService.getMedicationIngredients(req.query);
     standardResponse(res, 200, 'Medication ingredients fetched successfully', { medicationIngredients }, pagination);
@@ -798,7 +798,7 @@ router.get('/medication-ingredients', authenticate, authenticateAdmin, async (re
   }
 });
 
-router.get('/medication-ingredients/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -810,7 +810,7 @@ router.get('/medication-ingredients/:id', authenticate, authenticateAdmin, async
   }
 });
 
-router.post('/medication-ingredients', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/medication-ingredients', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = MedicationIngredientSchema.parse(req.body);
     const medicationIngredient = await adminService.createMedicationIngredient(data);
@@ -820,7 +820,7 @@ router.post('/medication-ingredients', authenticate, authenticateAdmin, async (r
   }
 });
 
-router.patch('/medication-ingredients/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -833,7 +833,7 @@ router.patch('/medication-ingredients/:id', authenticate, authenticateAdmin, asy
   }
 });
 
-router.delete('/medication-ingredients/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -846,7 +846,7 @@ router.delete('/medication-ingredients/:id', authenticate, authenticateAdmin, as
 });
 
 // ==================== MANUFACTURERS ====================
-router.get('/manufacturers', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/manufacturers', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { manufacturers, pagination } = await adminService.getManufacturers(req.query);
     standardResponse(res, 200, 'Manufacturers fetched successfully', { manufacturers }, pagination);
@@ -855,7 +855,7 @@ router.get('/manufacturers', authenticate, authenticateAdmin, async (req, res) =
   }
 });
 
-router.get('/manufacturers/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -867,7 +867,7 @@ router.get('/manufacturers/:id', authenticate, authenticateAdmin, async (req, re
   }
 });
 
-router.post('/manufacturers', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/manufacturers', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = manufacturerSchema.parse(req.body);
     const manufacturer = await adminService.createManufacturer(data);
@@ -877,7 +877,7 @@ router.post('/manufacturers', authenticate, authenticateAdmin, async (req, res) 
   }
 });
 
-router.patch('/manufacturers/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -890,7 +890,7 @@ router.patch('/manufacturers/:id', authenticate, authenticateAdmin, async (req, 
   }
 });
 
-router.delete('/manufacturers/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -903,7 +903,7 @@ router.delete('/manufacturers/:id', authenticate, authenticateAdmin, async (req,
 });
 
 // ==================== INDICATIONS ====================
-router.get('/indications', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/indications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { indications, pagination } = await adminService.getIndications(req.query);
     standardResponse(res, 200, 'Indications fetched successfully', { indications }, pagination);
@@ -912,7 +912,7 @@ router.get('/indications', authenticate, authenticateAdmin, async (req, res) => 
   }
 });
 
-router.get('/indications/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -924,7 +924,7 @@ router.get('/indications/:id', authenticate, authenticateAdmin, async (req, res)
   }
 });
 
-router.post('/indications', authenticate, authenticateAdmin, async (req, res) => {
+router.post('/indications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = indicationSchema.parse(req.body);
     const indication = await adminService.createIndication(data);
@@ -934,7 +934,7 @@ router.post('/indications', authenticate, authenticateAdmin, async (req, res) =>
   }
 });
 
-router.patch('/indications/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.patch('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -947,7 +947,7 @@ router.patch('/indications/:id', authenticate, authenticateAdmin, async (req, re
   }
 });
 
-router.delete('/indications/:id', authenticate, authenticateAdmin, async (req, res) => {
+router.delete('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
 
@@ -964,7 +964,7 @@ router.delete('/indications/:id', authenticate, authenticateAdmin, async (req, r
 
 // ==================== SEARCH FILTER ROUTES ====================
 
-router.get('/search/active-substances', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/search/active-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { search, limit = 20 } = req.query;
     const result = await adminService.searchActiveSubstances({ search, limit: parseInt(limit) });
@@ -974,7 +974,7 @@ router.get('/search/active-substances', authenticate, authenticateAdmin, async (
   }
 });
 
-router.get('/search/medication-ingredients', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/search/medication-ingredients', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { search, limit = 20 } = req.query;
     const result = await adminService.searchMedicationIngredients({ search, limit: parseInt(limit) });
@@ -984,7 +984,7 @@ router.get('/search/medication-ingredients', authenticate, authenticateAdmin, as
   }
 });
 
-router.get('/search/manufacturers', authenticate, authenticateAdmin, async (req, res) => {
+router.get('/search/manufacturers', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { search, limit = 20 } = req.query;
     const result = await adminService.searchManufacturers({ search, limit: parseInt(limit) });

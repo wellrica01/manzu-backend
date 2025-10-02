@@ -1,7 +1,7 @@
 const express = require('express');
 const pharmacyService = require('../services/pharmacyService');   
 const { validateFetchOrders, validateUpdateOrder, validateFetchMedications, validateAddMedication, validateUpdateMedication, validateDeleteMedication, validateFetchUsers, validateRegisterDevice } = require('../utils/validation');
-const { authenticate, authenticateManager } = require('../middleware/auth');
+const { authenticate, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
 
 console.log('Loaded pharmacy.js version: 2025-06-19-v2 (new schema)');
@@ -141,7 +141,7 @@ router.delete('/medications', authenticate, async (req, res) => {
 });
 
 // GET /pharmacy/users - Fetch pharmacy users (manager only)
-router.get('/users', authenticate, authenticateManager, async (req, res) => {
+router.get('/users', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     // Validate input (no query params to validate)
     const { error } = validateFetchUsers({});
@@ -195,7 +195,7 @@ router.get('/profile', authenticate, async (req, res) => {
 });
 
 // PATCH /pharmacy/profile - Edit pharmacy profile (manager only, new schema)
-router.patch('/profile', authenticate, authenticateManager, async (req, res) => {
+router.patch('/profile', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { user, pharmacy } = require('../utils/adminValidation').editProfileSchema.parse(req.body);
     const { userId, pharmacyId } = req.user;

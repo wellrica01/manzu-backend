@@ -1,7 +1,7 @@
 const express = require('express');
 const authService = require('../services/authService');
-const { registerSchema, loginSchema, addUserSchema, editUserSchema, editProfileSchema, adminRegisterSchema, adminLoginSchema, labRegisterSchema, labLoginSchema, addLabUserSchema, editLabUserSchema, editLabProfileSchema } = require('../utils/adminValidation');
-const { authenticate, authenticateManager, authenticateAdmin } = require('../middleware/auth');
+const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminRegisterSchema, adminLoginSchema, labRegisterSchema, labLoginSchema, addLabUserSchema, editLabUserSchema, editLabProfileSchema } = require('../utils/adminValidation');
+const { authenticate, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
 
 console.log('Loaded auth.js version: 2025-06-21-v1');
@@ -125,7 +125,7 @@ router.post('/admin/login', async (req, res) => {
 });
 
 // POST /auth/add-user - Add new pharmacy user (manager only)
-router.post('/add-user', authenticate, authenticateManager, async (req, res) => {
+router.post('/add-user', authenticate, authorizeRoles( 'MANAGER'), async (req, res) => {
   try {
     const { name, email, password, role } = addUserSchema.parse(req.body);
     const pharmacyId = req.user.pharmacyId;
@@ -144,7 +144,7 @@ router.post('/add-user', authenticate, authenticateManager, async (req, res) => 
 });
 
 // POST /auth/lab/add-user - Add new lab user (manager only)
-router.post('/lab/add-user', authenticate, authenticateManager, async (req, res) => {
+router.post('/lab/add-user', authenticate, authorizeRoles( 'MANAGER'), async (req, res) => {
   try {
     const { name, email, password, role } = addLabUserSchema.parse(req.body);
     const labId = req.user.labId;
@@ -163,7 +163,7 @@ router.post('/lab/add-user', authenticate, authenticateManager, async (req, res)
 });
 
 // PATCH /auth/users/:userId - Edit pharmacy user (manager only)
-router.patch('/users/:userId', authenticate, authenticateManager, async (req, res) => {
+router.patch('/users/:userId', authenticate, authorizeRoles( 'MANAGER'), async (req, res) => {
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
@@ -187,7 +187,7 @@ router.patch('/users/:userId', authenticate, authenticateManager, async (req, re
 });
 
 // PATCH /auth/lab/users/:userId - Edit lab user (manager only)
-router.patch('/lab/users/:userId', authenticate, authenticateManager, async (req, res) => {
+router.patch('/lab/users/:userId', authenticate, authorizeRoles( 'MANAGER'), async (req, res) => {
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
@@ -211,7 +211,7 @@ router.patch('/lab/users/:userId', authenticate, authenticateManager, async (req
 });
 
 // DELETE /auth/users/:userId - Delete pharmacy user (manager only)
-router.delete('/users/:userId', authenticate, authenticateManager, async (req, res) => {
+router.delete('/users/:userId', authenticate, authorizeRoles( 'MANAGER'), async (req, res) => {
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
@@ -228,7 +228,7 @@ router.delete('/users/:userId', authenticate, authenticateManager, async (req, r
 });
 
 // DELETE /auth/lab/users/:userId - Delete lab user (manager only)
-router.delete('/lab/users/:userId', authenticate, authenticateManager, async (req, res) => {
+router.delete('/lab/users/:userId', authenticate, authorizeRoles( 'MANAGER'), async (req, res) => {
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
@@ -280,7 +280,7 @@ router.get('/lab/profile', authenticate, async (req, res) => {
 });
 
 // PATCH /auth/lab/profile - Edit lab profile (manager only)
-router.patch('/lab/profile', authenticate, authenticateManager, async (req, res) => {
+router.patch('/lab/profile', authenticate, authorizeRoles( 'MANAGER'), async (req, res) => {
   try {
     const { user, lab } = editLabProfileSchema.parse(req.body);
     const { userId, labId } = req.user;
