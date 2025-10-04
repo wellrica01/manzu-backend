@@ -53,7 +53,6 @@ function validateBulkAddToCart(data) {
           medicationId: Joi.number().required(),
           pharmacyId: Joi.number().required(),
           quantity: Joi.number().min(1).required(),
-          fullName: Joi.string().required(),
         })
       )
       .min(1)
@@ -79,6 +78,18 @@ function validateRemoveFromCart(data) {
   });
   return schema.validate(data, { abortEarly: false });
 }
+
+function validateBulkRemoveFromCart(data) {
+  const schema = Joi.object({
+    orderItemIds: Joi.array()
+      .items(Joi.number().integer().required())
+      .min(1)
+      .required(),
+    userId: Joi.string().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
 
 
 function validateCheckout(data) {
@@ -316,6 +327,7 @@ module.exports = {
   validateBulkAddToCart,
   validateUpdateCart,
   validateRemoveFromCart,
+  validateBulkRemoveFromCart,
   validateCheckout,
   validatePrescriptionRetrieve,
   validateOrderConfirmation,

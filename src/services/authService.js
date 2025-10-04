@@ -75,7 +75,7 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
 async function loginUser({ email, password }) {
   const user = await prisma.pharmacyUser.findUnique({
     where: { email },
-    include: { pharmacy: true },
+    include: { Pharmacy: true },
   });
   if (!user) {
     const error = new Error('Invalid email or password');
@@ -98,7 +98,7 @@ async function loginUser({ email, password }) {
     { expiresIn: '1d' }
   );
 
-  return { token, user, pharmacy: user.pharmacy };
+  return { token, user, pharmacy: user.Pharmacy };
 }
 
 

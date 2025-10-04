@@ -9,7 +9,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
   // Total count
   const total = await prisma.order.count({
     where: {
-      items: {
+      OrderItem: {
         some: { pharmacyId },
       },
       status: {
@@ -21,7 +21,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
   // Fetch paginated orders
   const orders = await prisma.order.findMany({
     where: {
-      items: { some: { pharmacyId } },
+      OrderItem: { some: { pharmacyId } },
       status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
     },
     select: {
@@ -34,32 +34,32 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
       address: true,
       status: true,
       totalPrice: true,
-      prescription: { select: { id: true, fileUrl: true, status: true } },
-      items: {
+      Prescription: { select: { id: true, fileUrl: true, status: true } },
+      OrderItem: {
         select: {
           id: true,
           quantity: true,
           price: true,
           pharmacyId: true,
           medicationId: true,
-          medicationAvailability: {
+          MedicationAvailability: {
             select: {
-              medication: {
+              Medication: {
                 select: {
                   brandName: true,
-                  strengthValue: true,
-                  strengthUnit: true,
                   form: true,
                   Medication_MedicationIngredient: {
                     select: {
                       MedicationIngredient: {
-                        select: { ActiveSubstance: { select: { name: true } } },
+                        select: { 
+                          ActiveSubstance: { select: { name: true } }
+                         },
                       },
                     },
                   },
                 },
               },
-              pharmacy: { select: { name: true, address: true } },
+              Pharmacy: { select: { name: true, address: true } },
             },
           },
         },
@@ -81,26 +81,26 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20 } = {}) {
       address: order.address,
       status: order.status,
       totalPrice: order.totalPrice,
-      prescription: order.prescription
-        ? { id: order.prescription.id, fileUrl: order.prescription.fileUrl, status: order.prescription.status }
+      prescription: order.Prescription
+        ? { id: order.Prescription.id, fileUrl: order.Prescription.fileUrl, status: order.Prescription.status }
         : null,
-      items: order.items
+      items: order.OrderItem
         .filter(item => item.pharmacyId === pharmacyId)
         .map(item => {
-          const activeSubstances = item.medicationAvailability.medication.Medication_MedicationIngredient
+          const activeSubstances = item.MedicationAvailability.Medication.Medication_MedicationIngredient
             .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
             .join(', ');
 
           return {
             id: item.id,
             medication: {
-              brandName: item.medicationAvailability.medication.brandName,
+              brandName: item.MedicationAvailability.Medication.brandName,
               activeSubstances,
-              displayName: `${item.medicationAvailability.medication.brandName} (${activeSubstances}) ${item.medicationAvailability.medication.strengthValue ?? ''}${item.medicationAvailability.medication.strengthUnit ?? ''} ${item.medicationAvailability.medication.form ?? ''}`,
+              displayName: `${item.MedicationAvailability.Medication.brandName} (${activeSubstances}) ${item.MedicationAvailability.Medication.form ?? ''}`,
             },
             pharmacy: {
-              name: item.medicationAvailability.pharmacy.name,
-              address: item.medicationAvailability.pharmacy.address,
+              name: item.MedicationAvailability.Pharmacy.name,
+              address: item.MedicationAvailability.Pharmacy.address,
             },
             quantity: item.quantity,
             price: item.price,
@@ -115,7 +115,7 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
   const order = await prisma.order.findFirst({
     where: {
       id: orderId,
-      items: {
+      OrderItem: {
         some: {
           pharmacyId,
         },
@@ -144,7 +144,7 @@ async function fetchMedications(pharmacyId) {
   const medications = await prisma.medicationAvailability.findMany({
     where: { pharmacyId },
     include: {
-      medication: {
+      Medication: {
         include: {
           Medication_MedicationIngredient: {
             include: {
@@ -166,16 +166,16 @@ async function fetchMedications(pharmacyId) {
 
   return {
     medications: medications.map(m => {
-      const activeSubstances = m.medication.Medication_MedicationIngredient
+      const activeSubstances = m.Medication.Medication_MedicationIngredient
         .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
         .join(', ');
 
       return {
         pharmacyId: m.pharmacyId,
         medicationId: m.medicationId,
-        brandName: m.medication.brandName,
+        brandName: m.Medication.brandName,
         activeSubstances,
-        displayName: `${m.medication.brandName} (${activeSubstances}) ${m.medication.strengthValue ?? ''}${m.medication.strengthUnit ?? ''} ${m.medication.form ?? ''}`,
+        displayName: `${m.Medication.brandName} (${activeSubstances}) ${m.Medication.form ?? ''}`,
         stock: m.stock,
         price: m.price,
         expiryDate: m.expiryDate,
@@ -191,7 +191,7 @@ async function fetchMedications(pharmacyId) {
         id: m.id,
         brandName: m.brandName,
         activeSubstances,
-        displayName: `${m.brandName} (${activeSubstances}) ${m.strengthValue ?? ''}${m.strengthUnit ?? ''} ${m.form ?? ''}`,
+        displayName: `${m.brandName} (${activeSubstances}) ${m.form ?? ''}`,
       };
     }),
   };
@@ -220,14 +220,14 @@ async function addMedication({ pharmacyId, medicationId, stock, price, receivedD
     },
   });
 
-  const activeSubstances = medication.medication.Medication_MedicationIngredient
+  const activeSubstances = medication.Medication.Medication_MedicationIngredient
     .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
     .join(', ');
 
   return {
     pharmacyId: medication.pharmacyId,
     medicationId: medication.medicationId,
-    brandName: medication.medication.brandName,
+    brandName: medication.Medication.brandName,
     activeSubstances,
     stock: medication.stock,
     price: medication.price,
@@ -261,14 +261,14 @@ async function updateMedication({ pharmacyId, medicationId, stock, price, receiv
     },
   });
 
-  const activeSubstances = updatedMedication.medication.Medication_MedicationIngredient
+  const activeSubstances = updatedMedication.Medication.Medication_MedicationIngredient
     .map(mi => mi.MedicationIngredient.ActiveSubstance.name)
     .join(', ');
 
   return {
     pharmacyId: updatedMedication.pharmacyId,
     medicationId: updatedMedication.medicationId,
-    brandName: updatedMedication.medication.brandName,
+    brandName: updatedMedication.Medication.brandName,
     activeSubstances,
     stock: updatedMedication.stock,
     price: updatedMedication.price,
@@ -386,68 +386,277 @@ async function editProfile({ user, pharmacy }, userId, pharmacyId) {
 }
 
 async function getDashboardData(pharmacyId) {
-  // Orders placed today
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
-  // Orders today - only count orders with status confirmed and above
-  const ordersToday = await prisma.order.count({
-    where: {
-      items: { some: { pharmacyId } },
-      status: {
-        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
+  // Get yesterday for comparison
+  const startOfYesterday = new Date(startOfDay);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+  const endOfYesterday = new Date(endOfDay);
+  endOfYesterday.setDate(endOfYesterday.getDate() - 1);
+
+  // Parallel queries for better performance
+  const [
+    ordersToday,
+    ordersYesterday,
+    pendingOrders,
+    processingOrders,
+    readyOrders,
+    inventoryAlerts,
+    expiringMeds,
+    revenueTodayResult,
+    revenueYesterdayResult,
+    posSalesToday,
+    posSalesYesterday,
+    posRevenueTodayResult,
+    posRevenueYesterdayResult,
+    topSellingMeds,
+    recentActivity,
+    lowStockMeds,
+  ] = await Promise.all([
+    // Orders today
+    prisma.order.count({
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
+        createdAt: { gte: startOfDay, lte: endOfDay },
       },
-      createdAt: { gte: startOfDay, lte: endOfDay },
-    },
-  });
-
-  // Pending orders - count confirmed orders (shown as pending in UI)
-  const pendingOrders = await prisma.order.count({
-    where: {
-      items: { some: { pharmacyId } },
-      status: 'CONFIRMED',
-    },
-  });
-
-  // Inventory alerts (stock < 10)
-  const inventoryAlerts = await prisma.medicationAvailability.count({
-    where: { pharmacyId, stock: { lt: 10 } },
-  });
-
-  // Revenue today - only count orders with status confirmed and above
-  const revenueTodayResult = await prisma.order.aggregate({
-    _sum: { totalPrice: true },
-    where: {
-      items: { some: { pharmacyId } },
-      status: {
-        notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION']
+    }),
+    // Orders yesterday
+    prisma.order.count({
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
+        createdAt: { gte: startOfYesterday, lte: endOfYesterday },
       },
-      createdAt: { gte: startOfDay, lte: endOfDay },
-    },
-  });
+    }),
+    // Pending orders
+    prisma.order.count({
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: 'CONFIRMED',
+      },
+    }),
+    // Processing orders
+    prisma.order.count({
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: 'PROCESSING',
+      },
+    }),
+    // Ready for pickup orders
+    prisma.order.count({
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: 'READY_FOR_PICKUP',
+      },
+    }),
+    // Total inventory alerts (stock < 10)
+    prisma.medicationAvailability.count({
+      where: { pharmacyId, stock: { lt: 10 } },
+    }),
+    // Expiring medications (within 30 days)
+    prisma.medicationAvailability.count({
+      where: {
+        pharmacyId,
+        expiryDate: {
+          gte: new Date(),
+          lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      },
+    }),
+    // Revenue today
+    prisma.order.aggregate({
+      _sum: { totalPrice: true },
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED'] },
+        createdAt: { gte: startOfDay, lte: endOfDay },
+      },
+    }),
+    // Revenue yesterday
+    prisma.order.aggregate({
+      _sum: { totalPrice: true },
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED'] },
+        createdAt: { gte: startOfYesterday, lte: endOfYesterday },
+      },
+    }),
+    // PoS sales today
+    prisma.sale.count({
+      where: {
+        pharmacyId,
+        createdAt: { gte: startOfDay, lte: endOfDay },
+      },
+    }),
+    // PoS sales yesterday
+    prisma.sale.count({
+      where: {
+        pharmacyId,
+        createdAt: { gte: startOfYesterday, lte: endOfYesterday },
+      },
+    }),
+    // PoS revenue today
+    prisma.sale.aggregate({
+      _sum: { total: true },
+      where: {
+        pharmacyId,
+        createdAt: { gte: startOfDay, lte: endOfDay },
+      },
+    }),
+    // PoS revenue yesterday
+    prisma.sale.aggregate({
+      _sum: { total: true },
+      where: {
+        pharmacyId,
+        createdAt: { gte: startOfYesterday, lte: endOfYesterday },
+      },
+    }),
+    // Top selling medications (last 7 days)
+    prisma.$queryRaw`
+      SELECT 
+        m."brandName",
+        COUNT(oi.id) as order_count,
+        SUM(oi.quantity) as total_quantity,
+        SUM(oi.price * oi.quantity) as total_revenue
+      FROM "OrderItem" oi
+      INNER JOIN "MedicationAvailability" ma ON oi."medicationId" = ma."medicationId" AND oi."pharmacyId" = ma."pharmacyId"
+      INNER JOIN "Medication" m ON ma."medicationId" = m.id
+      INNER JOIN "Order" o ON oi."orderId" = o.id
+      WHERE oi."pharmacyId" = ${pharmacyId}
+        AND o."createdAt" >= NOW() - INTERVAL '7 days'
+        AND o.status NOT IN ('CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED')
+      GROUP BY m.id, m."brandName"
+      ORDER BY total_quantity DESC
+      LIMIT 5
+    `,
+    // Recent activity (last 10 orders)
+    prisma.order.findMany({
+      where: {
+        OrderItem: { some: { pharmacyId } },
+        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
+      },
+      select: {
+        id: true,
+        status: true,
+        totalPrice: true,
+        createdAt: true,
+        name: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    }),
+    // Low stock medications details
+    prisma.medicationAvailability.findMany({
+      where: {
+        pharmacyId,
+        stock: { lt: 10, gt: 0 },
+      },
+      include: {
+        Medication: {
+          select: {
+            brandName: true,
+            form: true,
+          },
+        },
+      },
+      orderBy: { stock: 'asc' },
+      take: 5,
+    }),
+  ]);
+
   const revenueToday = revenueTodayResult._sum.totalPrice || 0;
-
-  // PoS sales today (count)
-  const posSalesToday = await prisma.sale.count({
-    where: {
-      pharmacyId,
-      createdAt: { gte: startOfDay, lte: endOfDay },
-    },
-  });
-
-  // PoS revenue today (sum)
-  const posRevenueTodayResult = await prisma.sale.aggregate({
-    _sum: { total: true },
-    where: {
-      pharmacyId,
-      createdAt: { gte: startOfDay, lte: endOfDay },
-    },
-  });
+  const revenueYesterday = revenueYesterdayResult._sum.totalPrice || 0;
   const posRevenueToday = posRevenueTodayResult._sum.total || 0;
+  const posRevenueYesterday = posRevenueYesterdayResult._sum.total || 0;
 
-  return { ordersToday, pendingOrders, inventoryAlerts, revenueToday, posSalesToday, posRevenueToday };
+  // Calculate trends
+  const calculateTrend = (today, yesterday) => {
+    if (yesterday === 0) return today > 0 ? 100 : 0;
+    return Math.round(((today - yesterday) / yesterday) * 100);
+  };
+
+  return {
+    ordersToday,
+    ordersTrend: calculateTrend(ordersToday, ordersYesterday),
+    posSalesToday,
+    posSalesTrend: calculateTrend(posSalesToday, posSalesYesterday),
+    revenueToday,
+    revenueTrend: calculateTrend(revenueToday, revenueYesterday),
+    posRevenueToday,
+    posRevenueTrend: calculateTrend(posRevenueToday, posRevenueYesterday),
+    pendingOrders,
+    processingOrders,
+    readyOrders,
+    inventoryAlerts,
+    expiringMeds,
+    topSellingMeds: topSellingMeds.map(med => ({
+      name: med.brandName,
+      quantity: Number(med.total_quantity),
+      revenue: Number(med.total_revenue),
+      orders: Number(med.order_count),
+    })),
+    recentActivity: recentActivity.map(order => ({
+      id: order.id,
+      name: order.name,
+      status: order.status,
+      amount: order.totalPrice,
+      time: order.createdAt,
+    })),
+    lowStockMeds: lowStockMeds.map(med => ({
+      name: med.Medication.brandName,
+      form: med.Medication.form,
+      stock: med.stock,
+      price: med.price,
+    })),
+  };
+}
+
+
+async function getWeeklyAnalytics(pharmacyId) {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  
+  const dailyStats = await prisma.$queryRaw`
+    SELECT 
+      DATE(o."createdAt") as date,
+      COUNT(DISTINCT o.id) as orders,
+      SUM(o."totalPrice") as revenue
+    FROM "Order" o
+    INNER JOIN "OrderItem" oi ON o.id = oi."orderId"
+    WHERE oi."pharmacyId" = ${pharmacyId}
+      AND o."createdAt" >= ${weekAgo}
+      AND o.status NOT IN ('CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED')
+    GROUP BY DATE(o."createdAt")
+    ORDER BY date DESC
+  `;
+
+  const posDailyStats = await prisma.$queryRaw`
+    SELECT 
+      DATE("createdAt") as date,
+      COUNT(id) as sales,
+      SUM(total) as revenue
+    FROM "Sale"
+    WHERE "pharmacyId" = ${pharmacyId}
+      AND "createdAt" >= ${weekAgo}
+    GROUP BY DATE("createdAt")
+    ORDER BY date DESC
+  `;
+
+  return {
+    onlineOrders: dailyStats.map(stat => ({
+      date: stat.date,
+      orders: Number(stat.orders),
+      revenue: Number(stat.revenue),
+    })),
+    posSales: posDailyStats.map(stat => ({
+      date: stat.date,
+      sales: Number(stat.sales),
+      revenue: Number(stat.revenue),
+    })),
+  };
 }
 
 async function recordSale({ pharmacyId, items, total, paymentMethod }) {
@@ -502,6 +711,7 @@ module.exports = {
   getProfile,
   editProfile,
   getDashboardData,
+  getWeeklyAnalytics,
   recordSale,
   fetchSales,
 };

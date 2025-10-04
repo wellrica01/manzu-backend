@@ -222,10 +222,15 @@ async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId })
       }
 
       // Check medication exists and prescription requirements
-      const medication = await prisma.medication.findUnique({
-        where: { id: medicationId },
-        select: { prescriptionRequired: true },
-      });
+    const medication = await prisma.medication.findUnique({
+      where: { id: medicationId },
+      select: { 
+        prescriptionRequired: true,
+        brandName: true,
+        pharmacopeia: true,
+        form: true
+      },
+    });
       if (!medication) {
         throw new Error(`Medication not found for ID ${medicationId}`);
       }
@@ -248,7 +253,14 @@ async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId })
         }
       }
 
-      return { ...item, price: pharmacyMedication.price };
+      return { 
+        ...item, 
+        price: pharmacyMedication.price,
+        brandName: medication.brandName,
+        pharmacopeia: medication.pharmacopeia,
+        form: medication.form,
+      };
+
     })
   );
 
@@ -312,7 +324,10 @@ async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId })
       addedItems: itemValidations.map(item => ({
         medicationId: item.medicationId,
         pharmacyId: item.pharmacyId,
-        fullName: item.fullName,
+        quantity: item.quantity,
+        displayName: item?.brandName
+        ? `${item.brandName}${item.pharmacopeia ? ` ${item.pharmacopeia}` : ''}${item.form ? ` (${capitalize(item.form)})` : ''}`
+        : "Unknown",
       })),
     };
   });
@@ -459,11 +474,15 @@ async function getCart(userId) {
           ward: pharmacy.ward ?? null,
           lga: pharmacy.lga ?? null,
           state: pharmacy.state ?? null,
-          operatingHours: Array.isArray(pharmacy.OperatingHour) ? pharmacy.OperatingHour.map(h => ({
+          operatingHours: pharmacy.OperatingHour.map(h => ({
             dayOfWeek: h.dayOfWeek,
-            openTime: h.openTime,
-            closeTime: h.closeTime
-          })) : [],
+            openTime: h.openTime instanceof Date 
+              ? h.openTime.toISOString().slice(11,16) 
+              : h.openTime,
+            closeTime: h.closeTime instanceof Date
+              ? h.closeTime.toISOString().slice(11,16)
+              : h.closeTime,
+          })),
           status: pharmacy.status ?? "pending",
           logoUrl: pharmacy.logoUrl ?? null,
         },
@@ -725,6 +744,61 @@ async function removeFromCart({ orderItemId, userId }) {
   });
 }
 
+
+async function removeBulkFromCart({ orderItemIds, userId }) {
+  if (!orderItemIds || !Array.isArray(orderItemIds) || orderItemIds.length === 0) {
+    throw new Error('orderItemIds array is required');
+  }
+
+  // Fetch all items (with their orders) for validation
+  const orderItems = await prisma.orderItem.findMany({
+    where: { id: { in: orderItemIds } },
+    include: { Order: true },
+  });
+
+  if (orderItems.length === 0) {
+    throw new Error('No valid order items found');
+  }
+
+  // Group by order
+  const ordersById = {};
+  for (const item of orderItems) {
+    const order = item.Order;
+
+    if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION', 'PENDING'].includes(order.status)) {
+      throw new Error(`Unauthorized or invalid cart status for orderItem ${item.id}`);
+    }
+
+    if (!ordersById[order.id]) {
+      ordersById[order.id] = { order, items: [] };
+    }
+    ordersById[order.id].items.push(item);
+  }
+
+  // Perform bulk deletion + cleanup
+  await prisma.$transaction(async (tx) => {
+    for (const { order, items } of Object.values(ordersById)) {
+      // Delete items
+      await tx.orderItem.deleteMany({
+        where: { id: { in: items.map(i => i.id) }, orderId: order.id },
+      });
+
+      // Recalculate totals
+      await recalculateOrderTotal(tx, order.id);
+
+      // Delete order if empty
+      const remainingItems = await tx.orderItem.count({ where: { orderId: order.id } });
+      if (remainingItems === 0) {
+        await tx.order.delete({ where: { id: order.id } });
+        console.log('Deleted empty order:', order.id);
+      }
+    }
+  });
+
+  return { removedItemIds: orderItemIds, userId };
+}
+
+
 async function linkPrescriptionToCart({ prescriptionId, userId }) {
   const order = await prisma.order.findFirst({
     where: { 
@@ -975,6 +1049,7 @@ module.exports = {
   getCart,
   updateCartItem,
   removeFromCart,
+  removeBulkFromCart,
   linkPrescriptionToCart,
   linkPrescriptionToSpecificOrder,
   getPrescriptionStatusesForCart,

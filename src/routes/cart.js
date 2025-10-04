@@ -2,7 +2,7 @@ const express = require('express');
 const upload = require('../utils/upload')
 const supabase = require('../utils/supabaseClient')
 const path = require('path');
-const { validateAddToCart, validateBulkAddToCart, validateUpdateCart, validateRemoveFromCart } = require('../utils/validation');
+const { validateAddToCart, validateBulkAddToCart, validateUpdateCart, validateRemoveFromCart, validateBulkRemoveFromCart } = require('../utils/validation');
 const cartService = require('../services/cartService');
 const prescriptionService = require('../services/prescriptionService');
 const { isValidEmail } = require('../utils/validation');
@@ -112,6 +112,34 @@ router.delete('/remove/:id', async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+
+// Bulk remove items from cart
+router.delete('/removebulk', async (req, res) => {
+  try {
+    const { orderItemIds } = req.body;
+    const userId = req.headers['x-guest-id'];
+
+    // Validate input
+    const { error } = validateBulkRemoveFromCart({ orderItemIds, userId });
+    if (error) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    const { removedItemIds } = await cartService.removeBulkFromCart({ orderItemIds, userId });
+
+    res.status(200).json({
+      message: 'Items removed successfully',
+      removedItemIds,
+      userId,
+    });
+  } catch (error) {
+    console.error('Bulk cart remove error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+
 
 // Upload prescription for cart items
 router.post(

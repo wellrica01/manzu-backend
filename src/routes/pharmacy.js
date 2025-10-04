@@ -236,6 +236,17 @@ router.get('/dashboard', authenticate, async (req, res) => {
   }
 });
 
+// GET /pharmacy/analytics/weekly - Weekly analytics
+router.get('/analytics/weekly', authenticate, async (req, res) => {
+  try {
+    const data = await pharmacyService.getWeeklyAnalytics(req.user.pharmacyId);
+    res.status(200).json({ message: 'Weekly analytics fetched', ...data });
+  } catch (error) {
+    console.error('Analytics error:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // POST /pharmacy/sales - Record a new PoS sale (new schema)
 router.post('/sales', authenticate, async (req, res) => {
   try {
