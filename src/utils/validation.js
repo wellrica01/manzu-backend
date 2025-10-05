@@ -91,7 +91,6 @@ function validateBulkRemoveFromCart(data) {
 }
 
 
-
 function validateCheckout(data) {
   const schema = Joi.object({
     name: Joi.string().required(),
@@ -183,7 +182,7 @@ function validateMedications(data) {
 
 function validateMedicationSuggestions(data) {
   const schema = Joi.object({
-    q: Joi.string().trim().optional(),
+    q: Joi.string().trim().min(1).optional(), 
   });
   return schema.validate(data, { abortEarly: false });
 }

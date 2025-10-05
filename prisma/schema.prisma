@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model ActiveSubstance {
   id                   Int                    @id @default(autoincrement())
   name                 String                 @unique(map: "active_substance_name_unique")
@@ -17,6 +18,7 @@ model ActiveSubstance {
 
   @@index([genericId])
   @@index([name])
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "idx_activesubstance_name_trgm", type: Gin)
 }
 
 model AdminUser {
@@ -114,6 +116,7 @@ model Manufacturer {
   @@index([name])
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Medication {
   id                              Int                               @id @default(autoincrement())
   brandName                       String
@@ -146,6 +149,7 @@ model Medication {
   @@index([form])
   @@index([nafdacCode])
   @@index([route])
+  @@index([brandName(ops: raw("gin_trgm_ops"))], map: "idx_medication_brandname_trgm", type: Gin)
 }
 
 model MedicationAvailability {

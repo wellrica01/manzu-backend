@@ -67,20 +67,52 @@ async function getMedicationSuggestions(searchTerm) {
   if (!searchTerm || searchTerm.trim().length === 0) return [];
 
   const normalizedTerm = searchTerm.trim();
+  // Replace spaces with underscores for enum matching
+  const enumFormat = normalizedTerm.toUpperCase().replace(/\s+/g, '_');
 
-  const medications = await prisma.medication.findMany({
-    where: {
-      OR: [
-        { brandName: { startsWith: normalizedTerm, mode: 'insensitive' } },
-        {
-          Medication_MedicationIngredient: {
-            some: {
-              MedicationIngredient: { ActiveSubstance: { name: { startsWith: normalizedTerm, mode: 'insensitive' } } }
-            }
-          }
-        },
-      ],
-    },
+  const medications = await prisma.$queryRaw`
+    SELECT DISTINCT 
+      m.id, 
+      m."brandName", 
+      m.form, 
+      m."packSizeExpression", 
+      m."packSizeUnit", 
+      m.pharmacopeia, 
+      m."imageUrl",
+      GREATEST(
+        similarity(m."brandName", ${normalizedTerm}),
+        COALESCE(MAX(similarity(a.name, ${normalizedTerm})), 0),
+        CASE 
+          WHEN m.form IS NOT NULL THEN 
+            GREATEST(
+              similarity(REPLACE(m.form::text, '_', ' '), ${normalizedTerm}),
+              similarity(m.form::text, ${enumFormat})
+            )
+          ELSE 0
+        END
+      ) as rank
+    FROM "Medication" m
+    LEFT JOIN "Medication_MedicationIngredient" mmi ON m.id = mmi."medicationId"
+    LEFT JOIN "MedicationIngredient" mi ON mmi."ingredientId" = mi.id
+    LEFT JOIN "ActiveSubstance" a ON mi."substanceId" = a.id
+    WHERE 
+      m."brandName" ILIKE ${`%${normalizedTerm}%`}
+      OR a.name ILIKE ${`%${normalizedTerm}%`}
+      OR REPLACE(m.form::text, '_', ' ') ILIKE ${`%${normalizedTerm}%`}
+      OR m.form::text ILIKE ${`%${enumFormat}%`}
+    GROUP BY m.id, m."brandName", m.form, m."packSizeExpression", 
+             m."packSizeUnit", m.pharmacopeia, m."imageUrl"
+    ORDER BY rank DESC, m."brandName" ASC
+    LIMIT 10
+  `;
+
+  if (medications.length === 0) return [];
+
+  // Rest of your code remains the same...
+  const medIds = medications.map(m => m.id);
+  
+  const fullMedications = await prisma.medication.findMany({
+    where: { id: { in: medIds } },
     select: {
       id: true,
       brandName: true,
@@ -100,26 +132,30 @@ async function getMedicationSuggestions(searchTerm) {
           }
         }
       }
-    },
-    take: 10,
+    }
   });
 
- return medications.map(med => ({
-  id: med.id,
-  brandName: med.brandName,
-  displayName: med.form
-    ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
-    : med.brandName,
-  form: med.form,
-  packSizeExpression: med.packSizeExpression,
-  packSizeUnit: formatPackSizeUnit(med.packSizeUnit),
-  imageUrl: med.imageUrl,
-  ingredients: med.Medication_MedicationIngredient.map(mmi => ({
-    activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
-    strengthValue: mmi.MedicationIngredient.strengthValue,
-    strengthUnit: formatStrengthUnit(mmi.MedicationIngredient.strengthUnit),
-  })),
-}));
+  const medMap = new Map(fullMedications.map(m => [m.id, m]));
+  
+  return medications
+    .map(m => medMap.get(m.id))
+    .filter(Boolean)
+    .map(med => ({
+      id: med.id,
+      brandName: med.brandName,
+      displayName: med.form
+        ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
+        : med.brandName,
+      form: med.form,
+      packSizeExpression: med.packSizeExpression,
+      packSizeUnit: formatPackSizeUnit(med.packSizeUnit),
+      imageUrl: med.imageUrl,
+      ingredients: med.Medication_MedicationIngredient.map(mmi => ({
+        activeSubstance: mmi.MedicationIngredient.ActiveSubstance?.name,
+        strengthValue: mmi.MedicationIngredient.strengthValue,
+        strengthUnit: formatStrengthUnit(mmi.MedicationIngredient.strengthUnit),
+      })),
+    }));
 }
 
 /**
