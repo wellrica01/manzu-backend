@@ -166,9 +166,9 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
   const radiusKm = parseFloat(radius) || 0;
 
   let pharmacyFilter = { Pharmacy: { status: 'VERIFIED', isActive: true }, stock: { gt: 0 } };
-  if (state) pharmacyFilter.pharmacy.state = { equals: state, mode: 'insensitive' };
-  if (lga) pharmacyFilter.pharmacy.lga = { equals: lga, mode: 'insensitive' };
-  if (ward) pharmacyFilter.pharmacy.ward = { equals: ward, mode: 'insensitive' };
+  if (state) pharmacyFilter.Pharmacy.state = { equals: state, mode: 'insensitive' };
+  if (lga) pharmacyFilter.Pharmacy.lga = { equals: lga, mode: 'insensitive' };
+  if (ward) pharmacyFilter.Pharmacy.ward = { equals: ward, mode: 'insensitive' };
 
   let pharmacyIdsWithDistance = [];
   let pharmacyCoordinates = new Map();

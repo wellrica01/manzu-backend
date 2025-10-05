@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { normalizePhone } = require('../utils/validation');
 const { sendVerificationNotification } = require('../utils/notifications');
-const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils')
+const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, resolveManufacturer, computePackSizeQuantity, linkIngredients } = require('../utils/medicationUtils')
 
 const prisma = new PrismaClient();
 
@@ -211,6 +211,8 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
         id: prescription.id,
         uploadedAt: prescription.createdAt,
         status: prescription.status,
+        email: prescription.email,
+        phone: prescription.phone,
         fileUrl: prescription.fileUrl,
       },
       pharmacyRecommendations: [],
@@ -340,7 +342,7 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
         form: medication.form,
         packSizeExpression: medication.packSizeExpression,
         packSizeQuantity: medication.packSizeQuantity,
-        packSizeUnit: medication.packSizeUnit,
+        packSizeUnit: formatPackSizeUnit(medication.packSizeUnit),
         prescriptionRequired: medication.prescriptionRequired,
         nafdacCode: medication.nafdacCode,
         imageUrl: medication.imageUrl,
@@ -516,6 +518,8 @@ const pharmacyRecommendations = await prisma.medicationAvailability.groupBy({
     orderStatus: order?.status,
     prescriptionMetadata: {
       id: prescription.id,
+      email: prescription.email,
+      phone: prescription.phone,
       uploadedAt: prescription.createdAt,
       status: prescription.status,
       fileUrl: prescription.fileUrl,

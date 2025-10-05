@@ -3,20 +3,6 @@
 // ============================================================================
 
 /**
- * Format a medication's display name with brand, strength, form, and generic name
- * @param {Object} med - Medication object
- * @returns {string} Formatted display name
- */
-function formatDisplayName(med) {
-  // Use brandName, strengthValue, strengthUnit, form, and genericMedication.name if available
-  const brand = med.brandName || med.name || '';
-  const generic = med.genericMedication?.name ? ` [${med.genericMedication.name}]` : '';
-  const strength = med.strengthValue ? ` ${med.strengthValue}${med.strengthUnit ? med.strengthUnit : ''}` : '';
-  const form = med.form ? ` (${med.form})` : '';
-  return `${brand}${strength}${form}${generic}`.trim();
-}
-
-/**
  * Capitalize enum strings like NASAL_SPRAY → Nasal Spray
  * @param {string} str - String to capitalize
  * @returns {string} Capitalized string
@@ -325,7 +311,6 @@ async function linkIngredients(tx, medicationId, ingredients, removeOrphans = fa
 // ============================================================================
 
 module.exports = { 
-  formatDisplayName, 
   capitalize, 
   formatPerUnitType, 
   formatPackSizeUnit, 
