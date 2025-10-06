@@ -217,7 +217,7 @@ const cartOrders = await prisma.order.findMany({
   // Paystack requires an email, so we'll use a placeholder if none provided
   const paystackEmail = email || `guest-${userIdentifier}@manzu.com`;
   
-  const callbackUrl = `${process.env.BACKEND_URL || 'http://192.168.36.67:5000'}/api/med-confirmation/callback?session=${checkoutSessionId}`;
+  const callbackUrl = `${process.env.BACKEND_URL || 'http://192.168.221.67:5000'}/api/med-confirmation/callback?session=${checkoutSessionId}`;
   
   const paystackResponse = await axios.post(
     'https://api.paystack.co/transaction/initialize',
