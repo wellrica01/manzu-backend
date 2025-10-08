@@ -34,6 +34,43 @@ async function confirmOrder({ reference, session, userId }) {
       if (!transactionRef) throw new Error('Transaction reference not found');
     }
 
+    if (transactionRef) {
+  console.log('📝 Transaction ref details:', {
+    transactionReference: transactionRef.transactionReference,
+    orderReferences: transactionRef.orderReferences,
+    checkoutSessionId: transactionRef.checkoutSessionId
+  });
+}
+
+// Add this RIGHT AFTER the transactionRef logging
+const debugOrders = await prisma.order.findMany({
+  where: { checkoutSessionId: session },
+  select: { 
+    id: true, 
+    userIdentifier: true, 
+    paymentReference: true, 
+    status: true,
+    checkoutSessionId: true 
+  }
+});
+console.log('🔎 All orders for this session:', debugOrders);
+
+// Also check orders by payment reference
+const debugOrdersByRef = await prisma.order.findMany({
+  where: { 
+    paymentReference: { 
+      in: ['order_1759916257915_3', 'order_1759916257963_5'] 
+    }
+  },
+  select: { 
+    id: true, 
+    userIdentifier: true, 
+    paymentReference: true, 
+    status: true 
+  }
+});
+console.log('🔎 Orders by payment reference:', debugOrdersByRef);
+
     // ✅ Fetch orders linked to reference/session
     const orderWhere = transactionRef
       ? {
@@ -46,7 +83,15 @@ async function confirmOrder({ reference, session, userId }) {
           status: { in: ['PENDING', 'CONFIRMED'] },
         };
 
-    const orders = await prisma.order.findMany({
+    console.log('🔍 Query parameters:', {
+      userId,
+      session,
+      transactionRef: !!transactionRef,
+      orderWhere
+    });
+
+
+        const orders = await prisma.order.findMany({
       where: orderWhere,
       include: {
         OrderItem: {
@@ -78,7 +123,10 @@ async function confirmOrder({ reference, session, userId }) {
       },
     });
 
+    console.log('📦 Orders found:', orders.length);
+
     if (orders.length === 0) throw new Error('Orders not found');
+
 
     // ✅ Generate or reuse tracking code
     const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;

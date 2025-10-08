@@ -165,6 +165,9 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
   const skip = (page - 1) * limit;
   const radiusKm = parseFloat(radius) || 0;
 
+  // Check if any location filters are provided
+  const hasLocationFilters = lat || lng || state || lga || ward;
+
   let pharmacyFilter = { Pharmacy: { status: 'VERIFIED', isActive: true }, stock: { gt: 0 } };
   if (state) pharmacyFilter.Pharmacy.state = { equals: state, mode: 'insensitive' };
   if (lga) pharmacyFilter.Pharmacy.lga = { equals: lga, mode: 'insensitive' };
@@ -229,133 +232,141 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
         whereClause.form = formEnum;
       }
     }
+  }
 
+  // Conditionally include MedicationAvailability based on location filters
+  const selectClause = {
+    id: true,
+    brandName: true,
+    form: true,
+    packSizeExpression: true,
+    packSizeUnit: true,
+    prescriptionRequired: true,
+    nafdacCode: true,
+    pharmacopeia: true,
+    imageUrl: true,
+    Manufacturer: { select: { name: true, country: true } },
+    Medication_MedicationIngredient: {
+      select: {
+        MedicationIngredient: {
+          select: {
+            strengthValue: true,
+            strengthUnit: true,
+            ActiveSubstance: { select: { name: true } }
+          }
+        }
+      }
+    }
+  };
+
+  // Only include MedicationAvailability if location filters are present
+  if (hasLocationFilters) {
+    selectClause.MedicationAvailability = {
+      where: pharmacyFilter,
+      select: {
+        stock: true,
+        price: true,
+        pharmacyId: true,
+        receivedDate: true,
+        expiryDate: true,
+        Pharmacy: {
+          select: {
+            name: true,
+            address: true,
+            logoUrl: true,
+            phone: true,
+            licenseNumber: true,
+            status: true,
+            isActive: true,
+            ward: true,
+            lga: true,
+            state: true,
+            OperatingHour: { select: { dayOfWeek: true, openTime: true, closeTime: true } }
+          }
+        }
+      }
+    };
   }
 
   const medications = await prisma.medication.findMany({
     where: whereClause,
-    select: {
-      id: true,
-      brandName: true,
-      form: true,
-      packSizeExpression: true,
-      packSizeUnit: true,
-      prescriptionRequired: true,
-      nafdacCode: true,
-      pharmacopeia: true,
-      imageUrl: true,
-      Manufacturer: { select: { name: true, country: true } },
-      Medication_MedicationIngredient: {
-        select: {
-          MedicationIngredient: {
-            select: {
-              strengthValue: true,
-              strengthUnit: true,
-              ActiveSubstance: { select: { name: true } }
-            }
-          }
-        }
-      },
-      MedicationAvailability: {
-        where: pharmacyFilter,
-        select: {
-          stock: true,
-          price: true,
-          pharmacyId: true,
-          receivedDate: true,
-          expiryDate: true,
-          Pharmacy: {
-            select: {
-              name: true,
-              address: true,
-              logoUrl: true,
-              phone: true,
-              licenseNumber: true,
-              status: true,
-              isActive: true,
-              ward: true,
-              lga: true,
-              state: true,
-              OperatingHour: { select: { dayOfWeek: true, openTime: true, closeTime: true } }
-            }
-          }
-        }
-      }
-    },
+    select: selectClause,
     take: Number(limit) || 10,
     skip: Number(skip) || 0,
   });
 
   const distanceMap = new Map(pharmacyIdsWithDistance.map(e => [e.id, e.distance_km]));
 
-return medications.map(med => {
-  // Map and format ingredients
-  const ingredients = med.Medication_MedicationIngredient.map(mmi => {
-    const ingredient = mmi.MedicationIngredient;
+  return medications.map(med => {
+    // Map and format ingredients
+    const ingredients = med.Medication_MedicationIngredient.map(mmi => {
+      const ingredient = mmi.MedicationIngredient;
+      return {
+        activeSubstance: ingredient.ActiveSubstance?.name || null,
+        strengthValue: ingredient.strengthValue || null,
+        strengthUnit: formatStrengthUnit(ingredient.strengthUnit), // formatted
+        perUnitValue: ingredient.perUnitValue || null,
+        perUnitType: formatPerUnitType(ingredient.perUnitType), // formatted
+      };
+    });
+
+    // Map availability with distances, only if location filters are present
+    let availability = [];
+    if (hasLocationFilters && med.MedicationAvailability) {
+      availability = med.MedicationAvailability.map(av => ({
+        pharmacyId: av.pharmacyId,
+        pharmacyName: av.Pharmacy.name,
+        logoUrl: av.Pharmacy.logoUrl,
+        address: av.Pharmacy.address,
+        phone: av.Pharmacy.phone,
+        licenseNumber: av.Pharmacy.licenseNumber,
+        status: av.Pharmacy.status,
+        isActive: av.Pharmacy.isActive,
+        ward: av.Pharmacy.ward,
+        lga: av.Pharmacy.lga,
+        state: av.Pharmacy.state,
+        operatingHours: av.Pharmacy.OperatingHour.map(h => ({
+          dayOfWeek: h.dayOfWeek,
+          openTime: h.openTime instanceof Date ? h.openTime.toISOString().slice(11,16) : h.openTime,
+          closeTime: h.closeTime instanceof Date ? h.closeTime.toISOString().slice(11,16) : h.closeTime
+        })),
+        stock: av.stock,
+        price: av.price,
+        expiryDate: av.expiryDate,
+        distance_km: distanceMap.get(av.pharmacyId) ? parseFloat(distanceMap.get(av.pharmacyId).toFixed(2)) : null,
+        latitude: pharmacyCoordinates.get(av.pharmacyId)?.latitude || null,
+        longitude: pharmacyCoordinates.get(av.pharmacyId)?.longitude || null,
+      }));
+
+      // Sort availability
+      if (sortBy === 'nearest' && lat && lng) {
+        availability.sort((a, b) => (a.distance_km || Infinity) - (b.distance_km || Infinity));
+      } else {
+        availability.sort((a, b) => a.price - b.price);
+      }
+    }
+
+    // Build displayName
+    const displayName = med.form
+      ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
+      : med.brandName;
+
     return {
-      activeSubstance: ingredient.ActiveSubstance?.name || null,
-      strengthValue: ingredient.strengthValue || null,
-      strengthUnit: formatStrengthUnit(ingredient.strengthUnit), // formatted
-      perUnitValue: ingredient.perUnitValue || null,
-      perUnitType: formatPerUnitType(ingredient.perUnitType), // formatted
+      id: med.id,
+      brandName: med.brandName,
+      displayName, 
+      manufacturerName: med.Manufacturer?.name || null,
+      manufacturerCountry: med.Manufacturer?.country || null,
+      prescriptionRequired: med.prescriptionRequired || false,
+      form: med.form,
+      packSizeExpression: med.packSizeExpression,
+      packSizeUnit: formatPackSizeUnit(med.packSizeUnit), // formatted
+      ingredients, // formatted ingredients
+      nafdacCode: med.nafdacCode,
+      imageUrl: med.imageUrl,
+      availability, // Empty array if no location filters
     };
   });
-
-  // Map availability with distances
-  let availability = med.MedicationAvailability.map(av => ({
-    pharmacyId: av.pharmacyId,
-    pharmacyName: av.Pharmacy.name,
-    logoUrl: av.Pharmacy.logoUrl,
-    address: av.Pharmacy.address,
-    phone: av.Pharmacy.phone,
-    licenseNumber: av.Pharmacy.licenseNumber,
-    status: av.Pharmacy.status,
-    isActive: av.Pharmacy.isActive,
-    ward: av.Pharmacy.ward,
-    lga: av.Pharmacy.lga,
-    state: av.Pharmacy.state,
-    operatingHours: av.Pharmacy.OperatingHour.map(h => ({
-      dayOfWeek: h.dayOfWeek,
-      openTime: h.openTime instanceof Date ? h.openTime.toISOString().slice(11,16) : h.openTime,
-      closeTime: h.closeTime instanceof Date ? h.closeTime.toISOString().slice(11,16) : h.closeTime
-    })),
-    stock: av.stock,
-    price: av.price,
-    expiryDate: av.expiryDate,
-    distance_km: distanceMap.get(av.pharmacyId) ? parseFloat(distanceMap.get(av.pharmacyId).toFixed(2)) : null,
-    latitude: pharmacyCoordinates.get(av.pharmacyId)?.latitude || null,
-    longitude: pharmacyCoordinates.get(av.pharmacyId)?.longitude || null,
-  }));
-
-  // Sort availability
-  if (sortBy === 'nearest' && lat && lng) {
-    availability.sort((a, b) => (a.distance_km || Infinity) - (b.distance_km || Infinity));
-  } else {
-    availability.sort((a, b) => a.price - b.price);
-  }
-
-  // Build displayName
-  const displayName = med.form
-    ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(med.form)})`
-    : med.brandName;
-
-  return {
-    id: med.id,
-    brandName: med.brandName,
-    displayName, 
-    manufacturerName: med.Manufacturer?.name || null,
-    manufacturerCountry: med.Manufacturer?.country || null,
-    prescriptionRequired: med.prescriptionRequired || false,
-    form: med.form,
-    packSizeExpression: med.packSizeExpression,
-    packSizeUnit: formatPackSizeUnit(med.packSizeUnit), // formatted
-    ingredients, // formatted ingredients
-    nafdacCode: med.nafdacCode,
-    imageUrl: med.imageUrl,
-    availability,
-  };
-});
-
 }
 
 module.exports = {
