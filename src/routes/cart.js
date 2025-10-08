@@ -33,7 +33,7 @@ router.post('/add', async (req, res) => {
 
 
 // Bulk add items to cart
-router.post('/addbulk', async (req, res) => {
+router.post('/add-bulk', async (req, res) => {
   try {
     const { userIdentifier, guestId, items, prescriptionId } = req.body;
 
@@ -115,7 +115,7 @@ router.delete('/remove/:id', async (req, res) => {
 
 
 // Bulk remove items from cart
-router.delete('/removebulk', async (req, res) => {
+router.delete('/remove-bulk', async (req, res) => {
   try {
     const { orderItemIds } = req.body;
     const userId = req.headers['x-guest-id'];

@@ -170,6 +170,9 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
     throw new Error('Invalid latitude or longitude');
   }
 
+  // ✅ NEW: Check if any location filter is provided
+  const hasLocationFilter = hasValidCoordinates || state || lga || ward;
+
   const prescription = await prisma.prescription.findFirst({
     where: { userIdentifier, status: { in: ['PENDING', 'VERIFIED'] } },
     orderBy: { createdAt: 'desc' },
@@ -219,6 +222,80 @@ async function getPrescriptionOrder({ userIdentifier, lat, lng, radius, state, l
     };
   }
 
+  // ✅ NEW: If no location filter is provided, return medications without pharmacy data
+  if (!hasLocationFilter) {
+    const medicationsWithoutPharmacies = await Promise.all(
+      prescription.PrescriptionMedication.map(async prescriptionMed => {
+        const medication = prescriptionMed.Medication;
+        
+        const medicationIngredients = await prisma.medication_MedicationIngredient.findMany({
+          where: { medicationId: medication.id },
+          select: {
+            MedicationIngredient: {
+              select: {
+                strengthValue: true,
+                strengthUnit: true,
+                ActiveSubstance: { 
+                  select: { name: true } 
+                }
+              }
+            }
+          }
+        });
+
+        const activeSubstanceNames = medicationIngredients.map(
+          mi => mi.MedicationIngredient.ActiveSubstance.name
+        );
+
+        const ingredients = medication?.Medication_MedicationIngredient?.map(mi => ({
+          strengthValue: mi.MedicationIngredient.strengthValue,
+          strengthUnit: formatStrengthUnit(mi.MedicationIngredient.strengthUnit),
+          perUnitValue: mi.MedicationIngredient.perUnitValue,
+          perUnitType: formatPerUnitType(mi.MedicationIngredient.perUnitType),
+          activeSubstance: mi.MedicationIngredient.ActiveSubstance?.name,
+        })) ?? [];
+
+        return {
+          id: medication.id,
+          quantity: prescriptionMed.quantity,
+          dosageInstructions: prescriptionMed.dosageInstructions,
+          activeSubstances: activeSubstanceNames,
+          manufacturerName: medication.Manufacturer?.name || null,
+          manufacturerCountry: medication.Manufacturer?.country || null,
+          form: medication.form,
+          packSizeExpression: medication.packSizeExpression,
+          packSizeQuantity: medication.packSizeQuantity,
+          packSizeUnit: formatPackSizeUnit(medication.packSizeUnit),
+          prescriptionRequired: medication.prescriptionRequired,
+          nafdacCode: medication.nafdacCode,
+          imageUrl: medication.imageUrl,
+          ingredients,
+          displayName: medication?.brandName
+            ? `${medication.brandName}${medication.pharmacopeia ? ` ${medication.pharmacopeia}` : ''}${medication.form ? ` (${capitalize(medication.form)})` : ''}`
+            : "Unknown",
+          availability: [], // ✅ Empty availability when no filters
+        };
+      })
+    );
+
+    return {
+      medications: medicationsWithoutPharmacies,
+      prescriptionId: prescription.id,
+      orderId: null,
+      orderStatus: null,
+      prescriptionMetadata: {
+        id: prescription.id,
+        uploadedAt: prescription.createdAt,
+        status: prescription.status,
+        email: prescription.email,
+        phone: prescription.phone,
+        fileUrl: prescription.fileUrl,
+      },
+      pharmacyRecommendations: [], // ✅ Empty recommendations when no filters
+    };
+  }
+
+  // ✅ EXISTING: Continue with normal pharmacy fetching logic when filters are provided
   let pharmacyIdsWithDistance = [];
   if (hasValidCoordinates) {
     pharmacyIdsWithDistance = await prisma.$queryRaw`

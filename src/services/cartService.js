@@ -655,7 +655,6 @@ async function handlePrescriptionVerification({ prescriptionId, status }) {
 }
 
 async function updateCartItem({ orderItemId, quantity, userId }) {
-  // Find the order that contains this item
   const orderItem = await prisma.orderItem.findFirst({
     where: { id: orderItemId },
     include: { 
@@ -670,32 +669,25 @@ async function updateCartItem({ orderItemId, quantity, userId }) {
 
   const order = orderItem.Order;
   
-  // Check if the order belongs to this user and has appropriate status
   if (order.userIdentifier !== userId || !['CART', 'PENDING_PRESCRIPTION', 'PENDING'].includes(order.status)) {
     throw new Error('Cart not found');
   }
 
-  const medicationAvailability = await prisma.medicationAvailability.findFirst({
-    where: {
-      medicationId: orderItem.medicationAvailabilityMedicationId,
-      pharmacyId: orderItem.medicationAvailabilityPharmacyId,
-      stock: { gte: quantity },
-    },
-  });
-  if (!medicationAvailability) {
+  // Check stock using the SAME MedicationAvailability that was originally added
+  if (orderItem.MedicationAvailability.stock < quantity) {
     throw new Error('Insufficient stock');
   }
 
-  // Perform order item update and total recalculation in a transaction
   const updatedItem = await prisma.$transaction(async (tx) => {
     const item = await tx.orderItem.update({
       where: { id: orderItemId },
-      data: { quantity, price: medicationAvailability.price },
+      data: { 
+        quantity 
+        // ✅ Don't update price - keep the original unit price
+      },
     });
 
     await recalculateOrderTotal(tx, order.id);
-
-    // Clean up empty orders
     await cleanupEmptyOrders(tx, userId, order.id);
 
     return item;
