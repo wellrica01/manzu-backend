@@ -254,8 +254,15 @@ function validatePrescriptionOrder(data) {
 
 
 function validateFetchOrders(data) {
-  const schema = Joi.object({});
-  return schema.validate(data, { abortEarly: false });
+  const schema = Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    search: Joi.string().trim().allow('').optional(),
+    status: Joi.string().valid('PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED').optional(),
+    date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(), // YYYY-MM-DD
+    deliveryMethod: Joi.string().valid('PICKUP', 'COURIER').optional(),
+  });
+  return schema.validate(data, { abortEarly: false, convert: true });
 }
 
 function validateUpdateOrder(data) {
@@ -266,32 +273,45 @@ function validateUpdateOrder(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+
 function validateFetchMedications(data) {
-  const schema = Joi.object({});
-  return schema.validate(data, { abortEarly: false });
+  const schema = Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    search: Joi.string().trim().allow('').optional(),
+    lowStock: Joi.boolean().optional(),
+    outOfStock: Joi.boolean().optional(),
+    expiringSoon: Joi.boolean().optional(), // NEW: medications expiring within 30 days
+    prescriptionRequired: Joi.string().valid('true', 'false').optional(),
+  }).oxor('lowStock', 'outOfStock');
+
+  return schema.validate(data, { abortEarly: false, convert: true });
 }
+
 
 function validateAddMedication(data) {
   const schema = Joi.object({
     medicationId: Joi.number().integer().required(),
     stock: Joi.number().integer().positive().required(),
     price: Joi.number().precision(2).positive().required(),
+    batchNumber: Joi.string().required(),
   });
   return schema.validate(data, { abortEarly: false });
 }
-
 
 
 function validateUpdateMedication(data) {
   const schema = Joi.object({
     medicationId: Joi.number().integer().required(),
     stock: Joi.number().integer().min(0).required(),
-    price: Joi.number().min(0).required(),
+    price: Joi.number().precision(2).min(0).required(),
     receivedDate: Joi.date().optional().allow(null),
     expiryDate: Joi.date().optional().allow(null),
+    batchNumber: Joi.string().optional(),
   });
   return schema.validate(data, { abortEarly: false });
 }
+
 
 function validateDeleteMedication(data) {
   const schema = Joi.object({

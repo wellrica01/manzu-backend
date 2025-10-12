@@ -5,7 +5,8 @@ const { validateLocation } = require('../utils/location');
 const prisma = new PrismaClient();
 
 async function registerPharmacyAndUser({ pharmacy, user }) {
-  validateLocation(pharmacy.state, pharmacy.lga, pharmacy.ward, pharmacy.latitude, pharmacy.longitude);
+  // Validate location (state, lga, and GPS bounds)
+  validateLocation(pharmacy.state, pharmacy.lga, pharmacy.latitude, pharmacy.longitude);
 
   const existingPharmacy = await prisma.pharmacy.findUnique({
     where: { licenseNumber: pharmacy.licenseNumber },
@@ -26,31 +27,52 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
   }
 
   const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(user.password, salt);
+  const hashedPin = await bcrypt.hash(user.pin, salt);
 
   const result = await prisma.$transaction(async (prisma) => {
     const logoUrl = pharmacy.logoUrl || null;
+    const locationAccuracy = pharmacy.locationAccuracy || null;
+    const locationCapturedAt = new Date();
+
+    // Insert pharmacy with precise GPS coordinates
     const [newPharmacy] = await prisma.$queryRaw`
-      INSERT INTO "Pharmacy" (name, location, address, lga, state, ward, phone, "licenseNumber", status, "logoUrl")
+      INSERT INTO "Pharmacy" (
+        name, 
+        location, 
+        latitude,
+        longitude,
+        "locationAccuracy",
+        "locationCapturedAt",
+        address, 
+        lga, 
+        state, 
+        phone, 
+        "licenseNumber", 
+        status, 
+        "logoUrl"
+      )
       VALUES (
         ${pharmacy.name},
         ST_SetSRID(ST_MakePoint(${pharmacy.longitude}, ${pharmacy.latitude}), 4326),
+        ${pharmacy.latitude},
+        ${pharmacy.longitude},
+        ${locationAccuracy},
+        ${locationCapturedAt},
         ${pharmacy.address},
         ${pharmacy.lga},
         ${pharmacy.state},
-        ${pharmacy.ward},
         ${pharmacy.phone},
         ${pharmacy.licenseNumber},
         'PENDING',
         ${logoUrl}
       )
-      RETURNING id, name
+      RETURNING id, name, latitude, longitude, "locationAccuracy"
     `;
 
     const newUser = await prisma.pharmacyUser.create({
       data: {
         email: user.email,
-        password: hashedPassword,
+        password: hashedPin,
         name: user.name,
         role: 'MANAGER',
         pharmacyId: newPharmacy.id,
@@ -60,7 +82,12 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
     return { pharmacy: newPharmacy, user: newUser };
   });
 
-  console.log('Pharmacy and user registered:', { pharmacyId: result.pharmacy.id, userId: result.user.id });
+  console.log('Pharmacy registered with GPS:', { 
+    pharmacyId: result.pharmacy.id, 
+    lat: result.pharmacy.latitude,
+    lng: result.pharmacy.longitude,
+    accuracy: result.pharmacy.locationAccuracy
+  });
 
   const token = jwt.sign(
     { userId: result.user.id, pharmacyId: result.pharmacy.id, role: result.user.role },
@@ -71,26 +98,25 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
   return { token, user: result.user, pharmacy: result.pharmacy };
 }
 
-
-async function loginUser({ email, password }) {
+async function loginUser({ email, pin }) {
   const user = await prisma.pharmacyUser.findUnique({
     where: { email },
     include: { Pharmacy: true },
   });
   if (!user) {
-    const error = new Error('Invalid email or password');
+    const error = new Error('Invalid email or PIN');
     error.status = 401;
     throw error;
   }
 
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-  if (!isPasswordValid) {
-    const error = new Error('Invalid email or password');
+  const isPinValid = await bcrypt.compare(pin, user.password);
+  if (!isPinValid) {
+    const error = new Error('Invalid email or PIN');
     error.status = 401;
     throw error;
   }
 
-  console.log('User authenticated:', { userId: user.id, pharmacyId: user.pharmacyId });
+  console.log('User authenticated with PIN:', { userId: user.id, pharmacyId: user.pharmacyId });
 
   const token = jwt.sign(
     { userId: user.id, pharmacyId: user.pharmacyId, role: user.role },
@@ -163,7 +189,8 @@ async function loginAdmin({ email, password }) {
   return { token, admin };
 }
 
-async function addPharmacyUser({ name, email, password, role, pharmacyId }) {
+
+async function addPharmacyUser({ name, email, pin, role, pharmacyId }) {
   const existingUser = await prisma.pharmacyUser.findUnique({
     where: { email },
   });
@@ -174,25 +201,24 @@ async function addPharmacyUser({ name, email, password, role, pharmacyId }) {
   }
 
   const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(password, salt);
+  const hashedPin = await bcrypt.hash(pin, salt);
 
   const newUser = await prisma.pharmacyUser.create({
     data: {
       name,
       email,
-      password: hashedPassword,
+      password: hashedPin,
       role: role.toUpperCase(),
       pharmacyId,
     },
   });
 
-  console.log('User added:', { userId: newUser.id, pharmacyId });
+  console.log('User added with PIN:', { userId: newUser.id, pharmacyId });
 
   return newUser;
 }
 
-
-async function editPharmacyUser(userId, { name, email, password, role }, managerId, pharmacyId) {
+async function editPharmacyUser(userId, { name, email, pin, role }, managerId, pharmacyId) {
   if (userId === managerId) {
     const error = new Error('Cannot edit your own account');
     error.status = 403;
@@ -220,11 +246,10 @@ async function editPharmacyUser(userId, { name, email, password, role }, manager
   }
 
   const updateData = { name, email };
-  if (password) {
+  if (pin) {
     const salt = await bcrypt.genSalt(10);
-    updateData.password = await bcrypt.hash(password, salt);
+    updateData.password = await bcrypt.hash(pin, salt);
   }
-  // If role is present in the update, uppercase it
   if (typeof role !== 'undefined') {
     updateData.role = role.toUpperCase();
   }
@@ -264,18 +289,18 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
 }
 
 
-async function changePharmacyUserPassword(userId, currentPassword, newPassword) {
+async function changePharmacyUserPassword(userId, currentPin, newPin) {
   const user = await prisma.pharmacyUser.findUnique({ where: { id: userId } });
   if (!user) {
     return { success: false, message: 'User not found' };
   }
-  const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
-  if (!isPasswordValid) {
-    return { success: false, message: 'Current password is incorrect' };
+  const isPinValid = await bcrypt.compare(currentPin, user.password);
+  if (!isPinValid) {
+    return { success: false, message: 'Current PIN is incorrect' };
   }
   const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(newPassword, salt);
-  await prisma.pharmacyUser.update({ where: { id: userId }, data: { password: hashedPassword } });
+  const hashedPin = await bcrypt.hash(newPin, salt);
+  await prisma.pharmacyUser.update({ where: { id: userId }, data: { password: hashedPin } });
   return { success: true };
 }
 

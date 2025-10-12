@@ -171,16 +171,21 @@ const pharmacyUserFilterSchema = z.object({
 
 const registerSchema = z.object({
   pharmacy: z.object({
-    name: z.string().min(1, 'Pharmacy name required'),
-    address: z.string().min(1, 'Address required'),
-    lga: z.string().min(1, 'LGA required'),
-    state: z.string().min(1, 'State required'),
-    ward: z.string().min(1, 'Ward required'),
-    latitude: z.number().min(-90).max(90, 'Invalid latitude'),
-    longitude: z.number().min(-180).max(180, 'Invalid longitude'),
-    phone: z.string().regex(/^[+]?\d{10,15}$/, 'Invalid phone number'),
-    licenseNumber: z.string().min(1, 'License number required'),
-    logoUrl: z.string().url('Invalid URL').optional(),
+    name: z.string().min(3).max(255),
+    licenseNumber: z.string().min(5).max(50),
+    phone: z.string().regex(/^(\+234|0)[789]\d{9}$/, 'Invalid Nigerian phone number'),
+    address: z.string().min(10).max(500),
+    state: z.string().min(2).max(100),
+    lga: z.string().min(2).max(100),
+    latitude: z.number()
+      .min(4, 'Latitude must be within Nigeria (4°N to 14°N)')
+      .max(14, 'Latitude must be within Nigeria (4°N to 14°N)'),
+    
+    longitude: z.number()
+      .min(3, 'Longitude must be within Nigeria (3°E to 15°E)')
+      .max(15, 'Longitude must be within Nigeria (3°E to 15°E)'),
+    locationAccuracy: z.number().int().positive().optional(), // meters
+    logoUrl: z.string().url().optional().nullable(),
     pharmacyType: z.enum(['COMMUNITY', 'HOSPITAL', 'SPECIALTY', 'PMV']).optional(),
     operatingHours: z
   .array(
@@ -202,23 +207,29 @@ const registerSchema = z.object({
     deliveryAvailability: z.boolean().optional(),
   }),
   user: z.object({
-    name: z.string().min(1, 'User name required'),
-    email: z.string().email('Invalid email'),
-    password: z.string().min(8, 'Password must be at least 8 characters'),
+    name: z.string().min(2).max(100),
+    email: z.string().email(),
+    pin: z.string()
+      .length(6, 'PIN must be exactly 6 digits')
+      .regex(/^\d{6}$/, 'PIN must contain only numbers'),
   }),
 });
 
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email'),
-  password: z.string().min(1, 'Password required'),
+  pin: z.string()
+    .length(6, 'PIN must be exactly 6 digits')
+    .regex(/^\d{6}$/, 'PIN must contain only numbers'),
 });
 
 
 const addUserSchema = z.object({
   name: z.string().min(1, 'User name required'),
   email: z.string().email('Invalid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  pin: z.string()
+  .length(6, 'PIN must be exactly 6 digits')
+  .regex(/^\d{6}$/, 'PIN must contain only numbers'),
   role: z.enum(['MANAGER', 'PHARMACIST', 'ADMIN', 'STAFF', 'OWNER', 'TECHNICIAN'], 'Role must be a valid pharmacy user role'),
 });
 
@@ -226,7 +237,9 @@ const addUserSchema = z.object({
 const editUserSchema = z.object({
   name: z.string().min(1, 'User name required'),
   email: z.string().email('Invalid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+  pin: z.string()
+  .length(6, 'PIN must be exactly 6 digits')
+  .regex(/^\d{6}$/, 'PIN must contain only numbers').optional(),
   role: z.enum(['MANAGER', 'PHARMACIST', 'ADMIN', 'STAFF', 'OWNER', 'TECHNICIAN']).optional(),
 });
 

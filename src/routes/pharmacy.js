@@ -1,4 +1,6 @@
 const express = require('express');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 const pharmacyService = require('../services/pharmacyService');   
 const { validateFetchOrders, validateUpdateOrder, validateFetchMedications, validateAddMedication, validateUpdateMedication, validateDeleteMedication, validateFetchUsers, validateRegisterDevice } = require('../utils/validation');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
@@ -9,18 +11,25 @@ console.log('Loaded pharmacy.js version: 2025-06-19-v2 (new schema)');
 // GET /pharmacy/orders - Fetch orders for pharmacy (new schema)
 router.get('/orders', authenticate, async (req, res) => {
   try {
-    // Parse pagination params
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
-    // Validate input (no query params to validate, but ensure user context)
-    const { error } = validateFetchOrders({});
+    const { error, value } = validateFetchOrders(req.query);
     if (error) {
-      console.error('Validation error:', error.message);
-      return res.status(400).json({ message: error.message });
+      console.error('Validation error:', error.details.map(d => d.message).join(', '));
+      return res.status(400).json({ 
+        message: 'Invalid query parameters', 
+        errors: error.details.map(d => d.message) 
+      });
     }
 
-    const { orders, total } = await pharmacyService.fetchOrders(req.user.pharmacyId, { page, limit });
-    res.status(200).json({ message: 'Orders fetched', orders, total, page, limit });
+    const result = await pharmacyService.fetchOrders(req.user.pharmacyId, {
+      page: value.page,
+      limit: value.limit,
+      search: value.search,
+      status: value.status,
+      date: value.date, // Added
+      deliveryMethod: value.deliveryMethod, // Added
+    });
+
+    res.status(200).json(result);
   } catch (error) {
     console.error('Pharmacy orders error:', { message: error.message, stack: error.stack });
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -51,28 +60,39 @@ router.patch('/orders/:orderId', authenticate, async (req, res) => {
 // GET /pharmacy/medications - Fetch pharmacy medications (new schema)
 router.get('/medications', authenticate, async (req, res) => {
   try {
-    // Validate input (no query params to validate)
-    const { error } = validateFetchMedications({});
+    // Validate query parameters
+    const { error, value } = validateFetchMedications(req.query);
     if (error) {
-      console.error('Validation error:', error.message);
-      return res.status(400).json({ message: error.message });
+      console.error('Validation error:', error.details.map(d => d.message).join(', '));
+      return res.status(400).json({ message: 'Invalid query parameters', error: error.details.map(d => d.message) });
     }
 
-    const result = await pharmacyService.fetchMedications(req.user.pharmacyId);
-    res.status(200).json({ message: 'Medications fetched', ...result });
+    // Pass validated query params and pharmacyId to fetchMedications
+    const result = await pharmacyService.fetchMedications(req.user.pharmacyId, {
+      page: value.page,
+      limit: value.limit,
+      search: value.search,
+      lowStock: value.lowStock,
+      outOfStock: value.outOfStock,
+      prescriptionRequired: value.prescriptionRequired,
+    });
+
+    // Return result directly to match frontend expectation
+    res.status(200).json(result);
   } catch (error) {
     console.error('Pharmacy medications error:', { message: error.message, stack: error.stack });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
+
 // POST /pharmacy/medications - Add new pharmacy medication (new schema)
 router.post('/medications', authenticate, async (req, res) => {
   try {
-    const { medicationId, stock, price, receivedDate, expiryDate } = req.body;
+    const { medicationId, stock, price, receivedDate, expiryDate, batchNumber } = req.body;
 
     // Validate input
-    const { error } = validateAddMedication({ medicationId, stock, price });
+    const { error } = validateAddMedication({ medicationId, stock, price, batchNumber });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
@@ -82,9 +102,10 @@ router.post('/medications', authenticate, async (req, res) => {
       pharmacyId: req.user.pharmacyId,
       medicationId: Number(medicationId),
       stock: Number(stock),
-      price: Number(price),
+      price: parseFloat(Number(price).toFixed(2)),
       receivedDate,
       expiryDate,
+      batchNumber,
     });
     res.status(201).json({ message: 'Medication added', medication });
   } catch (error) {
@@ -96,10 +117,9 @@ router.post('/medications', authenticate, async (req, res) => {
 // PATCH /pharmacy/medications - Update pharmacy medication (new schema)
 router.patch('/medications', authenticate, async (req, res) => {
   try {
-    const { medicationId, stock, price, receivedDate, expiryDate } = req.body;
-
+    const { medicationId, stock, price, receivedDate, expiryDate, batchNumber } = req.body;
     // Validate input
-    const { error } = validateUpdateMedication({ medicationId, stock, price, receivedDate, expiryDate });
+    const { error } = validateUpdateMedication({ medicationId, stock, price, receivedDate, expiryDate, batchNumber });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
@@ -109,9 +129,10 @@ router.patch('/medications', authenticate, async (req, res) => {
       pharmacyId: req.user.pharmacyId,
       medicationId: Number(medicationId),
       stock: Number(stock),
-      price: Number(price),
+      price: parseFloat(Number(price).toFixed(2)),
       receivedDate,
       expiryDate,
+      batchNumber,
     });
     res.status(200).json({ message: 'Medication updated', medication: updatedMedication });
   } catch (error) {
@@ -270,11 +291,102 @@ router.post('/sales', authenticate, async (req, res) => {
 // GET /pharmacy/sales?date=YYYY-MM-DD - Fetch sales for a day (new schema)
 router.get('/sales', authenticate, async (req, res) => {
   try {
-    const { date } = req.query;
-    const sales = await pharmacyService.fetchSales(req.user.pharmacyId, date);
+    const { 
+      date, 
+      startDate, 
+      endDate, 
+      paymentMethod, 
+      minAmount, 
+      maxAmount 
+    } = req.query;
+    
+    let where = { pharmacyId: req.user.pharmacyId };
+    
+    // Date filtering
+    if (date) {
+       const start = new Date(date + 'T00:00:00.000Z');
+      const end = new Date(date + 'T23:59:59.999Z');
+      where.createdAt = { gte: start, lte: end };
+    } else if (startDate && endDate) {
+      where.createdAt = {
+        gte: new Date(startDate + 'T00:00:00.000Z'),
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      };
+    }
+    
+    // Payment method filter
+    if (paymentMethod) {
+      where.paymentMethod = paymentMethod;
+    }
+    
+    // Amount range filter
+    if (minAmount || maxAmount) {
+      where.total = {};
+      if (minAmount) where.total.gte = parseFloat(minAmount);
+      if (maxAmount) where.total.lte = parseFloat(maxAmount);
+    }
+    
+    const sales = await prisma.sale.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+    
     res.status(200).json({ message: 'Sales fetched', sales });
   } catch (error) {
     console.error('Fetch sales error:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// New export endpoint
+router.get('/sales/export', authenticate, async (req, res) => {
+  try {
+    const { date, startDate, endDate, paymentMethod } = req.query;
+    
+    let where = { pharmacyId: req.user.pharmacyId };
+    
+    if (date) {
+      const start = new Date(date + 'T00:00:00.000Z');
+      const end = new Date(date + 'T23:59:59.999Z');
+      where.createdAt = { gte: start, lte: end };
+    } else if (startDate && endDate) {
+      where.createdAt = {
+        gte: new Date(startDate + 'T00:00:00.000Z'),
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      };
+    }
+    
+    if (paymentMethod) where.paymentMethod = paymentMethod;
+    
+    const sales = await prisma.sale.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+    
+    // Generate CSV
+    const csvRows = [];
+    csvRows.push('Transaction ID,Date,Time,Items Count,Total Amount,Payment Method');
+    
+    sales.forEach(sale => {
+      const date = new Date(sale.createdAt);
+      const itemsCount = sale.items.reduce((sum, item) => sum + item.quantity, 0);
+      csvRows.push([
+        sale.id,
+        date.toLocaleDateString(),
+        date.toLocaleTimeString(),
+        itemsCount,
+        sale.total,
+        sale.paymentMethod
+      ].join(','));
+    });
+    
+    const csvContent = csvRows.join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=sales-export-${new Date().toISOString().split('T')[0]}.csv`);
+    res.status(200).send(csvContent);
+  } catch (error) {
+    console.error('Export sales error:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

@@ -278,6 +278,10 @@ model Pharmacy {
   ward                   String?
   devicetoken            String?
   deliveryAvailability   Boolean?                 @default(false)
+  latitude               Decimal?                 @db.Decimal(10, 8)
+  longitude              Decimal?                 @db.Decimal(11, 8)
+  locationAccuracy       Int?
+  locationCapturedAt     DateTime?                @db.Timestamp(6)
   MedicationAvailability MedicationAvailability[]
   OperatingHour          OperatingHour[]
   Order                  Order[]
@@ -287,6 +291,7 @@ model Pharmacy {
   @@index([licenseNumber])
   @@index([name, state])
   @@index([location], map: "idx_pharmacy_location", type: Gist)
+  @@index([latitude, longitude], map: "idx_pharmacy_lat_lon")
 }
 
 model PharmacyUser {
