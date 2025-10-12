@@ -591,8 +591,15 @@ async function registerDevice(pharmacyId, deviceToken) {
 async function getProfile(userId, pharmacyId) {
   const user = await prisma.pharmacyUser.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, email: true, role: true },
+    select: { 
+      id: true, 
+      name: true, 
+      email: true, 
+      role: true,
+      lastLogin: true 
+    },
   });
+  
   if (!user) {
     const error = new Error('User not found');
     error.status = 404;
@@ -601,8 +608,36 @@ async function getProfile(userId, pharmacyId) {
 
   const pharmacy = await prisma.pharmacy.findUnique({
     where: { id: pharmacyId },
-    select: { id: true, name: true, address: true, lga: true, state: true, ward: true, phone: true, licenseNumber: true, status: true, logoUrl: true },
+    select: { 
+      id: true, 
+      name: true, 
+      address: true, 
+      lga: true, 
+      state: true, 
+      ward: true, 
+      phone: true, 
+      licenseNumber: true, 
+      status: true, 
+      logoUrl: true,
+      latitude: true,
+      longitude: true,
+      deliveryAvailability: true,
+      pharmacyType: true,
+      isActive: true,
+      createdAt: true,
+      verifiedAt: true,
+      // Include operating hours
+      OperatingHour: {
+        select: {
+          id: true,
+          dayOfWeek: true,
+          openTime: true,
+          closeTime: true,
+        }
+      }
+    },
   });
+  
   if (!pharmacy) {
     const error = new Error('Pharmacy not found');
     error.status = 404;
@@ -614,12 +649,25 @@ async function getProfile(userId, pharmacyId) {
   return { user, pharmacy };
 }
 
-async function editProfile({ user, pharmacy }, userId, pharmacyId) {
-  validateLocation(pharmacy.state, pharmacy.lga, pharmacy.ward, pharmacy.latitude, pharmacy.longitude);
 
+
+async function editProfile({ user, pharmacy }, userId, pharmacyId) {
+  // Validate location if coordinates provided
+  if (pharmacy.latitude && pharmacy.longitude) {
+    validateLocation(
+      pharmacy.state, 
+      pharmacy.lga, 
+      pharmacy.ward, 
+      pharmacy.latitude, 
+      pharmacy.longitude
+    );
+  }
+
+  // Check email uniqueness
   const existingUser = await prisma.pharmacyUser.findUnique({
     where: { id: userId },
   });
+  
   if (user.email !== existingUser.email) {
     const emailConflict = await prisma.pharmacyUser.findUnique({
       where: { email: user.email },
@@ -632,29 +680,44 @@ async function editProfile({ user, pharmacy }, userId, pharmacyId) {
   }
 
   const result = await prisma.$transaction(async (prisma) => {
+    // Update user
     const updatedUser = await prisma.pharmacyUser.update({
       where: { id: userId },
-      data: { name: user.name, email: user.email },
-    });
-
-    const updatedPharmacy = await prisma.pharmacy.update({
-      where: { id: pharmacyId },
-      data: {
-        name: pharmacy.name,
-        address: pharmacy.address,
-        lga: pharmacy.lga,
-        state: pharmacy.state,
-        ward: pharmacy.ward,
-        phone: pharmacy.phone,
-        logoUrl: pharmacy.logoUrl || null,
+      data: { 
+        name: user.name, 
+        email: user.email 
       },
     });
 
-    await prisma.$queryRaw`
-      UPDATE "Pharmacy"
-      SET location = ST_SetSRID(ST_MakePoint(${pharmacy.longitude}, ${pharmacy.latitude}), 4326)
-      WHERE id = ${pharmacyId}
-    `;
+    // Prepare pharmacy update data
+    const pharmacyUpdateData = {
+      name: pharmacy.name,
+      address: pharmacy.address,
+      lga: pharmacy.lga,
+      state: pharmacy.state,
+      ward: pharmacy.ward || null,
+      phone: pharmacy.phone,
+      logoUrl: pharmacy.logoUrl || null,
+      latitude: pharmacy.latitude ? parseFloat(pharmacy.latitude) : null,
+      longitude: pharmacy.longitude ? parseFloat(pharmacy.longitude) : null,
+      deliveryAvailability: pharmacy.deliveryAvailability || false,
+    };
+
+    // Update pharmacy
+    const updatedPharmacy = await prisma.pharmacy.update({
+      where: { id: pharmacyId },
+      data: pharmacyUpdateData,
+    });
+
+    // Update PostGIS location if coordinates provided
+    if (pharmacy.latitude && pharmacy.longitude) {
+      await prisma.$queryRaw`
+        UPDATE "Pharmacy"
+        SET location = ST_SetSRID(ST_MakePoint(${parseFloat(pharmacy.longitude)}, ${parseFloat(pharmacy.latitude)}), 4326),
+            "locationCapturedAt" = NOW()
+        WHERE id = ${pharmacyId}
+      `;
+    }
 
     return { user: updatedUser, pharmacy: updatedPharmacy };
   });
@@ -663,6 +726,8 @@ async function editProfile({ user, pharmacy }, userId, pharmacyId) {
 
   return { updatedUser: result.user, updatedPharmacy: result.pharmacy };
 }
+
+
 
 async function getDashboardData(pharmacyId) {
   const startOfDay = new Date();

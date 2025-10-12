@@ -245,19 +245,21 @@ const editUserSchema = z.object({
 
 const editProfileSchema = z.object({
   user: z.object({
-    name: z.string().min(1, 'User name required'),
-    email: z.string().email('Invalid email'),
+    name: z.string().min(1, 'Name is required'),
+    email: z.string().email('Invalid email address'),
   }),
   pharmacy: z.object({
-    name: z.string().min(1, 'Pharmacy name required'),
-    address: z.string().min(1, 'Address required'),
-    lga: z.string().min(1, 'LGA required'),
-    state: z.string().min(1, 'State required'),
-    ward: z.string().min(1, 'Ward required'),
-    latitude: z.number().min(-90).max(90, 'Invalid latitude'),
-    longitude: z.number().min(-180).max(180, 'Invalid longitude'),
-    phone: z.string().regex(/^\+?\d{10,15}$/, 'Invalid phone number'),
-    logoUrl: z.string().url('Invalid URL').optional(),
+    name: z.string().min(1, 'Pharmacy name is required'),
+    address: z.string().min(1, 'Address is required'),
+    lga: z.string().min(1, 'LGA is required'),
+    state: z.string().min(1, 'State is required'),
+    ward: z.string().optional(),
+    phone: z.string().min(10, 'Phone number is required'),
+    licenseNumber: z.string().min(1, 'License number is required'),
+    logoUrl: z.string().url().optional().or(z.literal('')),
+    latitude: z.number().or(z.string()).optional(),
+    longitude: z.number().or(z.string()).optional(),
+    deliveryAvailability: z.boolean().optional(),
   }),
 });
 

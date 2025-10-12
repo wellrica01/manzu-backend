@@ -245,6 +245,65 @@ router.patch('/profile', authenticate, authorizeRoles('MANAGER'), async (req, re
   }
 });
 
+
+// GET /pharmacy/operating-hours - Get operating hours
+router.get('/operating-hours', authenticate, async (req, res) => {
+  try {
+    const operatingHours = await prisma.operatingHour.findMany({
+      where: { pharmacyId: req.user.pharmacyId },
+      orderBy: { dayOfWeek: 'asc' }
+    });
+    
+    res.status(200).json({ operatingHours });
+  } catch (error) {
+    console.error('Fetch operating hours error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// POST /pharmacy/operating-hours - Set operating hours
+router.post('/operating-hours', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
+  try {
+    const { hours } = req.body; // Array of { dayOfWeek, openTime, closeTime, isClosed }
+    
+    // Validate input
+    if (!Array.isArray(hours) || hours.length === 0) {
+      return res.status(400).json({ message: 'Invalid hours data' });
+    }
+
+    // Delete existing hours and create new ones
+    await prisma.$transaction(async (prisma) => {
+      await prisma.operatingHour.deleteMany({
+        where: { pharmacyId: req.user.pharmacyId }
+      });
+
+      await prisma.operatingHour.createMany({
+        data: hours.map(h => ({
+          pharmacyId: req.user.pharmacyId,
+          dayOfWeek: h.dayOfWeek,
+          openTime: h.isClosed ? null : h.openTime,
+          closeTime: h.isClosed ? null : h.closeTime,
+          isClosed: h.isClosed || false
+        }))
+      });
+    });
+
+    const updatedHours = await prisma.operatingHour.findMany({
+      where: { pharmacyId: req.user.pharmacyId },
+      orderBy: { dayOfWeek: 'asc' }
+    });
+
+    res.status(200).json({ 
+      message: 'Operating hours updated successfully',
+      operatingHours: updatedHours 
+    });
+  } catch (error) {
+    console.error('Update operating hours error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+
 // GET /pharmacy/dashboard - Dashboard summary for pharmacy (new schema)
 // Now includes PoS (walk-in) sales stats: posSalesToday, posRevenueToday
 router.get('/dashboard', authenticate, async (req, res) => {
@@ -387,6 +446,47 @@ router.get('/sales/export', authenticate, async (req, res) => {
     res.status(200).send(csvContent);
   } catch (error) {
     console.error('Export sales error:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+
+// POST /pharmacy/change-password - Change password
+router.post('/change-password', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new passwords are required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters' });
+    }
+
+    // Get current user
+    const user = await prisma.pharmacyUser.findUnique({
+      where: { id: req.user.userId }
+    });
+
+    // Verify current password
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await prisma.pharmacyUser.update({
+      where: { id: req.user.userId },
+      data: { password: hashedPassword }
+    });
+
+    res.status(200).json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
