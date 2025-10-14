@@ -307,17 +307,20 @@ async function getPharmacy(id) {
   return pharmacy;
 }
 
-
 async function updatePharmacy(id, data) {
-  const existingPharmacy = await prisma.pharmacy.findUnique({
-    where: { id },
-  });
+  // 1️⃣ Check if pharmacy exists
+  const existingPharmacy = await prisma.pharmacy.findUnique({ where: { id } });
   if (!existingPharmacy) {
     const error = new Error('Pharmacy not found');
     error.status = 404;
     throw error;
   }
-  if (data.licenseNumber !== existingPharmacy.licenseNumber) {
+
+  // 2️⃣ Check for license number conflict
+  if (
+    data.licenseNumber &&
+    data.licenseNumber !== existingPharmacy.licenseNumber
+  ) {
     const licenseConflict = await prisma.pharmacy.findUnique({
       where: { licenseNumber: data.licenseNumber },
     });
@@ -327,37 +330,52 @@ async function updatePharmacy(id, data) {
       throw error;
     }
   }
-  const addressString = `${data.address}, ${data.lga}, ${data.state}, Nigeria`;
-  const geoResult = await geocoder.geocode(addressString);
-  if (!geoResult.length) {
-    const error = new Error('Invalid address: unable to geocode');
-    error.status = 400;
-    throw error;
+
+  // 3️⃣ Build update payload
+  const updateData = {
+    name: data.name,
+    address: data.address,
+    lga: data.lga,
+    state: data.state,
+    phone: data.phone,
+    licenseNumber: data.licenseNumber,
+    status: data.status,
+    logoUrl: data.logoUrl,
+    isActive: data.isActive,
+    verifiedAt:
+      data.status === 'VERIFIED'
+        ? new Date()
+        : data.status === 'REJECTED'
+        ? null
+        : existingPharmacy.verifiedAt,
+  };
+
+  // Include lat/long if provided
+  if (typeof data.lat === 'number' && typeof data.long === 'number') {
+    updateData.lat = data.lat;
+    updateData.long = data.long;
   }
-  const { latitude, longitude } = geoResult[0];
-  const updatedPharmacy = await prisma.$transaction(async (prisma) => {
-    const pharmacy = await prisma.pharmacy.update({
+
+  // 4️⃣ Run atomic transaction
+  const updatedPharmacy = await prisma.$transaction(async (tx) => {
+    const pharmacy = await tx.pharmacy.update({
       where: { id },
-      data: {
-        name: data.name,
-        address: data.address,
-        lga: data.lga,
-        state: data.state,
-        phone: data.phone,
-        licenseNumber: data.licenseNumber,
-        status: data.status,
-        logoUrl: data.logoUrl,
-        isActive: data.isActive,
-        verifiedAt: data.status === 'VERIFIED' ? new Date() : data.status === 'REJECTED' ? null : existingPharmacy.verifiedAt,
-      },
+      data: updateData,
     });
-    await prisma.$queryRaw`
-      UPDATE "Pharmacy"
-      SET location = ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)
-      WHERE id = ${id}
-    `;
+
+    // If coordinates provided, also sync PostGIS location
+    if (typeof data.lat === 'number' && typeof data.long === 'number') {
+      await tx.$executeRaw`
+        UPDATE "Pharmacy"
+        SET location = ST_SetSRID(ST_MakePoint(${data.long}, ${data.lat}), 4326)
+        WHERE id = ${id}
+      `;
+    }
+
     return pharmacy;
   });
+
+  // 5️⃣ Return formatted response
   console.log('Pharmacy updated:', { pharmacyId: id });
   return {
     id: updatedPharmacy.id,
@@ -370,10 +388,13 @@ async function updatePharmacy(id, data) {
     status: updatedPharmacy.status,
     logoUrl: updatedPharmacy.logoUrl,
     isActive: updatedPharmacy.isActive,
+    lat: updatedPharmacy.lat,
+    long: updatedPharmacy.long,
     createdAt: updatedPharmacy.createdAt,
     verifiedAt: updatedPharmacy.verifiedAt,
   };
 }
+
 
 
 async function deletePharmacy(id) {
