@@ -108,7 +108,6 @@ async function getMedicationSuggestions(searchTerm) {
 
   if (medications.length === 0) return [];
 
-  // Rest of your code remains the same...
   const medIds = medications.map(m => m.id);
   
   const fullMedications = await prisma.medication.findMany({
@@ -160,13 +159,25 @@ async function getMedicationSuggestions(searchTerm) {
 
 /**
  * Search medications with pharmacy availability, stock, optional distance, and include all ingredients.
+ * 
  */
-async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, lng, radius = 10, state, lga, sortBy = 'cheapest' }) {
+
+async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, lng, radius = 50, state, lga, sortBy = 'cheapest' }) {
   const skip = (page - 1) * limit;
-  const radiusKm = parseFloat(radius) || 10; // Default 10km
+  const radiusKm = parseFloat(radius) || 50; // Default 50km (increased from 10km)
 
   // Check if any location filters are provided
-  const hasLocationFilters = lat || lng || state || lga;
+  const hasLocationFilters = state || lga;
+  const hasCoordinates = lat && lng;
+
+  console.log('🔍 Search params:', { 
+    medicationId, 
+    hasLocationFilters, 
+    hasCoordinates, 
+    state, 
+    lga, 
+    radiusKm 
+  });
 
   // Base pharmacy filter (always applied)
   let pharmacyFilter = { 
@@ -181,11 +192,12 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
   if (state) pharmacyFilter.Pharmacy.state = { equals: state, mode: 'insensitive' };
   if (lga) pharmacyFilter.Pharmacy.lga = { equals: lga, mode: 'insensitive' };
 
-  // Calculate distances if user location provided
-  let pharmacyIdsWithDistance = [];
+  // ✨ STEP 1: Calculate distances for ALL pharmacies if coordinates provided
+  // This happens BEFORE filtering, so we can show distances even with State/LGA filters
   let distanceMap = new Map();
+  let pharmacyIdsWithinRadius = [];
   
-  if (lat && lng) {
+  if (hasCoordinates) {
     const latitude = parseFloat(lat);
     const longitude = parseFloat(lng);
     
@@ -195,11 +207,13 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
 
     // Validate coordinates are in Nigeria
     if (latitude < 4 || latitude > 14 || longitude < 3 || longitude > 15) {
-      throw new Error('Coordinates must be within Nigeria');
+        throw new Error('Coordinates must be within Nigeria');
     }
 
-    // Query pharmacies within radius using PostGIS
-    const pharmacyData = await prisma.$queryRaw`
+    console.log('📍 Calculating distances from:', { latitude, longitude, radiusKm });
+
+    // Query ALL pharmacies with distances (not filtered yet)
+    const allPharmacyDistances = await prisma.$queryRaw`
       SELECT 
         id,
         latitude,
@@ -210,39 +224,43 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
         ) / 1000 AS distance_km
       FROM "Pharmacy"
       WHERE 
-        ST_DWithin(
-          location, 
-          ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326), 
-          ${radiusKm * 1000}
-        )
-        AND status = 'VERIFIED'
+        status = 'VERIFIED'
         AND "isActive" = true
+        AND location IS NOT NULL
       ORDER BY distance_km ASC
     `;
 
-    // Build maps for efficient lookup
-    pharmacyIdsWithDistance = pharmacyData.map(r => r.id);
-    distanceMap = new Map(
-      pharmacyData.map(r => [
-        r.id, 
-        {
-          distance_km: parseFloat(r.distance_km.toFixed(2)),
-          latitude: parseFloat(r.latitude),
-          longitude: parseFloat(r.longitude)
-        }
-      ])
-    );
+    console.log(`📊 Found ${allPharmacyDistances.length} pharmacies with distances`);
 
-    // Filter to only nearby pharmacies if user location provided
-    if (pharmacyIdsWithDistance.length > 0) {
-      pharmacyFilter.Pharmacy.id = { in: pharmacyIdsWithDistance };
-    } else {
-      // No pharmacies found within radius
-      pharmacyFilter.Pharmacy.id = { in: [-1] }; // No results
+    // Build distance map for ALL pharmacies
+    allPharmacyDistances.forEach(p => {
+      distanceMap.set(p.id, {
+        distance_km: parseFloat(p.distance_km.toFixed(2)),
+        latitude: parseFloat(p.latitude),
+        longitude: parseFloat(p.longitude)
+      });
+    });
+
+    // ✨ CONDITIONAL: If NO location filters, apply radius constraint
+    // If location filters exist, show ALL pharmacies in that area with distances
+    if (!hasLocationFilters) {
+      pharmacyIdsWithinRadius = allPharmacyDistances
+        .filter(p => parseFloat(p.distance_km) <= radiusKm)
+        .map(p => p.id);
+
+      console.log(`🎯 ${pharmacyIdsWithinRadius.length} pharmacies within ${radiusKm}km radius`);
+
+      if (pharmacyIdsWithinRadius.length > 0) {
+        pharmacyFilter.Pharmacy.id = { in: pharmacyIdsWithinRadius };
+      } else {
+        // No pharmacies within radius
+        pharmacyFilter.Pharmacy.id = { in: [-1] };
+      }
     }
+    // If hasLocationFilters, we don't restrict by radius - show all in that State/LGA with distances
   }
 
-  // Build medication where clause
+  // ✨ STEP 2: Build medication where clause
   let whereClause = {};
   if (medicationId) {
     whereClause.id = parseInt(medicationId, 10);
@@ -314,8 +332,8 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
     }
   };
 
-  // Only include MedicationAvailability if location filters are present
-  if (hasLocationFilters) {
+  // Only include MedicationAvailability if location filters OR coordinates are present
+  if (hasLocationFilters || hasCoordinates) {
     selectClause.MedicationAvailability = {
       where: pharmacyFilter,
       select: {
@@ -334,8 +352,8 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
             licenseNumber: true,
             status: true,
             isActive: true,
-            latitude: true,  // NEW: Direct from column
-            longitude: true, // NEW: Direct from column
+            latitude: true,
+            longitude: true,
             lga: true,
             state: true,
             OperatingHour: { 
@@ -359,6 +377,8 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
     skip: Number(skip) || 0,
   });
 
+  console.log(`✅ Found ${medications.length} medications`);
+
   // Map and format results
   return medications.map(med => {
     // Format ingredients
@@ -373,9 +393,9 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
       };
     });
 
-    // Map availability with distances
+    // ✨ STEP 3: Map availability with distances from our distance map
     let availability = [];
-    if (hasLocationFilters && med.MedicationAvailability) {
+    if ((hasLocationFilters || hasCoordinates) && med.MedicationAvailability) {
       availability = med.MedicationAvailability.map(av => {
         const distanceData = distanceMap.get(av.pharmacyId);
         
@@ -402,7 +422,7 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
           stock: av.stock,
           price: parseFloat(av.price),
           expiryDate: av.expiryDate,
-          // Distance data (from distanceMap or fallback to pharmacy columns)
+          // ✨ Distance data (will be available if coordinates were provided)
           distance_km: distanceData?.distance_km || null,
           distance_meters: distanceData?.distance_km 
             ? Math.round(distanceData.distance_km * 1000) 
@@ -417,14 +437,16 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
         };
       });
 
-      // Sort availability
-      if (sortBy === 'nearest' && lat && lng) {
+      // ✨ STEP 4: Sort availability based on sortBy preference
+      if (sortBy === 'nearest' && hasCoordinates) {
         availability.sort((a, b) => 
           (a.distance_km || Infinity) - (b.distance_km || Infinity)
         );
       } else if (sortBy === 'cheapest') {
         availability.sort((a, b) => a.price - b.price);
       }
+
+      console.log(`📦 Medication ${med.id}: ${availability.length} pharmacies`);
     }
 
     // Build displayName
@@ -445,7 +467,7 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
       ingredients,
       nafdacCode: med.nafdacCode,
       imageUrl: med.imageUrl,
-      availability, // Empty array if no location filters
+      availability,
     };
   });
 }
