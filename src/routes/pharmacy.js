@@ -1,12 +1,15 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt'); // ADD THIS
 const prisma = new PrismaClient();
 const pharmacyService = require('../services/pharmacyService');   
-const { validateFetchOrders, validateUpdateOrder, validateFetchMedications, validateAddMedication, validateUpdateMedication, validateDeleteMedication, validateFetchUsers, validateRegisterDevice } = require('../utils/validation');
+const { validateFetchOrders, validateUpdateOrder, 
+  validateFetchMedications, validateAddMedication, validateUpdateMedication, 
+  validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
 
-console.log('Loaded pharmacy.js version: 2025-06-19-v2 (new schema)');
+console.log('Loaded pharmacy.js version: 2025-06-19-v3 (deep linking support)');
 
 // GET /pharmacy/orders - Fetch orders for pharmacy (new schema)
 router.get('/orders', authenticate, async (req, res) => {
@@ -25,8 +28,8 @@ router.get('/orders', authenticate, async (req, res) => {
       limit: value.limit,
       search: value.search,
       status: value.status,
-      date: value.date, // Added
-      deliveryMethod: value.deliveryMethod, // Added
+      date: value.date,
+      deliveryMethod: value.deliveryMethod,
     });
 
     res.status(200).json(result);
@@ -35,6 +38,47 @@ router.get('/orders', authenticate, async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+
+router.get('/orders/:orderId', authenticate, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    
+    // Validate orderId
+    const { error } = validateOrderId({ orderId: Number(orderId) });
+    if (error) {
+      console.error('Validation error:', error.message);
+      return res.status(400).json({ 
+        message: 'Invalid order ID', 
+        error: error.message 
+      });
+    }
+    
+    // Fetch order using service
+    const order = await pharmacyService.fetchOrderById(
+      req.user.pharmacyId, 
+      Number(orderId)
+    );
+    
+    res.status(200).json(order);
+  } catch (error) {
+    console.error('Fetch single order error:', { message: error.message, stack: error.stack });
+    
+    // Handle 404 specifically
+    if (error.status === 404) {
+      return res.status(404).json({ 
+        message: error.message 
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Failed to fetch order', 
+      error: error.message 
+    });
+  }
+});
+
+
 
 // PATCH /pharmacy/orders/:orderId - Update order status (new schema)
 router.patch('/orders/:orderId', authenticate, async (req, res) => {

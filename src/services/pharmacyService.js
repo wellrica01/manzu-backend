@@ -175,6 +175,185 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20, search = '', stat
   };
 }
 
+
+
+// function for fetching single order
+async function fetchOrderById(pharmacyId, orderId) {
+  // Fetch the order
+  const order = await prisma.order.findFirst({
+    where: { 
+      id: orderId,
+      OrderItem: { some: { pharmacyId } }, // Ensure pharmacy has items in this order
+      status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] } // Only show confirmed orders
+    },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+      createdAt: true,
+      updatedAt: true,
+      trackingCode: true,
+      userIdentifier: true,
+      deliveryMethod: true,
+      address: true,
+      status: true,
+      totalPrice: true,
+      paymentReference: true,
+      paymentStatus: true,
+      paymentMethod: true,
+      paymentChannel: true,
+      filledAt: true,
+      cancelledAt: true,
+      cancelReason: true,
+      Prescription: { 
+        select: { 
+          id: true, 
+          fileUrl: true, 
+          status: true,
+          createdAt: true
+        } 
+      },
+      OrderItem: {
+        where: { pharmacyId }, // Only get items for this pharmacy
+        select: {
+          id: true,
+          quantity: true,
+          price: true,
+          pharmacyId: true,
+          medicationId: true,
+          MedicationAvailability: {
+            select: {
+              Medication: {
+                select: {
+                  id: true,
+                  brandName: true,
+                  form: true,
+                  packSizeExpression: true,
+                  packSizeUnit: true,
+                  Medication_MedicationIngredient: {
+                    select: {
+                      MedicationIngredient: {
+                        select: { 
+                          ActiveSubstance: { select: { name: true } },
+                          strengthValue: true,
+                          strengthUnit: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              Pharmacy: { 
+                select: { 
+                  id: true,
+                  name: true, 
+                  address: true,
+                  phone: true,
+                  lga: true,
+                  state: true,
+                  ward: true
+                } 
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    const error = new Error('Order not found or you do not have access to this order');
+    error.status = 404;
+    throw error;
+  }
+
+  // Calculate S/N (serial number) for this pharmacy
+  const allPharmacyOrderIds = await prisma.order.findMany({
+    where: {
+      OrderItem: { some: { pharmacyId } },
+      status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED'] },
+    },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+
+  const orderPositionMap = new Map(
+    allPharmacyOrderIds.map((o, index) => [o.id, index + 1])
+  );
+
+  // Format the order
+  const formattedOrder = {
+    id: order.id,
+    sn: orderPositionMap.get(order.id),
+    name: order.name,
+    phone: order.phone,
+    email: order.email,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    trackingCode: order.trackingCode,
+    userIdentifier: order.userIdentifier,
+    deliveryMethod: order.deliveryMethod,
+    address: order.address,
+    status: order.status,
+    totalPrice: order.totalPrice,
+    paymentReference: order.paymentReference,
+    paymentStatus: order.paymentStatus,
+    paymentMethod: order.paymentMethod,
+    paymentChannel: order.paymentChannel,
+    filledAt: order.filledAt,
+    cancelledAt: order.cancelledAt,
+    cancelReason: order.cancelReason,
+    
+    prescription: order.Prescription
+      ? { 
+          id: order.Prescription.id, 
+          fileUrl: order.Prescription.fileUrl, 
+          status: order.Prescription.status,
+          createdAt: order.Prescription.createdAt
+        }
+      : null,
+    
+    items: order.OrderItem.map(item => {
+      const medication = item.MedicationAvailability.Medication;
+      
+      // Build active substances with strength
+      const activeSubstances = medication.Medication_MedicationIngredient
+        .map(mi => {
+          const ingredient = mi.MedicationIngredient;
+          const substance = ingredient.ActiveSubstance.name;
+          const strength = ingredient.strengthValue && ingredient.strengthUnit 
+            ? ` ${ingredient.strengthValue}${ingredient.strengthUnit}`
+            : '';
+          return substance + strength;
+        })
+        .join(', ');
+
+      return {
+        id: item.id,
+        orderId: order.id,
+        quantity: item.quantity,
+        price: item.price,
+        medication: {
+          id: medication.id,
+          brandName: medication.brandName,
+          form: medication.form,
+          packSize: medication.packSizeExpression && medication.packSizeUnit
+            ? `${medication.packSizeExpression} ${medication.packSizeUnit}`
+            : '',
+          activeSubstances,
+          displayName: `${medication.brandName} ${activeSubstances ? `(${activeSubstances})` : ''} ${medication.form ?? ''}`.trim(),
+        },
+      };
+    }),
+    
+    pharmacy: order.OrderItem[0]?.MedicationAvailability?.Pharmacy || null,
+  };
+
+  return formattedOrder;
+}
+
+
 async function updateOrderStatus(orderId, status, pharmacyId) {
   // Find the order that belongs to the given pharmacy
   const order = await prisma.order.findFirst({
@@ -1079,6 +1258,7 @@ async function fetchSales(pharmacyId, filters) {
 
 module.exports = {
   fetchOrders,
+  fetchOrderById,
   updateOrderStatus,
   fetchMedications,
   addMedication,

@@ -274,6 +274,19 @@ function validateUpdateOrder(data) {
 }
 
 
+function validateOrderId(data) {
+  const schema = Joi.object({
+    orderId: Joi.number().integer().positive().required().messages({
+      'number.base': 'Order ID must be a number',
+      'number.integer': 'Order ID must be an integer',
+      'number.positive': 'Order ID must be positive',
+      'any.required': 'Order ID is required'
+    })
+  });
+  return schema.validate(data);
+}
+
+
 function validateFetchMedications(data) {
   const schema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
@@ -361,6 +374,7 @@ module.exports = {
   validatePrescriptionOrder,
   validateFetchOrders,
   validateUpdateOrder,
+  validateOrderId,
   validateFetchMedications,
   validateAddMedication,
   validateUpdateMedication,
