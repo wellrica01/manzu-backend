@@ -422,18 +422,41 @@ async function searchMedications({ q, medicationId, page = 1, limit = 20, lat, l
           stock: av.stock,
           price: parseFloat(av.price),
           expiryDate: av.expiryDate,
-          // ✨ Distance data (will be available if coordinates were provided)
-          distance_km: distanceData?.distance_km || null,
-          distance_meters: distanceData?.distance_km 
-            ? Math.round(distanceData.distance_km * 1000) 
-            : null,
-          distance_display: distanceData?.distance_km
-            ? (distanceData.distance_km < 1 
-                ? `${Math.round(distanceData.distance_km * 1000)}m away`
-                : `${distanceData.distance_km.toFixed(1)}km away`)
-            : null,
-          latitude: parseFloat(av.Pharmacy.latitude) || null,
-          longitude: parseFloat(av.Pharmacy.longitude) || null,
+
+      // ✨ Distance data (will be available if coordinates were provided)
+      distance_km: distanceData?.distance_km || null,
+
+      distance_meters: distanceData?.distance_km
+        ? Math.round(distanceData.distance_km * 1000)
+        : null,
+
+      distance_minutes: distanceData?.distance_km
+        ? Math.round((distanceData.distance_km / 40) * 60) // assuming 40 km/h
+        : null,
+
+      // 🧠 Display-friendly fields
+      distance_km_display: distanceData?.distance_km
+        ? `${distanceData.distance_km.toFixed(1)} km`
+        : null,
+
+      distance_meters_display: distanceData?.distance_km
+        ? `${Math.round(distanceData.distance_km * 1000)} m`
+        : null,
+
+      distance_minutes_display: distanceData?.distance_km
+        ? `${Math.round((distanceData.distance_km / 40) * 60)} mins away`
+        : null,
+
+      // Combined “best-fit” display (smart switch between m/km)
+      distance_display: distanceData?.distance_km
+        ? (distanceData.distance_km < 1
+            ? `${Math.round(distanceData.distance_km * 1000)}m away`
+            : `${distanceData.distance_km.toFixed(1)}km away`)
+        : null,
+
+      latitude: parseFloat(av.Pharmacy.latitude) || null,
+      longitude: parseFloat(av.Pharmacy.longitude) || null,
+      
         };
       });
 
