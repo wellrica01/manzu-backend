@@ -19,9 +19,9 @@ const cors = require('cors');
 // ====== CORS CONFIG ======
 const allowedOrigins = [
   "https://manzu-frontend-nchi.vercel.app", // production
-  "http://192.168.111.67:3000",
+  "http://192.168.171.67:3000",
   "http://localhost:3000",
-  "exp://192.168.111.67:8081"                // local dev
+  "exp://192.168.171.67:8081"                // local dev
 ];
 
 const corsOptions = {

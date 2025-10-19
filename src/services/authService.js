@@ -289,18 +289,27 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
 }
 
 
-async function changePharmacyUserPassword(userId, currentPin, newPin) {
+async function changePharmacyUserPin(userId, currentPin, newPin) {
   const user = await prisma.pharmacyUser.findUnique({ where: { id: userId } });
   if (!user) {
     return { success: false, message: 'User not found' };
   }
+
+  // Compare entered PIN with stored hashed password
   const isPinValid = await bcrypt.compare(currentPin, user.password);
   if (!isPinValid) {
     return { success: false, message: 'Current PIN is incorrect' };
   }
+
+  // Hash new PIN before saving
   const salt = await bcrypt.genSalt(10);
   const hashedPin = await bcrypt.hash(newPin, salt);
-  await prisma.pharmacyUser.update({ where: { id: userId }, data: { password: hashedPin } });
+
+  await prisma.pharmacyUser.update({
+    where: { id: userId },
+    data: { password: hashedPin },
+  });
+
   return { success: true };
 }
 
@@ -312,5 +321,5 @@ module.exports = {
   addPharmacyUser,
   editPharmacyUser,
   deletePharmacyUser,
-  changePharmacyUserPassword,
+  changePharmacyUserPin,
 };

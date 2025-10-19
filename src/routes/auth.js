@@ -149,24 +149,27 @@ router.delete('/users/:userId', authenticate, authorizeRoles( 'MANAGER'), async 
 });
 
 
-// PATCH /auth/change-password - Change pharmacy user password
+// PATCH /auth/change-password - Change pharmacy user PIN
 router.patch('/change-password', authenticate, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
+    const { currentPin, newPin } = req.body;
+
+    if (!currentPin || !newPin) {
       return res.status(400).json({ message: 'Current and new PIN are required' });
     }
-    
-    // Validate new PIN format
-    if (!/^\d{6}$/.test(newPassword)) {
+
+    // Validate new PIN format: exactly 6 digits
+    if (!/^\d{6}$/.test(newPin)) {
       return res.status(400).json({ message: 'New PIN must be exactly 6 digits' });
     }
-    
+
     const { userId } = req.user;
-    const result = await authService.changePharmacyUserPassword(userId, currentPassword, newPassword);
+    const result = await authService.changePharmacyUserPin(userId, currentPin, newPin);
+
     if (!result.success) {
       return res.status(400).json({ message: result.message });
     }
+
     res.status(200).json({ message: 'PIN changed successfully' });
   } catch (error) {
     console.error('Change PIN error:', { message: error.message, stack: error.stack });

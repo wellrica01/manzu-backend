@@ -8,8 +8,98 @@ const { validateFetchOrders, validateUpdateOrder,
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
+const supabase = require('../utils/supabaseClient')
+
+const multer = require('multer');
+const { createClient } = require('@supabase/supabase-js');
+
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
 
 console.log('Loaded pharmacy.js version: 2025-06-19-v3 (deep linking support)');
+
+// POST /pharmacy/profile/logo - Upload pharmacy logo
+router.post('/profile/logo', 
+  authenticate, 
+  authorizeRoles('MANAGER'), 
+  upload.single('logo'),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: 'No logo file provided' });
+      }
+
+      const { pharmacyId } = req.user;
+      const file = req.file;
+      
+      // Generate unique filename
+      const fileExt = file.originalname.split('.').pop();
+      const fileName = `pharmacy-logos/${pharmacyId}-${Date.now()}.${fileExt}`;
+
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('pharmacy-assets') // Your bucket name
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype,
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Supabase upload error:', uploadError);
+        throw new Error('Failed to upload logo to storage');
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('pharmacy-assets')
+        .getPublicUrl(fileName);
+
+      // Get old logo URL to delete later
+      const pharmacy = await prisma.pharmacy.findUnique({
+        where: { id: pharmacyId },
+        select: { logoUrl: true }
+      });
+
+      // Update pharmacy with new logo URL
+      await prisma.pharmacy.update({
+        where: { id: pharmacyId },
+        data: { logoUrl: publicUrl }
+      });
+
+      // Delete old logo if exists
+      if (pharmacy.logoUrl) {
+        const oldFileName = pharmacy.logoUrl.split('/').pop();
+        await supabase.storage
+          .from('pharmacy-assets')
+          .remove([`pharmacy-logos/${oldFileName}`]);
+      }
+
+      res.status(200).json({
+        message: 'Logo updated successfully',
+        logoUrl: publicUrl
+      });
+
+    } catch (error) {
+      console.error('Logo upload error:', error);
+      res.status(500).json({ 
+        message: 'Failed to upload logo', 
+        error: error.message 
+      });
+    }
+  }
+);
+
 
 // GET /pharmacy/orders - Fetch orders for pharmacy (new schema)
 router.get('/orders', authenticate, async (req, res) => {
@@ -298,7 +388,18 @@ router.get('/operating-hours', authenticate, async (req, res) => {
       orderBy: { dayOfWeek: 'asc' }
     });
     
-    res.status(200).json({ operatingHours });
+    // Format times for frontend - extract UTC time portion
+    const formatted = operatingHours.map(h => ({
+      dayOfWeek: h.dayOfWeek,
+      openTime: h.openTime 
+        ? new Date(h.openTime).toISOString().slice(11, 16)
+        : null,
+      closeTime: h.closeTime 
+        ? new Date(h.closeTime).toISOString().slice(11, 16)
+        : null
+    }));
+    
+    res.status(200).json({ operatingHours: formatted });
   } catch (error) {
     console.error('Fetch operating hours error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -308,28 +409,32 @@ router.get('/operating-hours', authenticate, async (req, res) => {
 // POST /pharmacy/operating-hours - Set operating hours
 router.post('/operating-hours', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
   try {
-    const { hours } = req.body; // Array of { dayOfWeek, openTime, closeTime, isClosed }
+    const { hours } = req.body;
     
-    // Validate input
     if (!Array.isArray(hours) || hours.length === 0) {
       return res.status(400).json({ message: 'Invalid hours data' });
     }
 
-    // Delete existing hours and create new ones
     await prisma.$transaction(async (prisma) => {
+      // Delete existing hours
       await prisma.operatingHour.deleteMany({
         where: { pharmacyId: req.user.pharmacyId }
       });
 
-      await prisma.operatingHour.createMany({
-        data: hours.map(h => ({
-          pharmacyId: req.user.pharmacyId,
-          dayOfWeek: h.dayOfWeek,
-          openTime: h.isClosed ? null : h.openTime,
-          closeTime: h.isClosed ? null : h.closeTime,
-          isClosed: h.isClosed || false
-        }))
-      });
+      // Only create entries for days that are open
+      const openDays = hours.filter(h => !h.isClosed);
+      
+      if (openDays.length > 0) {
+        await prisma.operatingHour.createMany({
+          data: openDays.map(h => ({
+            pharmacyId: req.user.pharmacyId,
+            dayOfWeek: h.dayOfWeek,
+            // Store times directly as time strings, avoiding Date conversion
+            openTime: new Date(`1970-01-01T${h.openTime}:00Z`),
+            closeTime: new Date(`1970-01-01T${h.closeTime}:00Z`),
+          }))
+        });
+      }
     });
 
     const updatedHours = await prisma.operatingHour.findMany({
@@ -348,8 +453,7 @@ router.post('/operating-hours', authenticate, authorizeRoles('MANAGER'), async (
 });
 
 
-// GET /pharmacy/dashboard - Dashboard summary for pharmacy (new schema)
-// Now includes PoS (walk-in) sales stats: posSalesToday, posRevenueToday
+// GET /pharmacy/dashboard - Dashboard summary for pharmacy 
 router.get('/dashboard', authenticate, async (req, res) => {
   try {
     const data = await pharmacyService.getDashboardData(req.user.pharmacyId);
