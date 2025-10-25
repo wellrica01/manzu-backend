@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const confirmationService = require('../services/confirmationService');
 const { validateOrderConfirmation } = require('../utils/validation');
 const { PrismaClient } = require('@prisma/client');
@@ -104,10 +105,72 @@ router.get('/', async (req, res) => {
 // POST /webhook - Paystack webhook to handle payment completion
 router.post('/webhook', async (req, res) => {
   try {
-    console.log('Paystack webhook received:', req.body);
+    console.log('Paystack webhook received at:', new Date().toISOString());
+    
+    // ✅ VERIFY PAYSTACK SIGNATURE
+    // Get the secret key from environment (found in Paystack Dashboard > Settings > API Keys & Webhooks)
+    const secret = process.env.PAYSTACK_SECRET_KEY;
+    
+    if (!secret) {
+      console.error('PAYSTACK_SECRET_KEY not configured in environment variables');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+    
+    // Generate hash from request body
+    const hash = crypto
+      .createHmac('sha512', secret)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+    
+    // Get signature from headers
+    const signature = req.headers['x-paystack-signature'];
+    
+    // Verify signature matches
+    if (hash !== signature) {
+      console.error('Invalid webhook signature detected:', {
+        timestamp: new Date().toISOString(),
+        receivedSignature: signature ? 'present' : 'missing',
+        ipAddress: req.ip || req.connection.remoteAddress
+      });
+      return res.status(401).json({ message: 'Invalid signature' });
+    }
+    
+    console.log('Webhook signature verified successfully');
     
     const { event, data } = req.body;
     
+    // ✅ IDEMPOTENCY CHECK: Prevent duplicate webhook processing
+    // Use Paystack's event ID or reference as unique identifier
+    const eventId = data.id || data.reference || `${event}_${data.reference}_${Date.now()}`;
+    
+    // Check if this webhook has already been processed
+    const existingWebhook = await prisma.processedWebhook.findUnique({
+      where: { eventId: String(eventId) }
+    });
+    
+    if (existingWebhook) {
+      console.log('Webhook already processed:', {
+        eventId,
+        eventType: event,
+        processedAt: existingWebhook.processedAt
+      });
+      return res.status(200).json({ 
+        message: 'Webhook already processed',
+        processedAt: existingWebhook.processedAt
+      });
+    }
+    
+    // Mark webhook as processed FIRST (before any business logic)
+    // This ensures idempotency even if transaction lookup fails
+    await prisma.processedWebhook.create({
+      data: {
+        eventId: String(eventId),
+        eventType: event,
+        payload: req.body
+      }
+    });
+    
+    // Process webhook based on event type
     if (event === 'charge.success') {
       const { reference, amount, customer } = data;
       
@@ -120,10 +183,11 @@ router.post('/webhook', async (req, res) => {
       
       if (!transactionRef) {
         console.error('Transaction reference not found:', reference);
+        // Webhook already marked as processed, so duplicate won't retry
         return res.status(404).json({ message: 'Transaction not found' });
       }
       
-      // Update orders to paid status
+      // Update orders to paid status (webhook already marked processed above)
       await prisma.$transaction(async (tx) => {
         for (const orderRef of transactionRef.orderReferences) {
           await tx.order.updateMany({
@@ -138,6 +202,79 @@ router.post('/webhook', async (req, res) => {
       });
       
       console.log('Orders updated to paid status for reference:', reference);
+    } else if (event === 'charge.failed') {
+      // ✅ PAYMENT FAILURE HANDLER: Restore stock when payment fails
+      const { reference, amount, customer, gateway_response } = data;
+      
+      console.log('Payment failed:', { reference, amount, customer, gateway_response });
+      
+      // Find the transaction reference
+      const transactionRef = await prisma.transactionReference.findFirst({
+        where: { transactionReference: reference },
+      });
+      
+      if (!transactionRef) {
+        console.error('Transaction reference not found for failed payment:', reference);
+        // Webhook already marked as processed, so duplicate won't retry
+        return res.status(404).json({ message: 'Transaction not found' });
+      }
+      
+      // Cancel orders and restore stock atomically
+      await prisma.$transaction(async (tx) => {
+        for (const orderRef of transactionRef.orderReferences) {
+          // Find orders with their items
+          const orders = await tx.order.findMany({
+            where: { paymentReference: orderRef },
+            include: { OrderItem: true }
+          });
+          
+          for (const order of orders) {
+            // Update order status
+            await tx.order.update({
+              where: { id: order.id },
+              data: { 
+                paymentStatus: 'FAILED',
+                status: 'CANCELLED',
+                cancelReason: `Payment failed: ${gateway_response || 'Unknown error'}`,
+                cancelledAt: new Date(),
+                updatedAt: new Date()
+              },
+            });
+            
+            // Restore stock for each order item
+            for (const item of order.OrderItem) {
+              await tx.medicationAvailability.update({
+                where: {
+                  medicationId_pharmacyId: {
+                    medicationId: item.medicationId,
+                    pharmacyId: item.pharmacyId
+                  }
+                },
+                data: {
+                  stock: { increment: item.quantity }
+                }
+              });
+              
+              console.log(`Stock restored: ${item.quantity} units for medication ${item.medicationId}`);
+            }
+          }
+        }
+      });
+      
+      console.log('Orders cancelled and stock restored for reference:', reference);
+      
+      // TODO: Send notification to user (email/SMS)
+      // This should be non-blocking and use a queue system
+      try {
+        // Placeholder for notification service
+        console.log('TODO: Send payment failure notification to:', customer?.email);
+      } catch (notificationError) {
+        // Don't fail the webhook if notification fails
+        console.error('Notification failed:', notificationError.message);
+      }
+    } else {
+      // For other event types, webhook already marked as processed
+      console.log('Webhook event recorded:', event);
     }
     
     res.status(200).json({ message: 'Webhook processed successfully' });

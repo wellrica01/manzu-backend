@@ -102,10 +102,31 @@ async function cleanupPendingPaymentOrders() {
   });
 }
 
+/**
+ * Cleanup old processed webhooks (keep last 30 days)
+ */
+async function cleanupOldWebhooks() {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    
+    const result = await prisma.processedWebhook.deleteMany({
+      where: {
+        processedAt: { lte: thirtyDaysAgo }
+      }
+    });
+    
+    logger.info('Old webhooks cleaned up:', { deletedCount: result.count });
+  } catch (error) {
+    logger.error('Webhook cleanup failed:', { message: error.message });
+    await alertAdmin('Webhook cleanup failed', error);
+  }
+}
+
 // Timezone-aware cron: runs daily at midnight Lagos time
 const TIMEZONE = 'Africa/Lagos';
 cron.schedule('0 0 * * *', cleanupPendingPrescriptionOrders, { timezone: TIMEZONE });
 cron.schedule('0 0 * * *', cleanupPendingPaymentOrders, { timezone: TIMEZONE });
+cron.schedule('0 2 * * *', cleanupOldWebhooks, { timezone: TIMEZONE }); // Run at 2 AM daily
 
 // Optional immediate run on startup (controlled by env variable)
 if (process.env.RUN_CLEANUP_ON_STARTUP === 'true') {
@@ -116,4 +137,5 @@ if (process.env.RUN_CLEANUP_ON_STARTUP === 'true') {
 module.exports = {
   cleanupPendingPrescriptionOrders,
   cleanupPendingPaymentOrders,
+  cleanupOldWebhooks,
 };

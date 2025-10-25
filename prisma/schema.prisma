@@ -408,6 +408,17 @@ model spatial_ref_sys {
   proj4text String? @db.VarChar(2048)
 }
 
+model ProcessedWebhook {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @unique @db.VarChar
+  eventType   String   @db.VarChar
+  processedAt DateTime @default(now()) @db.Timestamp(6)
+  payload     Json?
+
+  @@index([eventId])
+  @@index([processedAt])
+}
+
 enum AdminRole {
   ADMIN
   SUPER_ADMIN

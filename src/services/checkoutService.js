@@ -130,7 +130,8 @@ const cartOrders = await prisma.order.findMany({
     const { items, pharmacy } = itemsByPharmacy[pharmacyId];
     const totalPrice = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const orderStatus = 'PENDING';
-    const paymentReference = `order_${Date.now()}_${pharmacyId}`;
+    // Use UUID to prevent collisions in concurrent checkouts
+    const paymentReference = `order_${uuidv4()}_${pharmacyId}`;
     
     const newOrder = await prisma.$transaction(async (tx) => {
       const prescriptionIdForGroup = items.find(
@@ -169,6 +170,33 @@ const cartOrders = await prisma.order.findMany({
           },
         });
 
+        // ✅ RACE CONDITION FIX: Check stock with row-level lock
+        // Use raw SQL with SELECT FOR UPDATE to lock the row and prevent concurrent modifications
+        const availability = await tx.$queryRaw`
+          SELECT stock, "medicationId", "pharmacyId"
+          FROM "MedicationAvailability"
+          WHERE "medicationId" = ${item.MedicationAvailability.medicationId}
+            AND "pharmacyId" = ${item.pharmacyId}
+          FOR UPDATE
+        `;
+
+        if (!availability || availability.length === 0) {
+          throw new Error(
+            `Medication availability not found for ${item.MedicationAvailability.Medication.brandName}`
+          );
+        }
+
+        const currentStock = availability[0].stock;
+
+        // Verify sufficient stock AFTER acquiring lock
+        if (currentStock < item.quantity) {
+          throw new Error(
+            `Insufficient stock for ${item.MedicationAvailability.Medication.brandName}. ` +
+            `Only ${currentStock} available, but ${item.quantity} requested.`
+          );
+        }
+
+        // Now safely decrement stock
         await tx.medicationAvailability.update({
           where: {
             medicationId_pharmacyId: {
