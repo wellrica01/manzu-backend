@@ -1,18 +1,19 @@
 const z = require('zod');
 
 const express = require('express');
-const authService = require('../services/authService');
+const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.service');
+const adminAuthService = require('../domains/auth/admin/admin-auth.service');
 const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminRegisterSchema, adminLoginSchema } = require('../utils/adminValidation');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
 
-console.log('Loaded auth.js version: 2025-06-21-v1');
+console.log('✅ Auth routes loaded - using domain services with repository pattern');
 
 // POST /auth/register - Register pharmacy and user
 router.post('/register', async (req, res) => {
   try {
     const { pharmacy, user } = registerSchema.parse(req.body);
-    const { token, user: newUser, pharmacy: newPharmacy } = await authService.registerPharmacyAndUser({ pharmacy, user });
+    const { token, user: newUser, pharmacy: newPharmacy } = await pharmacyAuthService.registerPharmacyAndUser({ pharmacy, user });
     res.status(201).json({
       message: 'Registration successful',
       token,
@@ -32,7 +33,7 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, pin } = loginSchema.parse(req.body);
-    const { token, user, pharmacy } = await authService.loginUser({ email, pin });
+    const { token, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin });
     res.status(200).json({
       message: 'Login successful',
       token,
@@ -53,7 +54,7 @@ router.post('/login', async (req, res) => {
 router.post('/admin/register', async (req, res) => {
   try {
     const { name, email, password } = adminRegisterSchema.parse(req.body);
-    const { token, admin } = await authService.registerAdmin({ name, email, password });
+    const { token, admin } = await adminAuthService.registerAdmin({ name, email, password });
     res.status(201).json({
       message: 'Admin registration successful',
       token,
@@ -72,7 +73,7 @@ router.post('/admin/register', async (req, res) => {
 router.post('/admin/login', async (req, res) => {
   try {
     const { email, password } = adminLoginSchema.parse(req.body);
-    const { token, admin } = await authService.loginAdmin({ email, password });
+    const { token, admin } = await adminAuthService.loginAdmin({ email, password });
     res.status(200).json({
       message: 'Admin login successful',
       token,
@@ -92,7 +93,7 @@ router.post('/add-user', authenticate, authorizeRoles('MANAGER'), async (req, re
   try {
     const { name, email, pin, role } = addUserSchema.parse(req.body);
     const pharmacyId = req.user.pharmacyId;
-    const user = await authService.addPharmacyUser({ name, email, pin, role, pharmacyId });
+    const user = await pharmacyAuthService.addPharmacyUser({ name, email, pin, role, pharmacyId });
     res.status(201).json({
       message: 'User added successfully',
       user: { id: user.id, name: user.name, email: user.email, role: user.role && user.role.toUpperCase() },
@@ -116,7 +117,7 @@ router.patch('/users/:userId', authenticate, authorizeRoles('MANAGER'), async (r
     const { name, email, pin } = editUserSchema.parse(req.body);
     const managerId = req.user.userId;
     const pharmacyId = req.user.pharmacyId;
-    const updatedUser = await authService.editPharmacyUser(Number(userId), { name, email, pin }, managerId, pharmacyId);
+    const updatedUser = await pharmacyAuthService.editPharmacyUser(Number(userId), { name, email, pin }, managerId, pharmacyId);
     res.status(200).json({
       message: 'User updated successfully',
       user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role && updatedUser.role.toUpperCase() },
@@ -140,7 +141,7 @@ router.delete('/users/:userId', authenticate, authorizeRoles( 'MANAGER'), async 
     }
     const managerId = req.user.userId;
     const pharmacyId = req.user.pharmacyId;
-    await authService.deletePharmacyUser(Number(userId), managerId, pharmacyId);
+    await pharmacyAuthService.deletePharmacyUser(Number(userId), managerId, pharmacyId);
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
     console.error('Delete user error:', { message: error.message, stack: error.stack });
@@ -164,7 +165,7 @@ router.patch('/change-password', authenticate, async (req, res) => {
     }
 
     const { userId } = req.user;
-    const result = await authService.changePharmacyUserPin(userId, currentPin, newPin);
+    const result = await pharmacyAuthService.changePharmacyUserPin(userId, currentPin, newPin);
 
     if (!result.success) {
       return res.status(400).json({ message: result.message });

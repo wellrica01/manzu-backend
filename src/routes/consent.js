@@ -1,9 +1,9 @@
 const express = require('express');
-const consentService = require('../services/consentService');
+const { recordConsent } = require('../domains/users/consent/consent.service');
 const { validateConsent } = require('../utils/validation');
 const router = express.Router();
 
-console.log('Loaded consent.js version: 2025-06-19-v1');
+console.log('✅ Consent routes loaded - using domain service with repository pattern');
 
 // POST /consent - Record user or pharmacy user consent
 router.post('/', async (req, res) => {
@@ -15,7 +15,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Invalid input', errors: error.details });
     }
 
-    const consent = await consentService.recordConsent(value);
+    const consent = await recordConsent(value);
     res.status(201).json({ message: 'Consent recorded', consent });
   } catch (error) {
     console.error('Consent error:', { message: error.message, stack: error.stack });

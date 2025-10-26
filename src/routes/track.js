@@ -1,9 +1,9 @@
 const express = require('express');
-const trackService = require('../services/trackService');
+const { trackOrders } = require('../domains/orders/tracking/tracking.service');
 const { validateTracking } = require('../utils/validation');
 const router = express.Router();
 
-console.log('Loaded track.js version: 2025-06-19-v1');
+console.log('✅ Track routes loaded - using domain service with repository pattern');
 
 // GET /track - Track orders by tracking code (updated for new schema)
 router.get('/', async (req, res) => {
@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    const result = await trackService.trackOrders(trackingCode);
+    const result = await trackOrders(trackingCode);
     res.status(200).json(result);
   } catch (error) {
     console.error('Track error:', { message: error.message, stack: error.stack });

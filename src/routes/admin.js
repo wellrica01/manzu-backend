@@ -5,6 +5,13 @@ const { normalizeMedicationFields, handleImageUpload } = require('../utils/medic
 const z = require('zod');
 const adminService = require('../services/adminService');
 const reconciliationService = require('../services/reconciliationService');
+const adminPrescriptionsService = require('../domains/admin/prescriptions/admin-prescriptions.service');
+const adminOrdersService = require('../domains/admin/orders/admin-orders.service');
+const adminUsersService = require('../domains/admin/users/admin-users.service');
+const adminMedicationsService = require('../domains/admin/medications/admin-medications.service');
+const adminPharmaciesService = require('../domains/admin/pharmacies/admin-pharmacies.service');
+const adminDashboardService = require('../domains/admin/dashboard/admin-dashboard.service');
+const atcClassificationsService = require('../domains/admin/atc-classifications/atc-classifications.service');
 
 const { queryAuditLogs, getAuditTrail } = require('../utils/audit-logger');
 const {
@@ -82,7 +89,7 @@ const standardResponse = (res, status, message, data = null, pagination = null) 
 // ==================== DASHBOARD ====================
 router.get('/dashboard', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const summary = await adminService.getDashboardOverview();
+    const summary = await adminDashboardService.getDashboardOverview();
     standardResponse(res, 200, 'Dashboard data fetched successfully', { summary });
   } catch (error) {
     console.error('Fetch dashboard error:', { message: error.message });
@@ -99,7 +106,7 @@ router.get('/pharmacies', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), 
       state: req.query.state,
       name: req.query.name,
     };
-    const { pharmacies, pagination } = await adminService.getPharmacies(query);
+    const { pharmacies, pagination } = await adminPharmaciesService.getPharmacies(query);
     standardResponse(res, 200, 'Pharmacies fetched successfully', { pharmacies }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -108,7 +115,7 @@ router.get('/pharmacies', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), 
 
 router.get('/pharmacies/simple', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const simplePharmacies = await adminService.getSimplePharmacies();
+    const simplePharmacies = await adminPharmaciesService.getSimplePharmacies();
     standardResponse(res, 200, 'Pharmacies fetched successfully', { simplePharmacies });
   } catch (error) {
     console.error('Fetch pharmacies error:', { message: error.message });
@@ -121,7 +128,7 @@ router.get('/pharmacies/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN
   if (!id) return;
 
   try {
-    const pharmacy = await adminService.getPharmacy(id);
+    const pharmacy = await adminPharmaciesService.getPharmacy(id);
     standardResponse(res, 200, 'Pharmacy fetched successfully', { pharmacy });
   } catch (error) {
     handleError(res, error);
@@ -137,7 +144,7 @@ router.patch('/pharmacies/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADM
       ...editPharmacySchema.parse(req.body), 
       status: req.body.status?.toUpperCase() 
     };
-    const pharmacy = await adminService.updatePharmacy(id, data);
+    const pharmacy = await adminPharmaciesService.updatePharmacy(id, data);
     standardResponse(res, 200, 'Pharmacy updated successfully', { pharmacy });
   } catch (error) {
     handleError(res, error);
@@ -149,7 +156,7 @@ router.delete('/pharmacies/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
   if (!id) return;
 
   try {
-    await adminService.deletePharmacy(id);
+    await adminPharmaciesService.deletePharmacy(id);
     standardResponse(res, 200, 'Pharmacy deleted successfully');
   } catch (error) {
     handleError(res, error);
@@ -160,7 +167,7 @@ router.delete('/pharmacies/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
 router.get('/medications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = medicationFilterSchema.parse(req.query);
-    const { medications, pagination } = await adminService.getMedications(query);
+    const { medications, pagination } = await adminMedicationsService.getMedications(query);
     standardResponse(res, 200, 'Medications fetched successfully', { medications }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -172,7 +179,7 @@ router.get('/medications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMI
   if (!id) return;
 
   try {
-    const medication = await adminService.getMedication(id);
+    const medication = await adminMedicationsService.getMedication(id);
     standardResponse(res, 200, 'Medication fetched successfully', { medication });
   } catch (error) {
     handleError(res, error);
@@ -194,7 +201,7 @@ router.post(
         data.imageUrl = await handleImageUpload(req.file, supabase);
       }
 
-      const medication = await adminService.createMedication(data);
+      const medication = await adminMedicationsService.createMedication(data);
       return res.status(201).json({ success: true, message: 'Medication created successfully', medication });
     } catch (error) {
       handleError(res, error);
@@ -220,7 +227,7 @@ router.patch(
         validatedData.imageUrl = await handleImageUpload(req.file, supabase);
       }
 
-      const medication = await adminService.updateMedication(id, validatedData);
+      const medication = await adminMedicationsService.updateMedication(id, validatedData);
       return standardResponse(res, 200, 'Medication updated successfully', { medication });
     } catch (error) {
       handleError(res, error);
@@ -239,7 +246,7 @@ router.delete(
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return standardResponse(res, 400, 'Invalid medication ID');
 
-      await adminService.deleteMedication(id);
+      await adminMedicationsService.deleteMedication(id);
 
       return standardResponse(res, 200, 'Medication deleted successfully');
     } catch (error) {
@@ -255,7 +262,7 @@ router.delete(
 router.get('/prescriptions', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = prescriptionFilterSchema.parse(req.query);
-    const { prescriptions, pagination } = await adminService.getPrescriptions(query);
+    const { prescriptions, pagination } = await adminPrescriptionsService.getPrescriptions(query);
     standardResponse(res, 200, 'Prescriptions fetched successfully', { prescriptions }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -267,7 +274,7 @@ router.get('/prescriptions/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
   if (!id) return;
 
   try {
-    const prescription = await adminService.getPrescription(id);
+    const prescription = await adminPrescriptionsService.getPrescription(id);
     standardResponse(res, 200, 'Prescription fetched successfully', { prescription });
   } catch (error) {
     handleError(res, error);
@@ -278,7 +285,7 @@ router.get('/prescriptions/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
 router.get('/orders', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = orderFilterSchema.parse(req.query);
-    const { orders, pagination } = await adminService.getOrders(query);
+    const { orders, pagination } = await adminOrdersService.getOrders(query);
     standardResponse(res, 200, 'Orders fetched successfully', { orders }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -290,7 +297,7 @@ router.get('/orders/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), 
   if (!id) return;
 
   try {
-    const order = await adminService.getOrder(id);
+    const order = await adminOrdersService.getOrder(id);
     standardResponse(res, 200, 'Order fetched successfully', { order });
   } catch (error) {
     handleError(res, error);
@@ -301,7 +308,7 @@ router.get('/orders/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), 
 router.get('/admin-users', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = adminUserFilterSchema.parse(req.query);
-    const { users, pagination } = await adminService.getAdminUsers(query);
+    const { users, pagination } = await adminUsersService.getAdminUsers(query);
     standardResponse(res, 200, 'Admin users fetched successfully', { users }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -313,7 +320,7 @@ router.get('/admin-users/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMI
   if (!id) return;
 
   try {
-    const user = await adminService.getAdminUser(id);
+    const user = await adminUsersService.getAdminUser(id);
     standardResponse(res, 200, 'Admin user fetched successfully', { user });
   } catch (error) {
     handleError(res, error);
@@ -323,7 +330,7 @@ router.get('/admin-users/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMI
 router.get('/pharmacy-users', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const query = pharmacyUserFilterSchema.parse(req.query);
-    const { users, pagination } = await adminService.getPharmacyUsers(query);
+    const { users, pagination } = await adminUsersService.getPharmacyUsers(query);
     standardResponse(res, 200, 'Pharmacy users fetched successfully', { users }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -335,7 +342,7 @@ router.get('/pharmacy-users/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_A
   if (!id) return;
 
   try {
-    const user = await adminService.getPharmacyUser(id);
+    const user = await adminUsersService.getPharmacyUser(id);
     standardResponse(res, 200, 'Pharmacy user fetched successfully', { user });
   } catch (error) {
     handleError(res, error);
@@ -347,7 +354,7 @@ router.get('/pharmacy-users/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_A
 // ANATOMICAL CLASSES
 router.get('/anatomical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { anatomicalClasses, pagination } = await adminService.getAnatomicalClasses(req.query);
+    const { items: anatomicalClasses, pagination } = await atcClassificationsService.getAnatomicalClasses(req.query);
     standardResponse(res, 200, 'Anatomical classes fetched successfully', { anatomicalClasses }, pagination);
   } catch (error) { 
     handleError(res, error); 
@@ -359,7 +366,7 @@ router.get('/anatomical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUP
   if (!id) return;
   
   try {
-    const anatomicalClass = await adminService.getAnatomicalClass(id);
+    const anatomicalClass = await atcClassificationsService.getAnatomicalClass(id);
     standardResponse(res, 200, 'Anatomical class fetched successfully', { anatomicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -369,7 +376,7 @@ router.get('/anatomical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUP
 router.post('/anatomical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = AnatomicalClassSchema.parse(req.body);
-    const anatomicalClass = await adminService.createAnatomicalClass(data);
+    const anatomicalClass = await atcClassificationsService.createAnatomicalClass(data);
     standardResponse(res, 201, 'Anatomical class created successfully', { anatomicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -382,7 +389,7 @@ router.patch('/anatomical-classes/:id', authenticate, authorizeRoles('ADMIN', 'S
   
   try {
     const data = AnatomicalClassUpdateSchema.parse(req.body);
-    const anatomicalClass = await adminService.updateAnatomicalClass(id, data);
+    const anatomicalClass = await atcClassificationsService.updateAnatomicalClass(id, data);
     standardResponse(res, 200, 'Anatomical class updated successfully', { anatomicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -394,7 +401,7 @@ router.delete('/anatomical-classes/:id', authenticate, authorizeRoles('ADMIN', '
   if (!id) return;
   
   try {
-    await adminService.deleteAnatomicalClass(id);
+    await atcClassificationsService.deleteAnatomicalClass(id);
     standardResponse(res, 200, 'Anatomical class deleted successfully');
   } catch (error) { 
     handleError(res, error); 
@@ -406,7 +413,7 @@ router.get('/anatomical-classes/:id/children', authenticate, authorizeRoles('ADM
   if (!id) return;
   
   try {
-    const children = await adminService.getTherapeuticClassesByAnatomical(id);
+    const children = await atcClassificationsService.getTherapeuticClassesByAnatomical(id);
     standardResponse(res, 200, 'Child classes fetched successfully', { children });
   } catch (error) { 
     handleError(res, error); 
@@ -416,7 +423,7 @@ router.get('/anatomical-classes/:id/children', authenticate, authorizeRoles('ADM
 // THERAPEUTIC CLASSES
 router.get('/therapeutic-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { therapeuticClasses, pagination } = await adminService.getTherapeuticClasses(req.query);
+    const { items: therapeuticClasses, pagination } = await atcClassificationsService.getTherapeuticClasses(req.query);
     standardResponse(res, 200, 'Therapeutic classes fetched successfully', { therapeuticClasses }, pagination);
   } catch (error) { 
     handleError(res, error); 
@@ -428,7 +435,7 @@ router.get('/therapeutic-classes/:id', authenticate, authorizeRoles('ADMIN', 'SU
   if (!id) return;
   
   try {
-    const therapeuticClass = await adminService.getTherapeuticClass(id);
+    const therapeuticClass = await atcClassificationsService.getTherapeuticClass(id);
     standardResponse(res, 200, 'Therapeutic class fetched successfully', { therapeuticClass });
   } catch (error) { 
     handleError(res, error); 
@@ -438,7 +445,7 @@ router.get('/therapeutic-classes/:id', authenticate, authorizeRoles('ADMIN', 'SU
 router.post('/therapeutic-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = TherapeuticClassSchema.parse(req.body);
-    const therapeuticClass = await adminService.createTherapeuticClass(data);
+    const therapeuticClass = await atcClassificationsService.createTherapeuticClass(data);
     standardResponse(res, 201, 'Therapeutic class created successfully', { therapeuticClass });
   } catch (error) { 
     handleError(res, error); 
@@ -451,7 +458,7 @@ router.patch('/therapeutic-classes/:id', authenticate, authorizeRoles('ADMIN', '
   
   try {
     const data = TherapeuticClassUpdateSchema.parse(req.body);
-    const therapeuticClass = await adminService.updateTherapeuticClass(id, data);
+    const therapeuticClass = await atcClassificationsService.updateTherapeuticClass(id, data);
     standardResponse(res, 200, 'Therapeutic class updated successfully', { therapeuticClass });
   } catch (error) { 
     handleError(res, error); 
@@ -463,7 +470,7 @@ router.delete('/therapeutic-classes/:id', authenticate, authorizeRoles('ADMIN', 
   if (!id) return;
   
   try {
-    await adminService.deleteTherapeuticClass(id);
+    await atcClassificationsService.deleteTherapeuticClass(id);
     standardResponse(res, 200, 'Therapeutic class deleted successfully');
   } catch (error) { 
     handleError(res, error); 
@@ -475,7 +482,7 @@ router.get('/therapeutic-classes/:id/children', authenticate, authorizeRoles('AD
   if (!id) return;
   
   try {
-    const children = await adminService.getPharmacologicalClassesByTherapeutic(id);
+    const children = await atcClassificationsService.getPharmacologicalClassesByTherapeutic(id);
     standardResponse(res, 200, 'Child classes fetched successfully', { children });
   } catch (error) { 
     handleError(res, error); 
@@ -485,7 +492,7 @@ router.get('/therapeutic-classes/:id/children', authenticate, authorizeRoles('AD
 // PHARMACOLOGICAL CLASSES
 router.get('/pharmacological-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { pharmacologicalClasses, pagination } = await adminService.getPharmacologicalClasses(req.query);
+    const { items: pharmacologicalClasses, pagination } = await atcClassificationsService.getPharmacologicalClasses(req.query);
     standardResponse(res, 200, 'Pharmacological classes fetched successfully', { pharmacologicalClasses }, pagination);
   } catch (error) { 
     handleError(res, error); 
@@ -497,7 +504,7 @@ router.get('/pharmacological-classes/:id', authenticate, authorizeRoles('ADMIN',
   if (!id) return;
   
   try {
-    const pharmacologicalClass = await adminService.getPharmacologicalClass(id);
+    const pharmacologicalClass = await atcClassificationsService.getPharmacologicalClass(id);
     standardResponse(res, 200, 'Pharmacological class fetched successfully', { pharmacologicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -507,7 +514,7 @@ router.get('/pharmacological-classes/:id', authenticate, authorizeRoles('ADMIN',
 router.post('/pharmacological-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = PharmacologicalClassSchema.parse(req.body);
-    const pharmacologicalClass = await adminService.createPharmacologicalClass(data);
+    const pharmacologicalClass = await atcClassificationsService.createPharmacologicalClass(data);
     standardResponse(res, 201, 'Pharmacological class created successfully', { pharmacologicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -520,7 +527,7 @@ router.patch('/pharmacological-classes/:id', authenticate, authorizeRoles('ADMIN
   
   try {
     const data = PharmacologicalClassUpdateSchema.parse(req.body);
-    const pharmacologicalClass = await adminService.updatePharmacologicalClass(id, data);
+    const pharmacologicalClass = await atcClassificationsService.updatePharmacologicalClass(id, data);
     standardResponse(res, 200, 'Pharmacological class updated successfully', { pharmacologicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -532,7 +539,7 @@ router.delete('/pharmacological-classes/:id', authenticate, authorizeRoles('ADMI
   if (!id) return;
   
   try {
-    await adminService.deletePharmacologicalClass(id);
+    await atcClassificationsService.deletePharmacologicalClass(id);
     standardResponse(res, 200, 'Pharmacological class deleted successfully');
   } catch (error) { 
     handleError(res, error); 
@@ -544,7 +551,7 @@ router.get('/pharmacological-classes/:id/children', authenticate, authorizeRoles
   if (!id) return;
   
   try {
-    const children = await adminService.getChemicalClassesByPharmacological(id);
+    const children = await atcClassificationsService.getChemicalClassesByPharmacological(id);
     standardResponse(res, 200, 'Child classes fetched successfully', { children });
   } catch (error) { 
     handleError(res, error); 
@@ -554,7 +561,7 @@ router.get('/pharmacological-classes/:id/children', authenticate, authorizeRoles
 // CHEMICAL CLASSES
 router.get('/chemical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { chemicalClasses, pagination } = await adminService.getChemicalClasses(req.query);
+    const { items: chemicalClasses, pagination } = await atcClassificationsService.getChemicalClasses(req.query);
     standardResponse(res, 200, 'Chemical classes fetched successfully', { chemicalClasses }, pagination);
   } catch (error) { 
     handleError(res, error); 
@@ -566,7 +573,7 @@ router.get('/chemical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER
   if (!id) return;
   
   try {
-    const chemicalClass = await adminService.getChemicalClass(id);
+    const chemicalClass = await atcClassificationsService.getChemicalClass(id);
     standardResponse(res, 200, 'Chemical class fetched successfully', { chemicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -576,7 +583,7 @@ router.get('/chemical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUPER
 router.post('/chemical-classes', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = ChemicalClassSchema.parse(req.body);
-    const chemicalClass = await adminService.createChemicalClass(data);
+    const chemicalClass = await atcClassificationsService.createChemicalClass(data);
     standardResponse(res, 201, 'Chemical class created successfully', { chemicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -589,7 +596,7 @@ router.patch('/chemical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SUP
   
   try {
     const data = ChemicalClassUpdateSchema.parse(req.body);
-    const chemicalClass = await adminService.updateChemicalClass(id, data);
+    const chemicalClass = await atcClassificationsService.updateChemicalClass(id, data);
     standardResponse(res, 200, 'Chemical class updated successfully', { chemicalClass });
   } catch (error) { 
     handleError(res, error); 
@@ -601,7 +608,7 @@ router.delete('/chemical-classes/:id', authenticate, authorizeRoles('ADMIN', 'SU
   if (!id) return;
   
   try {
-    await adminService.deleteChemicalClass(id);
+    await atcClassificationsService.deleteChemicalClass(id);
     standardResponse(res, 200, 'Chemical class deleted successfully');
   } catch (error) { 
     handleError(res, error); 
@@ -613,7 +620,7 @@ router.get('/chemical-classes/:id/children', authenticate, authorizeRoles('ADMIN
   if (!id) return;
   
   try {
-    const children = await adminService.getChemicalSubstancesByChemical(id);
+    const children = await atcClassificationsService.getChemicalSubstancesByChemical(id);
     standardResponse(res, 200, 'Child substances fetched successfully', { children });
   } catch (error) { 
     handleError(res, error); 
@@ -623,7 +630,7 @@ router.get('/chemical-classes/:id/children', authenticate, authorizeRoles('ADMIN
 // CHEMICAL SUBSTANCES
 router.get('/chemical-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { chemicalSubstances, pagination } = await adminService.getChemicalSubstances(req.query);
+    const { items: chemicalSubstances, pagination } = await atcClassificationsService.getChemicalSubstances(req.query);
     standardResponse(res, 200, 'Chemical substances fetched successfully', { chemicalSubstances }, pagination);
   } catch (error) { 
     handleError(res, error); 
@@ -635,7 +642,7 @@ router.get('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', 'SU
   if (!id) return;
   
   try {
-    const chemicalSubstance = await adminService.getChemicalSubstance(id);
+    const chemicalSubstance = await atcClassificationsService.getChemicalSubstance(id);
     standardResponse(res, 200, 'Chemical substance fetched successfully', { chemicalSubstance });
   } catch (error) { 
     handleError(res, error); 
@@ -645,7 +652,7 @@ router.get('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', 'SU
 router.post('/chemical-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = ChemicalSubstanceSchema.parse(req.body);
-    const chemicalSubstance = await adminService.createChemicalSubstance(data);
+    const chemicalSubstance = await atcClassificationsService.createChemicalSubstance(data);
     standardResponse(res, 201, 'Chemical substance created successfully', { chemicalSubstance });
   } catch (error) { 
     handleError(res, error); 
@@ -658,7 +665,7 @@ router.patch('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', '
   
   try {
     const data = ChemicalSubstanceUpdateSchema.parse(req.body);
-    const chemicalSubstance = await adminService.updateChemicalSubstance(id, data);
+    const chemicalSubstance = await atcClassificationsService.updateChemicalSubstance(id, data);
     standardResponse(res, 200, 'Chemical substance updated successfully', { chemicalSubstance });
   } catch (error) { 
     handleError(res, error); 
@@ -670,7 +677,7 @@ router.delete('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', 
   if (!id) return;
   
   try {
-    await adminService.deleteChemicalSubstance(id);
+    await atcClassificationsService.deleteChemicalSubstance(id);
     standardResponse(res, 200, 'Chemical substance deleted successfully');
   } catch (error) { 
     handleError(res, error); 
