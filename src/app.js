@@ -53,7 +53,6 @@ console.log('✅ Sentry initialized:', {
 
 const express = require('express');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 
 const medicationRoutes = require('./routes/medication');
 const prescriptionRoutes = require('./routes/prescription');
@@ -222,12 +221,12 @@ app.options(/.*/, (req, res, next) => {
 
 app.use(express.json());
 
-// ====== XSS PROTECTION ======
-// ✅ SECURITY: Sanitize all user inputs before processing
-const { sanitizeInputs } = require('./middleware/sanitize-inputs');
+// ====== XSS & SQL INJECTION PROTECTION ======
+// ✅ SECURITY: Consolidated sanitization middleware
+const { sanitizeInputs } = require('./middleware/sanitization');
 app.use(sanitizeInputs);
 
-console.log('✅ XSS Protection: Input sanitization enabled');
+console.log('✅ Security: Input sanitization enabled (XSS + SQL injection protection)');
 
 // ====== CONTENT SECURITY POLICY ======
 // ✅ SECURITY: Prevent XSS via CSP headers
@@ -257,76 +256,7 @@ app.use((req, res, next) => {
 console.log('✅ CSP Headers: Content Security Policy enabled');
 
 // ====== RATE LIMITING ======
-
-// TIER 1: General API Rate Limit (Moderate)
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window
-  message: {
-    error: 'RATE_LIMIT_EXCEEDED',
-    message: 'Too many requests from this IP, please try again later.',
-    retryAfter: '15 minutes'
-  },
-  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
-  legacyHeaders: false, // Disable `X-RateLimit-*` headers
-  handler: (req, res) => {
-    console.log(`Rate limit exceeded for IP: ${req.ip} on ${req.originalUrl}`);
-    res.status(429).json({
-      error: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests from this IP, please try again later.',
-      retryAfter: '15 minutes'
-    });
-  },
-});
-
-// TIER 2: Authentication Rate Limit (Strict)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per window
-  skipSuccessfulRequests: true, // Only count failed login attempts
-  message: {
-    error: 'AUTH_RATE_LIMIT_EXCEEDED',
-    message: 'Too many login attempts from this IP. Please try again after 15 minutes.',
-    retryAfter: '15 minutes'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    console.log(`Auth rate limit exceeded for IP: ${req.ip}`);
-    res.status(429).json({
-      error: 'AUTH_RATE_LIMIT_EXCEEDED',
-      message: 'Too many login attempts from this IP. Please try again after 15 minutes.',
-      retryAfter: '15 minutes',
-      lockoutDuration: '15 minutes'
-    });
-  },
-});
-
-// TIER 3: Payment/Checkout Rate Limit (Restricted)
-const checkoutLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // 10 checkouts per hour
-  message: {
-    error: 'CHECKOUT_RATE_LIMIT_EXCEEDED',
-    message: 'Too many checkout attempts. Please try again after 1 hour.',
-    retryAfter: '1 hour'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    console.log(`Checkout rate limit exceeded for IP: ${req.ip}`);
-    res.status(429).json({
-      error: 'CHECKOUT_RATE_LIMIT_EXCEEDED',
-      message: 'Too many checkout attempts from this IP. Please try again after 1 hour.',
-      retryAfter: '1 hour'
-    });
-  },
-});
-
-console.log('✅ Rate limiting configured:');
-console.log('  - General API: 100 requests / 15 min');
-console.log('  - Authentication: 5 attempts / 15 min');
-console.log('  - Checkout: 10 attempts / 1 hour');
+const { apiLimiter, authLimiter, checkoutLimiter } = require('./middleware/rate-limiting');
 
 // ====== HEALTH CHECK ======
 app.get('/', (req, res) => {
