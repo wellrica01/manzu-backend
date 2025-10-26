@@ -166,6 +166,9 @@ model MedicationAvailability {
   PriceHistory PriceHistory[]
 
   @@id([medicationId, pharmacyId])
+  @@index([medicationId])
+  @@index([pharmacyId])
+  @@index([stock])
 }
 
 model MedicationIngredient {
@@ -230,9 +233,15 @@ model Order {
   Pharmacy          Pharmacy?       @relation(fields: [pharmacyId], references: [id], onDelete: Restrict)
   Prescription      Prescription?   @relation(fields: [prescriptionId], references: [id])
   OrderItem         OrderItem[]
+  Refund            Refund[]
 
   @@index([paymentReference])
   @@index([userIdentifier])
+  @@index([checkoutSessionId])
+  @@index([createdAt])
+  @@index([pharmacyId, status])
+  @@index([status])
+  @@index([userIdentifier, status])
 }
 
 model OrderItem {
@@ -330,6 +339,8 @@ model Prescription {
   email                  String?
   phone                  String?
   updatedAt              DateTime?                @default(now()) @db.Timestamptz(6)
+  expiryDate             DateTime                 @db.Timestamp(6)
+  expiryDays             Int                      @default(30)
   Order                  Order[]
   PrescriptionMedication PrescriptionMedication[]
 
@@ -417,6 +428,67 @@ model ProcessedWebhook {
 
   @@index([eventId])
   @@index([processedAt])
+}
+
+model Refund {
+  id                Int          @id @default(autoincrement())
+  orderId           Int
+  amount            Decimal      @db.Decimal(10, 2)
+  reason            String       @db.VarChar
+  refundType        RefundType
+  status            RefundStatus
+  paystackRefundId  String?      @db.VarChar
+  processedAt       DateTime?    @db.Timestamp(6)
+  createdAt         DateTime     @default(now()) @db.Timestamp(6)
+  initiatedBy       Int?
+  failureReason     String?      @db.VarChar
+  retryCount        Int          @default(0)
+  lastRetryAt       DateTime?    @db.Timestamp(6)
+  paystackResponse  Json?
+  paystackReference String?      @db.VarChar
+  Order             Order        @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  action     String   @db.VarChar(100)
+  entityType String   @db.VarChar(50)
+  entityId   Int
+  userId     Int?
+  details    Json?
+  ipAddress  String?  @db.VarChar(45)
+  userAgent  String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([userId])
+}
+
+model ReconciliationReport {
+  id                  Int      @id @default(autoincrement())
+  reconciliationDate  DateTime @db.Date
+  startDate           DateTime @db.Date
+  endDate             DateTime @db.Date
+  status              String   @db.VarChar(50)
+  totalPaystackTxns   Int      @default(0)
+  totalDatabaseOrders Int      @default(0)
+  matchedCount        Int      @default(0)
+  mismatchCount       Int      @default(0)
+  paystackTotalAmount Decimal  @db.Decimal(10, 2)
+  databaseTotalAmount Decimal  @db.Decimal(10, 2)
+  discrepancyAmount   Decimal  @db.Decimal(10, 2)
+  discrepancies       Json?
+  executionTimeMs     Int?
+  triggeredBy         String?  @db.VarChar(100)
+  errorMessage        String?
+  createdAt           DateTime @default(now()) @db.Timestamp(6)
+  updatedAt           DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([createdAt])
+  @@index([reconciliationDate])
+  @@index([status])
 }
 
 enum AdminRole {
@@ -617,4 +689,18 @@ enum Pharmacopeia {
   BP
   IP
   OTHER
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum RefundType {
+  FULL
+  PARTIAL
+  AUTOMATIC
+  MANUAL
 }

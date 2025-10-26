@@ -1,5 +1,6 @@
 const express = require('express');
 const upload = require('../utils/upload')
+const { validateFile, generateSecureFilename } = upload;
 const supabase = require('../utils/supabaseClient')
 const path = require('path');
 const { validateAddToCart, validateBulkAddToCart, validateUpdateCart, validateRemoveFromCart, validateBulkRemoveFromCart } = require('../utils/validation');
@@ -152,6 +153,15 @@ router.post(
         return res.status(400).json({ message: 'No file uploaded' });
       }
 
+      // Validate file with magic byte checking
+      const validation = await validateFile(req.file, 'IMAGE');
+      if (!validation.valid) {
+        return res.status(400).json({ 
+          message: 'File validation failed', 
+          errors: validation.errors 
+        });
+      }
+
       const userIdentifier = req.headers['x-guest-id'];
       const { medicationIds, email, phone } = req.body;
 
@@ -163,9 +173,8 @@ router.post(
         return res.status(400).json({ message: 'Medication IDs are required' });
       }
 
-      // Prepare Supabase file path
-      const fileExt = path.extname(req.file.originalname);
-      const fileName = `${Date.now()}-${req.file.originalname}`;
+      // Generate secure filename
+      const fileName = generateSecureFilename(req.file.originalname, 'prescription');
       const filePath = `prescriptions/${fileName}`;
 
       // Upload to Supabase Storage
@@ -262,5 +271,49 @@ router.get('/prescription/status', requireConsent, async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message, stack: error.stack });
   }
 });
+
+
+// Validate stock availability before checkout
+router.get('/validate-stock', async (req, res) => {
+  try {
+    const userId = req.headers['x-guest-id'];
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'Guest ID required' });
+    }
+
+    const validation = await cartService.validateCartStock(userId);
+    
+    res.status(200).json(validation);
+  } catch (error) {
+    console.error('Stock validation error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+});
+
+
+router.post('/auto-adjust-stock', async (req, res) => {
+  try {
+    const userId = req.headers['x-guest-id'];
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'Guest ID required' });
+    }
+
+    const result = await cartService.autoAdjustCartForStock(userId);
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Auto-adjust error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+});
+
 
 module.exports = router;

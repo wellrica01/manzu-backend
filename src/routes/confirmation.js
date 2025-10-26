@@ -8,76 +8,9 @@ const prisma = new PrismaClient();
 
 console.log('Loaded confirmation.js version: 2025-06-18-v1');
 
-// Debug endpoint to check database connection and TransactionReference table
-router.get('/debug', async (req, res) => {
-  try {
-    console.log('Debug endpoint called');
-    
-    // Test database connection
-    await prisma.$connect();
-    console.log('Database connection successful');
-    
-    // Check if TransactionReference table exists and has data
-    const transactionRefs = await prisma.transactionReference.findMany({
-      take: 5,
-      orderBy: { createdAt: 'desc' }
-    });
-    
-    console.log('TransactionReference table check:', {
-      count: transactionRefs.length,
-      records: transactionRefs.map(tr => ({
-        id: tr.id,
-        transactionReference: tr.transactionReference,
-        orderReferences: tr.orderReferences,
-        checkoutSessionId: tr.checkoutSessionId
-      }))
-    });
-    
-    // Check for orders with the specific session or reference
-    const { reference, session } = req.query;
-    let orders = [];
-    
-    if (reference) {
-      orders = await prisma.order.findMany({
-        where: { paymentReference: reference },
-        include: { pharmacy: true }
-      });
-    } else if (session) {
-      orders = await prisma.order.findMany({
-        where: { checkoutSessionId: session },
-        include: { pharmacy: true }
-      });
-    }
-    
-    res.json({
-      message: 'Database connection successful',
-      transactionRefsCount: transactionRefs.length,
-      sampleRecords: transactionRefs.map(tr => ({
-        id: tr.id,
-        transactionReference: tr.transactionReference,
-        orderReferences: tr.orderReferences,
-        checkoutSessionId: tr.checkoutSessionId
-      })),
-      ordersFound: orders.length,
-      orders: orders.map(o => ({
-        id: o.id,
-        userIdentifier: o.userIdentifier,
-        paymentReference: o.paymentReference,
-        checkoutSessionId: o.checkoutSessionId,
-        status: o.status,
-        paymentStatus: o.paymentStatus,
-        pharmacy: o.pharmacy?.name
-      }))
-    });
-  } catch (error) {
-    console.error('Debug endpoint error:', error);
-    res.status(500).json({ 
-      message: 'Database connection failed', 
-      error: error.message,
-      stack: error.stack
-    });
-  }
-});
+// ✅ SECURITY: Debug endpoint removed (Fix #11)
+// Previously exposed sensitive order data without authentication
+// If debugging needed, use proper logging or admin-protected endpoints
 
 // GET /confirmation - Confirm payment and retrieve order details
 router.get('/', async (req, res) => {

@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
 const { recalculateOrderTotal } = require('../utils/cartUtils');
 const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils')
+const { validatePrescriptionExpiry } = require('./prescriptionService');
 const prisma = new PrismaClient();
 
 async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
@@ -141,6 +142,24 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
     targetOrder = cartOrder;
   }
 
+    // Validate prescription expiry if prescription exists
+  if (targetOrder.prescriptionId) {
+    try {
+      await validatePrescriptionExpiry(targetOrder.prescriptionId);
+    } catch (error) {
+      // If expired, clear prescriptionId and set order back to CART
+      await prisma.order.update({
+        where: { id: targetOrder.id },
+        data: { 
+          prescriptionId: null,
+          status: 'CART',
+          updatedAt: new Date()
+        }
+      });
+      throw new Error(`${error.message} Your cart has been updated.`);
+    }
+  }
+
   // Use the target order for adding items
   const order = targetOrder;
 
@@ -208,6 +227,13 @@ async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId })
   });
   if (!prescription) {
     throw new Error('Valid prescription not found');
+  }
+
+  // Validate prescription expiry
+  try {
+    await validatePrescriptionExpiry(prescriptionId);
+  } catch (error) {
+    throw new Error(error.message);
   }
 
   // Validate all items (pharmacy, medication, stock, prescription coverage)
@@ -428,14 +454,38 @@ async function getCart(userId) {
   let orderStatus = null;
 
   for (const order of orders) {
-    // Prescription status
+    // Prescription status with expiry check
     let prescriptionStatus = null;
     if (order.prescriptionId) {
       const prescription = await prisma.prescription.findUnique({
         where: { id: order.prescriptionId },
-        select: { status: true }
+        select: { 
+          status: true,
+          expiryDate: true 
+        }
       });
-      prescriptionStatus = prescription?.status || null;
+      
+      if (prescription) {
+        // Check if prescription is expired
+        if (prescription.expiryDate && new Date(prescription.expiryDate) < new Date()) {
+          prescriptionStatus = 'EXPIRED';
+          
+          // Optionally auto-clear expired prescription from order
+          // Uncomment if you want to auto-clear on cart load
+          /*
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { 
+              prescriptionId: null,
+              status: order.status === 'PENDING' ? 'CART' : order.status,
+              updatedAt: new Date()
+            }
+          });
+          */
+        } else {
+          prescriptionStatus = prescription.status;
+        }
+      }
     }
 
     const itemsWithOrderInfo = order.OrderItem.map(item => ({
@@ -447,7 +497,6 @@ async function getCart(userId) {
         prescriptionStatus: prescriptionStatus,
       }
     }));
-
 
     allItems.push(...itemsWithOrderInfo);
     totalPrice += order.totalPrice;
@@ -491,49 +540,62 @@ async function getCart(userId) {
       };
     }
 
-  const med = item.MedicationAvailability?.Medication;
+    const med = item.MedicationAvailability?.Medication;
 
-  const ingredients = med?.Medication_MedicationIngredient?.map(mi => ({
-  strengthValue: mi.MedicationIngredient.strengthValue,
-  strengthUnit: formatStrengthUnit(mi.MedicationIngredient.strengthUnit),
-  perUnitValue: mi.MedicationIngredient.perUnitValue,
-  perUnitType: formatPerUnitType(mi.MedicationIngredient.perUnitType),
-  activeSubstance: mi.MedicationIngredient.ActiveSubstance?.name,
-})) ?? [];
+    const ingredients = med?.Medication_MedicationIngredient?.map(mi => ({
+      strengthValue: mi.MedicationIngredient.strengthValue,
+      strengthUnit: formatStrengthUnit(mi.MedicationIngredient.strengthUnit),
+      perUnitValue: mi.MedicationIngredient.perUnitValue,
+      perUnitType: formatPerUnitType(mi.MedicationIngredient.perUnitType),
+      activeSubstance: mi.MedicationIngredient.ActiveSubstance?.name,
+    })) ?? [];
 
-  acc[pharmacy.id].items.push({
-    id: item.id,
-    medication: {
-      id: med?.id,
-      brandName: med?.brandName ?? "Unknown",
-      brandDescription: med?.brandDescription ?? null,
-      manufacturerId: med?.manufacturerId ?? null,
-      manufacturerName: med?.Manufacturer?.name ?? null,
-      manufacturerCountry: med?.Manufacturer?.country ?? null,
-      form: med?.form ?? null,
-      pharmacopeia: med?.pharmacopeia ?? null,
-      packSizeExpression: med?.packSizeExpression ?? null,
-      packSizeQuantity: med?.packSizeQuantity ?? null,
-      packSizeUnit: formatPackSizeUnit(med?.packSizeUnit ?? null),
-      nafdacCode: med?.nafdacCode ?? null,
-      prescriptionRequired: med?.prescriptionRequired ?? false,
-      createdAt: med?.createdAt ?? null,
-      expiryDate: med?.expiryDate ?? null,
-      imageUrl: med?.imageUrl ?? null,
-      ingredients,
-      displayName: med?.brandName
-        ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''}${med.form ? ` (${capitalize(med.form)})` : ''}`
-        : "Unknown",
+    // Determine prescription status for this specific item
+    let itemPrescriptionStatus = 'NONE';
+    
+    if (item.orderInfo.prescriptionId && med?.prescriptionRequired) {
+      const orderPrescriptionStatus = item.orderInfo.prescriptionStatus;
+      
+      // Handle all prescription statuses including EXPIRED
+      if (orderPrescriptionStatus === 'EXPIRED') {
+        itemPrescriptionStatus = 'EXPIRED';
+      } else if (item.orderInfo.orderStatus === 'PENDING' && orderPrescriptionStatus === 'VERIFIED') {
+        itemPrescriptionStatus = 'VERIFIED';
+      } else if (item.orderInfo.orderStatus === 'PENDING_PRESCRIPTION') {
+        itemPrescriptionStatus = orderPrescriptionStatus === 'REJECTED' ? 'REJECTED' : 'PENDING';
+      } else {
+        itemPrescriptionStatus = 'NONE';
+      }
+    }
+
+    acc[pharmacy.id].items.push({
+      id: item.id,
+      medication: {
+        id: med?.id,
+        brandName: med?.brandName ?? "Unknown",
+        brandDescription: med?.brandDescription ?? null,
+        manufacturerId: med?.manufacturerId ?? null,
+        manufacturerName: med?.Manufacturer?.name ?? null,
+        manufacturerCountry: med?.Manufacturer?.country ?? null,
+        form: med?.form ?? null,
+        pharmacopeia: med?.pharmacopeia ?? null,
+        packSizeExpression: med?.packSizeExpression ?? null,
+        packSizeQuantity: med?.packSizeQuantity ?? null,
+        packSizeUnit: formatPackSizeUnit(med?.packSizeUnit ?? null),
+        nafdacCode: med?.nafdacCode ?? null,
+        prescriptionRequired: med?.prescriptionRequired ?? false,
+        createdAt: med?.createdAt ?? null,
+        expiryDate: med?.expiryDate ?? null,
+        imageUrl: med?.imageUrl ?? null,
+        ingredients,
+        displayName: med?.brandName
+          ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''}${med.form ? ` (${capitalize(med.form)})` : ''}`
+          : "Unknown",
       },
-    quantity: item.quantity,
-    price: item.price,
-    prescriptionStatus: item.orderInfo.prescriptionId && med?.prescriptionRequired 
-      ? (item.orderInfo.orderStatus === 'PENDING' ? 'VERIFIED' : 
-        item.orderInfo.orderStatus === 'PENDING_PRESCRIPTION' ? 
-          (item.orderInfo.prescriptionStatus === 'REJECTED' ? 'REJECTED' : 'PENDING') : 'NONE')
-      : 'NONE',
-  });
-
+      quantity: item.quantity,
+      price: item.price,
+      prescriptionStatus: itemPrescriptionStatus,
+    });
 
     acc[pharmacy.id].subtotal += item.quantity * item.price;
     return acc;
@@ -550,7 +612,6 @@ async function getCart(userId) {
     orderId: orders[0]?.id,
   };
 }
-
 
 async function createMixedOrder({ userId, readyItems, prescriptionItems }) {
   // Create separate orders for ready items and prescription items
@@ -811,6 +872,13 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
     throw new Error('Prescription not found');
   }
 
+  // Validate prescription expiry
+  try {
+    await validatePrescriptionExpiry(prescriptionId);
+  } catch (error) {
+    throw new Error(error.message);
+  }
+
   // Get all items in the cart
   const orderItems = await prisma.orderItem.findMany({
     where: { orderId: order.id },
@@ -915,7 +983,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
     const orders = await prisma.order.findMany({
       where: { 
         userIdentifier: userId, 
-        status: { in: ['CART', 'PENDING_PRESCRIPTION'] }
+        status: { in: ['CART', 'PENDING_PRESCRIPTION', 'PENDING'] }
       },
       include: {
         Prescription: {
@@ -940,7 +1008,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
     });
 
     if (!orders || orders.length === 0) {
-      // No orders found, return all as 'none'
+      // No orders found, return all as 'NONE'
       return Object.fromEntries(medicationIds.map(id => [id, 'NONE']));
     }
 
@@ -950,6 +1018,12 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
     for (const order of orders) {
       if (order.Prescription) {
         const prescription = order.Prescription;
+        
+        // Check if prescription is expired
+        let prescriptionStatus = prescription.status;
+        if (prescription.expiryDate && new Date(prescription.expiryDate) < new Date()) {
+          prescriptionStatus = 'EXPIRED';
+        }
         
         // Get medication IDs in this order
         const orderMedicationIds = order.OrderItem.map(item => 
@@ -963,7 +1037,7 @@ async function getPrescriptionStatusesForCart({ userId, medicationIds }) {
         // Update statuses for medications in this order that are covered by prescription
         for (const medId of medicationIds) {
           if (orderMedicationIds.includes(medId) && coveredMedicationIds.includes(medId)) {
-            statuses[medId] = prescription.status; // 'VERIFIED' or 'PENDING'
+            statuses[medId] = prescriptionStatus; // 'VERIFIED', 'PENDING', 'REJECTED', or 'EXPIRED'
           }
         }
       }
@@ -1002,6 +1076,13 @@ async function linkPrescriptionToSpecificOrder({ userId, prescriptionId, medicat
       throw new Error('Prescription not found');
     }
 
+    // Validate prescription expiry
+    try {
+      await validatePrescriptionExpiry(prescriptionId);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+
     // ✅ Find the target order containing the medications
     const targetOrder = orders.find(order =>
       order.OrderItem.some(item => medicationIds.includes(item.medicationId.toString()))
@@ -1035,6 +1116,158 @@ async function linkPrescriptionToSpecificOrder({ userId, prescriptionId, medicat
   });
 }
 
+async function validateCartStock(userId) {
+  try {
+    // Get all orders for the user that are ready for checkout
+    const orders = await prisma.order.findMany({
+      where: {
+        userIdentifier: userId,
+        status: { in: ['CART', 'PENDING'] }
+      },
+      include: {
+        OrderItem: {
+          include: {
+            MedicationAvailability: {
+              include: {
+                Medication: true,
+                Pharmacy: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!orders || orders.length === 0) {
+      return {
+        allAvailable: true,
+        unavailableItems: [],
+        partiallyAvailableItems: []
+      };
+    }
+
+    const unavailableItems = [];
+    const partiallyAvailableItems = [];
+
+    // Check stock for each item
+    for (const order of orders) {
+      for (const item of order.OrderItem) {
+        const availability = item.MedicationAvailability;
+        const medication = availability.Medication;
+        const pharmacy = availability.Pharmacy;
+
+        // Check if item is completely unavailable
+        if (availability.stock === 0) {
+          unavailableItems.push({
+            orderItemId: item.id,
+            medicationId: medication.id,
+            pharmacyId: pharmacy.id,
+            name: medication.brandName || 'Unknown Medication',
+            pharmacy: pharmacy.name || 'Unknown Pharmacy',
+            requestedQty: item.quantity,
+            availableQty: 0
+          });
+        }
+        // Check if requested quantity exceeds available stock
+        else if (availability.stock < item.quantity) {
+          partiallyAvailableItems.push({
+            orderItemId: item.id,
+            medicationId: medication.id,
+            pharmacyId: pharmacy.id,
+            name: medication.brandName || 'Unknown Medication',
+            pharmacy: pharmacy.name || 'Unknown Pharmacy',
+            requestedQty: item.quantity,
+            availableQty: availability.stock
+          });
+        }
+      }
+    }
+
+    const allAvailable = unavailableItems.length === 0 && partiallyAvailableItems.length === 0;
+
+    return {
+      allAvailable,
+      unavailableItems,
+      partiallyAvailableItems
+    };
+  } catch (error) {
+    console.error('Error validating cart stock:', error);
+    throw new Error('Failed to validate stock availability');
+  }
+}
+
+
+
+async function autoAdjustCartForStock(userId) {
+  try {
+    const validation = await validateCartStock(userId);
+    
+    if (validation.allAvailable) {
+      return { adjusted: false, changes: [] };
+    }
+
+    const changes = [];
+
+    await prisma.$transaction(async (tx) => {
+      // Remove completely unavailable items
+      for (const item of validation.unavailableItems) {
+        await tx.orderItem.delete({
+          where: { id: item.orderItemId }
+        });
+        changes.push({
+          action: 'removed',
+          item: item.name,
+          pharmacy: item.pharmacy,
+          reason: 'Out of stock'
+        });
+      }
+
+      // Adjust quantities for partially available items
+      for (const item of validation.partiallyAvailableItems) {
+        await tx.orderItem.update({
+          where: { id: item.orderItemId },
+          data: { quantity: item.availableQty }
+        });
+        changes.push({
+          action: 'adjusted',
+          item: item.name,
+          pharmacy: item.pharmacy,
+          oldQty: item.requestedQty,
+          newQty: item.availableQty
+        });
+      }
+
+      // Recalculate totals for affected orders
+      const affectedOrderIds = [
+        ...validation.unavailableItems.map(i => i.orderItemId),
+        ...validation.partiallyAvailableItems.map(i => i.orderItemId)
+      ];
+
+      const orders = await tx.order.findMany({
+        where: {
+          OrderItem: {
+            some: {
+              id: { in: affectedOrderIds }
+            }
+          }
+        },
+        select: { id: true }
+      });
+
+      for (const order of orders) {
+        await recalculateOrderTotal(tx, order.id);
+        await cleanupEmptyOrders(tx, userId, order.id);
+      }
+    });
+
+    return { adjusted: true, changes };
+  } catch (error) {
+    console.error('Error auto-adjusting cart:', error);
+    throw new Error('Failed to adjust cart for stock changes');
+  }
+}
+
+
 module.exports = {
   addToCart,
   addBulkToCart,
@@ -1049,4 +1282,6 @@ module.exports = {
   handlePrescriptionVerification,
   cleanupEmptyOrders,
   checkPrescriptionCoverage,
+  validateCartStock,
+  autoAdjustCartForStock,
 };

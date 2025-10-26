@@ -4,6 +4,9 @@ const upload = require('../utils/upload')
 const { normalizeMedicationFields, handleImageUpload } = require('../utils/medicationUtils')
 const z = require('zod');
 const adminService = require('../services/adminService');
+const reconciliationService = require('../services/reconciliationService');
+
+const { queryAuditLogs, getAuditTrail } = require('../utils/audit-logger');
 const {
   // Core
   paginationSchema,
@@ -959,8 +962,47 @@ router.delete('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_A
   }
 });
 
+// ==================== AUDIT LOG ROUTES ====================
 
+router.get('/audit-logs', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const {
+      entityType,
+      entityId,
+      action,
+      userId,
+      startDate,
+      endDate,
+      limit = 100,
+      offset = 0
+    } = req.query;
 
+    const logs = await queryAuditLogs({
+      entityType,
+      entityId: entityId ? parseInt(entityId) : null,
+      action,
+      userId: userId ? parseInt(userId) : null,
+      startDate,
+      endDate,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    standardResponse(res, 200, 'Audit logs fetched successfully', { logs, count: logs.length });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+router.get('/audit-logs/:entityType/:entityId', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const { entityType, entityId } = req.params;
+    const trail = await getAuditTrail(entityType, parseInt(entityId));
+    standardResponse(res, 200, 'Audit trail fetched successfully', { trail, count: trail.length });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
 
 // ==================== SEARCH FILTER ROUTES ====================
 
@@ -993,5 +1035,112 @@ router.get('/search/manufacturers', authenticate, authorizeRoles('ADMIN', 'SUPER
     handleError(res, error);
   }
 });
+
+/**
+ * Trigger manual reconciliation
+ */
+router.post(
+  '/reconciliation/trigger',
+  authenticate,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+  async (req, res) => {
+    try {
+      const { startDate, endDate } = req.body;
+      
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'startDate and endDate are required (YYYY-MM-DD format)'
+        });
+      }
+      
+      const report = await reconciliationService.reconcile(
+        startDate,
+        endDate,
+        `ADMIN_${req.user.id}`
+      );
+      
+      res.json({
+        success: true,
+        message: 'Reconciliation completed',
+        data: report
+      });
+      
+    } catch (error) {
+      console.error('Reconciliation error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Reconciliation failed',
+        error: error.message
+      });
+    }
+  }
+);
+
+/**
+ * Get reconciliation report by ID
+ */
+router.get(
+  '/reconciliation/:id',
+  authenticate,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+  async (req, res) => {
+    try {
+      const reportId = parseInt(req.params.id);
+      
+      const report = await reconciliationService.getReport(reportId);
+      
+      if (!report) {
+        return res.status(404).json({
+          success: false,
+          message: 'Report not found'
+        });
+      }
+      
+      res.json({
+        success: true,
+        data: report
+      });
+      
+    } catch (error) {
+      console.error('Get report error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch report',
+        error: error.message
+      });
+    }
+  }
+);
+
+/**
+ * Get recent reconciliation reports
+ */
+router.get(
+  '/reconciliation',
+  authenticate,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+  async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 30;
+      
+      const reports = await reconciliationService.getRecentReports(limit);
+      
+      res.json({
+        success: true,
+        data: reports,
+        count: reports.length
+      });
+      
+    } catch (error) {
+      console.error('Get reports error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch reports',
+        error: error.message
+      });
+    }
+  }
+);
 
 module.exports = router;

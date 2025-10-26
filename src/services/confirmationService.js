@@ -8,6 +8,9 @@ const {
   formatPackSizeUnit,
   formatStrengthUnit,
 } = require('../utils/medicationUtils');
+const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
+const { alertPaymentVerificationFailed, alertPaymentGatewayDown } = require('../utils/error-reporter');
+
 
 const prisma = new PrismaClient();
 
@@ -133,50 +136,130 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
     const trackingCode = existingTrackingCode || generateTrackingCode(session, orders[0]?.id);
     let status = 'COMPLETED';
 
-    // ✅ Verify Paystack transaction
-    if (transactionRef) {
-      try {
-        const paystackResponse = await axios.get(
-          `https://api.paystack.co/transaction/verify/${transactionRef.transactionReference}`,
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-
-        if (
-          !paystackResponse.data.status ||
-          paystackResponse.data.data.status !== 'success'
-        ) {
-          await prisma.$transaction(async tx => {
-            for (const order of orders) {
-              if (transactionRef.orderReferences.includes(order.paymentReference)) {
-                await tx.order.update({
-                  where: { id: order.id },
-                  data: { paymentStatus: 'failed', updatedAt: new Date() },
-                });
-              }
-            }
-          });
-          throw new Error('Payment verification failed');
-        }
-      } catch (error) {
-        console.error('Paystack verification error:', error.response?.data || error.message);
-        throw new Error('Payment verification failed');
-      }
-    }
-
-    // ✅ Get latest verified prescription
+    // ✅ Get latest verified prescription (outside transaction - read-only)
     const verifiedPrescription = await prisma.prescription.findFirst({
       where: { userIdentifier: userId, status: 'VERIFIED' },
       include: { PrescriptionMedication: true },
       orderBy: [{ createdAt: 'desc' }],
     });
 
-    // ✅ Update orders transactionally
+    // ✅ CRITICAL: Check idempotency OUTSIDE transaction to prevent race condition
+    // If inside transaction, two concurrent requests could both pass the check
+    if (transactionRef) {
+      const existingVerification = await prisma.processedWebhook.findUnique({
+        where: { eventId: `verification_${transactionRef.transactionReference}` }
+      });
+
+      if (existingVerification) {
+        console.log('Payment already verified:', transactionRef.transactionReference);
+        throw new Error('Payment already processed');
+      }
+    }
+
+    // ✅ ATOMIC PAYMENT VERIFICATION + DATABASE UPDATE
+    // Everything happens inside one transaction for atomicity
     const updatedOrders = await prisma.$transaction(async tx => {
+
+      // Step 2: Verify payment with Paystack (with retry logic)
+      if (transactionRef) {
+        let paystackVerified = false;
+        let lastError = null;
+        const maxRetries = 3;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`Paystack verification attempt ${attempt}/${maxRetries}`);
+            
+            const paystackResponse = await axios.get(
+              `https://api.paystack.co/transaction/verify/${transactionRef.transactionReference}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+                timeout: 5000, // 5 second timeout per attempt
+              }
+            );
+
+            if (
+              paystackResponse.data.status &&
+              paystackResponse.data.data.status === 'success'
+            ) {
+              paystackVerified = true;
+              console.log('Paystack verification successful');
+              break;
+            } else {
+              lastError = new Error('Payment not successful on Paystack');
+              console.log('Payment not successful, attempt', attempt);
+            }
+          } catch (error) {
+            lastError = error;
+            console.error(`Paystack verification attempt ${attempt} failed:`, error.message);
+            
+            // 🚨 Alert if Paystack is completely down (connection errors)
+            if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
+              alertPaymentGatewayDown('Paystack', error, {
+                transactionRef: transactionRef.transactionReference,
+                attempt,
+                errorCode: error.code
+              });
+            }
+            
+            // If not last attempt, wait before retry
+            if (attempt < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+            }
+          }
+        }
+
+        // If verification failed after all retries, mark orders for manual review
+        if (!paystackVerified) {
+          console.error('Paystack verification failed after all retries');
+          
+          // 🚨 CRITICAL ALERT: Payment verification failed
+          alertPaymentVerificationFailed(
+            transactionRef.transactionReference,
+            lastError,
+            {
+              orderCount: orders.length,
+              totalAmount: orders.reduce((sum, o) => sum + o.totalPrice, 0),
+              attemptsMade: maxRetries,
+              userId: userId
+            }
+          );
+          
+          // Mark orders for manual review
+          for (const order of orders) {
+            if (transactionRef.orderReferences.includes(order.paymentReference)) {
+              await tx.order.update({
+                where: { id: order.id },
+                data: { 
+                  paymentStatus: 'PENDING',
+                  cancelReason: 'Payment verification failed - requires manual review',
+                  updatedAt: new Date() 
+                },
+              });
+            }
+          }
+
+          throw new Error(`Payment verification failed: ${lastError?.message || 'Unknown error'}`);
+        }
+
+        // Step 3: Record verification in ProcessedWebhook for idempotency
+        await tx.processedWebhook.create({
+          data: {
+            eventId: `verification_${transactionRef.transactionReference}`,
+            eventType: 'payment.verification',
+            payload: {
+              reference: transactionRef.transactionReference,
+              verifiedAt: new Date().toISOString(),
+              userId: userId
+            }
+          }
+        });
+      }
+
+      // Step 4: Update orders atomically (now that payment is verified)
       const updated = [];
 
       for (const order of orders) {
@@ -263,11 +346,31 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
             Pharmacy: { include: { OperatingHour: true } },
           },
         });
+        
+        // Audit log for payment verification
+        if (newPaymentStatus === 'PAID') {
+          await createAuditLog({
+            action: AUDIT_ACTIONS.PAYMENT_VERIFIED,
+            entityType: ENTITY_TYPES.ORDER,
+            entityId: order.id,
+            details: {
+              paymentReference: order.paymentReference,
+              amount: order.totalPrice.toString(),
+              trackingCode,
+              previousStatus: order.status,
+              newStatus
+            },
+            tx
+          });
+        }
 
         updated.push(updatedOrder);
       }
 
       return updated;
+    }, {
+      timeout: 15000, // 15 second timeout for entire transaction
+      isolationLevel: 'Serializable' // Highest isolation level for payment operations
     });
 
     // ✅ Format response grouped by pharmacy

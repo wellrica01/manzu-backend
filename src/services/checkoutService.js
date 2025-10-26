@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { normalizePhone } = require('../utils/validation');
+const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
 const prisma = new PrismaClient();
 
 
@@ -119,6 +120,15 @@ const cartOrders = await prisma.order.findMany({
         if (!verifiedPrescription) {
           throw new Error(`Prescription required for ${item.MedicationAvailability.Medication.brandName} but not verified`);
         }
+        
+        // ✅ CRITICAL: Validate prescription has not expired
+        const now = new Date();
+        if (verifiedPrescription.expiryDate < now) {
+          throw new Error(
+            `Prescription for ${item.MedicationAvailability.Medication.brandName} has expired. ` +
+            `Please upload a new prescription.`
+          );
+        }
       }
     }
   }
@@ -208,7 +218,35 @@ const cartOrders = await prisma.order.findMany({
             stock: { decrement: item.quantity },
           },
         });
+        
+        // Audit log for stock reservation
+        await createAuditLog({
+          action: AUDIT_ACTIONS.STOCK_RESERVED,
+          entityType: ENTITY_TYPES.STOCK,
+          entityId: item.MedicationAvailability.medicationId,
+          details: {
+            pharmacyId: item.pharmacyId,
+            quantity: item.quantity,
+            orderId: createdOrder.id
+          },
+          tx
+        });
       }
+      
+      // Audit log for order creation
+      await createAuditLog({
+        action: AUDIT_ACTIONS.ORDER_CREATED,
+        entityType: ENTITY_TYPES.ORDER,
+        entityId: createdOrder.id,
+        details: {
+          pharmacyId: parseInt(pharmacyId),
+          totalPrice: totalPrice.toString(),
+          itemCount: items.length,
+          deliveryMethod,
+          paymentReference
+        },
+        tx
+      });
 
       return createdOrder;
     });
@@ -298,6 +336,85 @@ const cartOrders = await prisma.order.findMany({
 
 
 
+/**
+ * Get order by its Paystack reference
+ * Used during payment verification and webhook
+ */
+async function getOrderByReference(reference) {
+  try {
+    const order = await prisma.order.findFirst({
+      where: { paymentReference: reference },
+      select: {
+        id: true,
+        paymentReference: true,
+        status: true,
+        paymentStatus: true,
+        checkoutSessionId: true,
+      },
+    });
+    return order;
+  } catch (error) {
+    console.error('Error fetching order by reference:', error);
+    throw new Error('Failed to fetch order by reference');
+  }
+}
+
+/**
+ * Mark an order as paid after successful verification or webhook event
+ * Ensures idempotency and logs the payment event.
+ */
+async function markOrderPaid(reference, sessionId) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findFirst({
+      where: { paymentReference: reference },
+    });
+
+    if (!order) {
+      throw new Error(`Order not found for reference: ${reference}`);
+    }
+
+    // Idempotency: if already paid, just return
+    if (order.paymentStatus === 'PAID') {
+      return order;
+    }
+
+    // Update payment + order status atomically
+    const updatedOrder = await tx.order.update({
+      where: { id: order.id },
+      data: {
+        paymentStatus: 'PAID',
+        status: 'CONFIRMED',
+        updatedAt: new Date(),
+      },
+    });
+
+    // Link back to session tracking table if exists
+    await tx.transactionReference.updateMany({
+      where: { orderReferences: { has: reference } },
+      data: { verifiedAt: new Date() },
+    });
+
+    // Create audit log for traceability
+    await createAuditLog({
+      action: AUDIT_ACTIONS.PAYMENT_VERIFIED,
+      entityType: ENTITY_TYPES.ORDER,
+      entityId: order.id,
+      details: {
+        reference,
+        sessionId,
+        status: 'PAID',
+        verifiedAt: new Date().toISOString(),
+      },
+      tx,
+    });
+
+    return updatedOrder;
+  });
+}
+
+
 module.exports = {
-  initiateCheckout
+  initiateCheckout,
+  getOrderByReference,
+  markOrderPaid
 };

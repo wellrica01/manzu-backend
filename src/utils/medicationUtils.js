@@ -165,8 +165,7 @@ const FALLBACK_IMAGE_URL = 'https://manzu.ng/placeholder-medication.png';
 // ⬆️ replace with your actual hosted placeholder image
 
 /**
- * Handle image upload to Supabase storage
- * Validates file type and size, returns public URL or fallback
+ * Handle image upload to Supabase Storage with validation
  * @param {Object} file - Multer file object
  * @param {Object} supabase - Supabase client instance
  * @returns {Promise<string|null>} Public URL of uploaded image or fallback
@@ -175,17 +174,18 @@ async function handleImageUpload(file, supabase) {
   if (!file) return null;
 
   try {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    const maxSize = 5 * 1024 * 1024; // 5MB
-
-    if (!allowedTypes.includes(file.mimetype)) {
-      throw new Error('Invalid file type. Only JPEG, PNG, WebP allowed.');
+    // Import validation function
+    const { validateFile, generateSecureFilename } = require('./upload');
+    
+    // Validate file with magic byte checking
+    const validation = await validateFile(file, 'IMAGE');
+    if (!validation.valid) {
+      throw new Error(`File validation failed: ${validation.errors.join(', ')}`);
     }
-    if (file.size > maxSize) {
-      throw new Error('File too large. Max 5MB.');
-    }
 
-    const fileName = `medications/${Date.now()}-${file.originalname}`;
+    // Generate secure filename
+    const fileName = `medications/${generateSecureFilename(file.originalname, 'med')}`;
+    
     const { error: uploadError } = await supabase.storage
       .from('medications')
       .upload(fileName, file.buffer, { contentType: file.mimetype });

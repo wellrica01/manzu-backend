@@ -2,11 +2,32 @@ const { PrismaClient } = require('@prisma/client');
 const { normalizePhone } = require('../utils/validation');
 const { sendVerificationNotification } = require('../utils/notifications');
 const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, resolveManufacturer, computePackSizeQuantity, linkIngredients } = require('../utils/medicationUtils')
+const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
 
 const prisma = new PrismaClient();
 
-async function uploadPrescription({ userIdentifier, email, phone, fileUrl }) {
+// Prescription expiry periods (in days)
+const EXPIRY_PERIODS = {
+  STANDARD: 30,    // Standard prescriptions
+  CONTROLLED: 7,   // Controlled substances
+  CHRONIC: 90,     // Chronic conditions
+};
+
+// Helper to calculate expiry date
+function calculateExpiryDate(type = 'STANDARD', customDays = null) {
+  const days = customDays || EXPIRY_PERIODS[type] || EXPIRY_PERIODS.STANDARD;
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + days);
+  return expiryDate;
+}
+
+async function uploadPrescription({ userIdentifier, email, phone, fileUrl, prescriptionType = 'STANDARD', expiryDays = null }) {
   const normalizedPhone = phone ? normalizePhone(phone) : phone;
+  
+  // Calculate expiry date based on prescription type
+  const expiryDate = calculateExpiryDate(prescriptionType, expiryDays);
+  const finalExpiryDays = expiryDays || EXPIRY_PERIODS[prescriptionType] || EXPIRY_PERIODS.STANDARD;
+  
   const prescription = await prisma.prescription.create({
     data: {
       userIdentifier,
@@ -14,10 +35,47 @@ async function uploadPrescription({ userIdentifier, email, phone, fileUrl }) {
       phone: normalizedPhone,
       fileUrl,
       status: 'PENDING',
+      expiryDate,
+      expiryDays: finalExpiryDays,
     },
   });
-  console.log('Prescription uploaded:', { prescriptionId: prescription.id, email, phone: normalizedPhone });
+  
+  console.log('Prescription uploaded:', { 
+    prescriptionId: prescription.id, 
+    email, 
+    phone: normalizedPhone,
+    expiryDate,
+    expiryDays: finalExpiryDays
+  });
+  
   return prescription;
+}
+
+
+async function validatePrescriptionExpiry(prescriptionId) {
+  const prescription = await prisma.prescription.findUnique({
+    where: { id: prescriptionId },
+    select: { status: true, expiryDate: true }
+  });
+
+  if (!prescription) {
+    throw new Error('Prescription not found');
+  }
+
+  if (prescription.status === 'EXPIRED') {
+    throw new Error('Prescription has expired. Please upload a new prescription.');
+  }
+
+  if (prescription.expiryDate && new Date() > new Date(prescription.expiryDate)) {
+    // Mark as expired if not already
+    await prisma.prescription.update({
+      where: { id: prescriptionId },
+      data: { status: 'EXPIRED', updatedAt: new Date() }
+    });
+    throw new Error('Prescription has expired. Please upload a new prescription.');
+  }
+
+  return true;
 }
 
 async function addMedications(prescriptionId, medications) {
@@ -78,9 +136,6 @@ async function verifyPrescription(prescriptionId, status) {
   if (!prescription) {
     throw new Error('Prescription not found');
   }
-  if (prescription.status !== 'PENDING') {
-    throw new Error('Prescription is already processed');
-  }
 
   const updatedPrescription = await prisma.$transaction(async (tx) => {
     const prescriptionUpdate = await tx.prescription.update({
@@ -112,6 +167,27 @@ async function verifyPrescription(prescriptionId, status) {
           });
         }
       }
+    }
+
+    // Audit log for prescription status change
+    const auditAction = upperStatus === 'VERIFIED' 
+      ? AUDIT_ACTIONS.PRESCRIPTION_VERIFIED 
+      : upperStatus === 'REJECTED'
+      ? AUDIT_ACTIONS.PRESCRIPTION_REJECTED
+      : null;
+    
+    if (auditAction) {
+      await createAuditLog({
+        action: auditAction,
+        entityType: ENTITY_TYPES.PRESCRIPTION,
+        entityId: prescriptionId,
+        details: {
+          previousStatus: prescription.status,
+          newStatus: upperStatus,
+          affectedOrders: prescription.Order?.map(o => o.id) || []
+        },
+        tx
+      });
     }
 
     return prescriptionUpdate;
@@ -656,4 +732,4 @@ async function getPrescriptionStatuses({ userIdentifier, medicationIds }) {
   }
 }
 
-module.exports = { uploadPrescription, addMedications, verifyPrescription, retrievePrescription, getPrescriptionOrder, getPrescriptionStatuses };
+module.exports = { uploadPrescription, addMedications, verifyPrescription, retrievePrescription, getPrescriptionOrder, getPrescriptionStatuses, validatePrescriptionExpiry, calculateExpiryDate, EXPIRY_PERIODS };

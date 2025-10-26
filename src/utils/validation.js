@@ -22,7 +22,12 @@ function isValidPhone(phone) {
 }
 
 function isValidOrderReference(reference) {
-  return typeof reference === 'string' && (reference.startsWith('order_') || reference.startsWith('session_')) && reference.length > 10;
+  return typeof reference === 'string' && 
+         (reference.startsWith('order_') || 
+          reference.startsWith('session_') || 
+          reference.startsWith('test_txn_') || 
+          reference.startsWith('test_ref_')) && 
+         reference.length > 10;
 }
 
 function isValidBookingReference(reference) {
@@ -189,19 +194,33 @@ function validateMedicationSuggestions(data) {
 
 function validateMedicationSearch(data) {
   const schema = Joi.object({
-    q: Joi.string().trim().max(100).optional(),
+    q: Joi.string().trim().max(100).optional().custom((value, helpers) => {
+      // Remove NULL bytes which cause PostgreSQL errors
+      if (value && value.includes('\0')) {
+        return value.replace(/\0/g, '');
+      }
+      return value;
+    }),
     medicationId: Joi.number().integer().optional(),
     page: Joi.number().integer().min(1).default(1),
-    limit: Joi.number().integer().min(1).default(10),
+    limit: Joi.number().integer().min(1).max(100).default(20),
     lat: Joi.number().min(-90).max(90).optional(),
     lng: Joi.number().min(-180).max(180).optional(),
-    radius: Joi.number().min(0).default(10),
-    state: Joi.string().optional(),
-    lga: Joi.string().optional(),
-    ward: Joi.string().optional(),
-    sortBy: Joi.string().valid('cheapest', 'nearest').default('cheapest'),
+    radius: Joi.number().min(1).max(500).default(50),
+    state: Joi.string().trim().max(50).optional().custom((value, helpers) => {
+      if (value && value.includes('\0')) return value.replace(/\0/g, '');
+      return value;
+    }),
+    lga: Joi.string().trim().max(50).optional().custom((value, helpers) => {
+      if (value && value.includes('\0')) return value.replace(/\0/g, '');
+      return value;
+    }),
+    ward: Joi.string().trim().max(50).optional().custom((value, helpers) => {
+      if (value && value.includes('\0')) return value.replace(/\0/g, '');
+      return value;
+    }),
+    sortBy: Joi.string().valid('cheapest', 'nearest').default('cheapest')
   }).or('q', 'medicationId');
-
   return schema.validate(data, { abortEarly: false });
 }
 
@@ -268,7 +287,7 @@ function validateFetchOrders(data) {
 function validateUpdateOrder(data) {
   const schema = Joi.object({
     orderId: Joi.string().pattern(/^[0-9]+$/).required(),
-    status: Joi.string().valid('PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP').required(),
+    status: Joi.string().valid('PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED').required(),
   });
   return schema.validate(data, { abortEarly: false });
 }

@@ -1,22 +1,32 @@
 const express = require('express');
 const supabase = require('../utils/supabaseClient')
-const upload = require('../utils/upload')
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+const { 
+  upload, 
+  validateUploadedFile, 
+  stripMetadataAndCompress, 
+  generateSecureFilename 
+} = require('../utils/secure-upload');
 const path = require('path');
 const fs = require('fs/promises'); // for cleanup after upload if needed
 const prescriptionService = require('../services/prescriptionService');
 const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validatePrescriptionRetrieve, validatePrescriptionOrder } = require('../utils/validation');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
+const { reportError, ErrorCategory } = require('../utils/error-reporter');
 const router = express.Router();
 
+console.log('Loaded prescription.js version: 2025-10-25-v3 (secure upload)');
 
-console.log('Loaded prescription.js version: 2025-06-19-v2');
-
-// POST /prescription/upload - Upload a prescription
+// POST /prescription/upload - Upload a prescription (SECURE)
 router.post('/upload', upload.single('prescriptionFile'), requireConsent, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
+      return res.status(400).json({ 
+        message: 'No file uploaded',
+        error: 'MISSING_FILE'
+      });
     }
 
     const userIdentifier = req.headers['x-guest-id'];
@@ -29,33 +39,83 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
       return res.status(400).json({ message: error.message });
     }
 
-    // Determine if contact is email or phone
-    const isEmail = isValidEmail(contact);
-    const email = isEmail ? contact : null;
-    const phone = !isEmail && contact ? contact : null;
+    const email = isValidEmail(contact) ? contact : null;
+    const phone = !email ? contact : null;
 
-    // Define file path in Supabase Storage
-    const fileName = `${Date.now()}-${req.file.originalname}`;
-    const filePath = `prescriptions/${fileName}`;
+    if (!email && !phone) {
+      return res.status(400).json({ message: 'Invalid contact format' });
+    }
 
-    // Upload to Supabase Storage
+    // Comprehensive file validation
+    console.log('Validating uploaded file...');
+    const validation = await validateUploadedFile(req.file);
+    
+    if (!validation.valid) {
+      console.warn('File validation failed:', validation.errors);
+      return res.status(400).json({ 
+        message: 'File validation failed',
+        errors: validation.errors,
+        error: 'INVALID_FILE'
+      });
+    }
+
+    console.log('File validation passed:', validation.metadata);
+
+    // Strip EXIF metadata and compress
+    console.log('Stripping metadata and compressing...');
+    const processed = await stripMetadataAndCompress(req.file.buffer);
+    
+    if (!processed.success) {
+      console.error('Failed to process image:', processed.error);
+      return res.status(400).json({ 
+        message: 'Failed to process image',
+        error: 'PROCESSING_FAILED'
+      });
+    }
+
+    console.log(`Image processed: ${processed.originalSize} → ${processed.processedSize} bytes (${processed.compressionRatio}% reduction)`);
+
+    // Generate secure random filename
+    const secureFileName = generateSecureFilename(req.file.originalname);
+    const filePath = `prescriptions/${secureFileName}`;
+
+    console.log(`Uploading to Supabase: ${filePath}`);
+
+    // Upload processed (secure) image to Supabase Storage
     const { error: uploadError } = await supabase.storage
-      .from('prescriptions') // 🔁 change to your actual bucket name
-      .upload(filePath, req.file.buffer, {
-        contentType: req.file.mimetype,
+      .from('prescriptions')
+      .upload(filePath, processed.buffer, {
+        contentType: 'image/jpeg', // Always JPEG after processing
+        cacheControl: '3600',
+        upsert: false
       });
 
     if (uploadError) {
       console.error('Supabase upload error:', uploadError.message);
-      return res.status(500).json({ message: 'File upload failed', error: uploadError.message });
+      
+      // Report to Sentry
+      reportError(new Error('Supabase upload failed'), {
+        category: ErrorCategory.EXTERNAL_API,
+        customContext: {
+          error: uploadError.message,
+          fileName: secureFileName
+        }
+      });
+      
+      return res.status(500).json({ 
+        message: 'File upload failed', 
+        error: 'UPLOAD_FAILED'
+      });
     }
 
-    // Get public URL (or you can use signed URLs for privacy)
+    // Get public URL
     const { data: publicUrlData } = supabase.storage
       .from('prescriptions')
       .getPublicUrl(filePath);
 
     const publicFileUrl = publicUrlData?.publicUrl || null;
+
+    console.log(`File uploaded successfully: ${publicFileUrl}`);
 
     // Save prescription record
     const prescription = await prescriptionService.uploadPrescription({
@@ -66,12 +126,72 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
     });
 
     res.status(201).json({
-      message: 'Prescription uploaded successfully. You will be notified when it’s ready.',
+      message: 'Prescription uploaded successfully. You will be notified when it\'s ready.',
       prescription,
+      fileInfo: {
+        originalSize: processed.originalSize,
+        processedSize: processed.processedSize,
+        compressionRatio: processed.compressionRatio + '%',
+        secureFilename: secureFileName
+      }
     });
   } catch (error) {
-    console.error('Upload error:', { message: error.message });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Upload error:', { message: error.message, stack: error.stack });
+    
+    // Report to Sentry
+    reportError(error, {
+      category: ErrorCategory.SYSTEM,
+      customContext: {
+        fileName: req.file?.originalname,
+        fileSize: req.file?.size
+      }
+    });
+    
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+
+router.get('/prescriptions/:id/validity', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const prescription = await prisma.prescription.findUnique({
+      where: { id: parseInt(id) },
+      select: {
+        id: true,
+        status: true,
+        expiryDate: true,
+        expiryDays: true,
+        createdAt: true
+      }
+    });
+
+    if (!prescription) {
+      return res.status(404).json({ error: 'Prescription not found' });
+    }
+
+    const now = new Date();
+    const isExpired = prescription.status === 'EXPIRED' || 
+                     (prescription.expiryDate && now > new Date(prescription.expiryDate));
+    
+    const daysUntilExpiry = prescription.expiryDate 
+      ? Math.ceil((new Date(prescription.expiryDate) - now) / (1000 * 60 * 60 * 24))
+      : null;
+
+    res.json({
+      prescriptionId: prescription.id,
+      status: prescription.status,
+      isExpired,
+      expiryDate: prescription.expiryDate,
+      daysUntilExpiry,
+      createdAt: prescription.createdAt
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -4,6 +4,9 @@ const cron = require('node-cron');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
+const { expirePrescriptions, sendExpiryWarnings } = require('./expire-prescriptions');
+const { reconcilePreviousDay } = require('../services/reconciliationService');
+
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -20,11 +23,15 @@ const logger = {
 const ORDER_TIMEOUTS = {
   PRESCRIPTION: 48, // hours
   PAYMENT: 24,      // hours
+  STOCK_RESERVATION: 0.5, // 30 minutes for abandoned checkouts
 };
 
 // Retry configuration
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5000; // 5 seconds
+
+// ⚠️ MOVE THIS HERE - BEFORE IT'S USED
+const TIMEZONE = 'Africa/Lagos';
 
 // Placeholder alert function (replace with email/Slack integration)
 async function alertAdmin(message, error) {
@@ -103,6 +110,19 @@ async function cleanupPendingPaymentOrders() {
 }
 
 /**
+ * ✅ CRITICAL: Cleanup abandoned checkout sessions (stock reservation timeout)
+ * Restores stock for orders that were created during checkout but payment was never initiated
+ * Runs every 15 minutes to aggressively reclaim reserved stock
+ */
+async function cleanupAbandonedCheckouts() {
+  return cleanupOrders({
+    status: 'PENDING',
+    timeoutHours: ORDER_TIMEOUTS.STOCK_RESERVATION,
+    cancelReason: 'Checkout session abandoned - stock reservation expired',
+  });
+}
+
+/**
  * Cleanup old processed webhooks (keep last 30 days)
  */
 async function cleanupOldWebhooks() {
@@ -122,11 +142,41 @@ async function cleanupOldWebhooks() {
   }
 }
 
+// NOW TIMEZONE IS DEFINED, SO THESE WILL WORK:
+
+// Expire prescriptions daily at 1 AM
+cron.schedule('0 1 * * *', expirePrescriptions, { timezone: TIMEZONE });
+
+// Send expiry warnings daily at 9 AM
+cron.schedule('0 9 * * *', sendExpiryWarnings, { timezone: TIMEZONE });
+
 // Timezone-aware cron: runs daily at midnight Lagos time
-const TIMEZONE = 'Africa/Lagos';
 cron.schedule('0 0 * * *', cleanupPendingPrescriptionOrders, { timezone: TIMEZONE });
 cron.schedule('0 0 * * *', cleanupPendingPaymentOrders, { timezone: TIMEZONE });
 cron.schedule('0 2 * * *', cleanupOldWebhooks, { timezone: TIMEZONE }); // Run at 2 AM daily
+
+// ✅ CRITICAL: Run every 15 minutes to restore stock from abandoned checkouts
+cron.schedule('*/15 * * * *', cleanupAbandonedCheckouts, { timezone: TIMEZONE });
+
+// Run daily at 3 AM
+cron.schedule('0 3 * * *', async () => {
+  try {
+    console.log('\n🔄 Starting daily payment reconciliation...');
+    await reconcilePreviousDay();
+  } catch (error) {
+    console.error('❌ Daily reconciliation failed:', error.message);
+  }
+}, { timezone: TIMEZONE });
+
+console.log('✅ Payment reconciliation job initialized (Daily 3:00 AM)');
+
+// Initialize refund processing jobs
+const { initializeRefundJobs } = require('./process-refunds');
+initializeRefundJobs();
+
+// Initialize database backup jobs
+const { initializeBackupJobs } = require('./backup-database');
+initializeBackupJobs();
 
 // Optional immediate run on startup (controlled by env variable)
 if (process.env.RUN_CLEANUP_ON_STARTUP === 'true') {
@@ -137,5 +187,8 @@ if (process.env.RUN_CLEANUP_ON_STARTUP === 'true') {
 module.exports = {
   cleanupPendingPrescriptionOrders,
   cleanupPendingPaymentOrders,
+  cleanupAbandonedCheckouts,
   cleanupOldWebhooks,
+  expirePrescriptions,   
+  sendExpiryWarnings,
 };

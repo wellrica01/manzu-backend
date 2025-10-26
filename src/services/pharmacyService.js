@@ -46,7 +46,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20, search = '', stat
   const allPharmacyOrderIds = await prisma.order.findMany({
     where: {
       OrderItem: { some: { pharmacyId } },
-      status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED'] },
+      status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
     },
     orderBy: { createdAt: 'asc' },
     select: { id: true },
@@ -272,7 +272,7 @@ async function fetchOrderById(pharmacyId, orderId) {
   const allPharmacyOrderIds = await prisma.order.findMany({
     where: {
       OrderItem: { some: { pharmacyId } },
-      status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED'] },
+      status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
     },
     orderBy: { createdAt: 'asc' },
     select: { id: true },
@@ -355,6 +355,11 @@ async function fetchOrderById(pharmacyId, orderId) {
 
 
 async function updateOrderStatus(orderId, status, pharmacyId) {
+  // Import required services
+  const refundService = require('./refundService');
+  const { sendOrderRejectionNotification } = require('../utils/notifications');
+  const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
+  
   // Find the order that belongs to the given pharmacy
   const order = await prisma.order.findFirst({
     where: {
@@ -365,13 +370,142 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
         },
       },
     },
+    include: {
+      OrderItem: {
+        include: {
+          MedicationAvailability: {
+            include: {
+              Medication: {
+                select: { brandName: true },
+              },
+            },
+          },
+        },
+      },
+      Pharmacy: {
+        select: { name: true }
+      }
+    }
   });
 
   if (!order) {
     throw new Error('Order not found for pharmacy');
   }
 
-  // Prepare update payload
+  // Check if this is a rejection of a paid order
+  const isRejection = status === 'CANCELLED';
+  const isPaidOrder = order.paymentStatus === 'PAID';
+  const needsAutoRefund = isRejection && isPaidOrder;
+
+  if (needsAutoRefund) {
+    console.log(`⚠️  Pharmacy ${pharmacyId} rejecting PAID order ${orderId} - initiating auto-refund...`);
+    
+    // Use transaction to ensure atomicity
+    return await prisma.$transaction(async (tx) => {
+      // 1. Update order status
+      const updateData = { 
+        status,
+        cancelledAt: new Date(),
+        cancelReason: `Pharmacy rejected order`
+      };
+
+      const updatedOrder = await tx.order.update({
+        where: { id: orderId },
+        data: updateData,
+        include: {
+          OrderItem: {
+            where: { pharmacyId },
+            include: {
+              MedicationAvailability: {
+                include: {
+                  Medication: {
+                    select: { brandName: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // 2. Restore stock for all order items
+      console.log(`📦 Restoring stock for ${order.OrderItem.length} items...`);
+      
+      for (const item of order.OrderItem) {
+        await tx.medicationAvailability.update({
+          where: {
+            medicationId_pharmacyId: {
+              medicationId: item.medicationId,
+              pharmacyId: item.pharmacyId
+            }
+          },
+          data: {
+            stock: { increment: item.quantity }
+          }
+        });
+        
+        console.log(`  ✅ Restored ${item.quantity}x ${item.MedicationAvailability.Medication.brandName}`);
+      }
+
+      // 3. Create automatic refund
+      console.log('💰 Creating automatic refund...');
+      
+      const refund = await tx.refund.create({
+        data: {
+          amount: order.totalPrice,
+          reason: `Pharmacy rejected order`,
+          refundType: 'AUTOMATIC',
+          status: 'PENDING',
+          initiatedBy: pharmacyId,
+          orderId: orderId
+        }
+      });
+
+      console.log(`✅ Refund created: ID ${refund.id}, Amount: ${order.totalPrice}`);
+
+      // 4. Create audit log
+      await createAuditLog({
+        action: 'PHARMACY_ORDER_REJECTED',
+        entityType: ENTITY_TYPES.ORDER,
+        entityId: orderId,
+        userId: null,
+        details: {
+          pharmacyId,
+          pharmacyName: order.Pharmacy?.name,
+          refundId: refund.id,
+          refundAmount: order.totalPrice.toString(),
+          itemsCount: order.OrderItem.length,
+          stockRestored: true
+        },
+        tx
+      }).catch(err => console.warn('Failed to create audit log:', err));
+
+      // 5. Send notifications (async, don't block transaction)
+      setImmediate(async () => {
+        try {
+          await sendOrderRejectionNotification(order, refund);
+        } catch (error) {
+          console.error('Failed to send rejection notification:', error);
+        }
+      });
+
+      // 6. Auto-process refund (async, don't block transaction)
+      setImmediate(async () => {
+        try {
+          console.log('🤖 Auto-processing refund...');
+          await refundService.processRefund(refund.id);
+        } catch (error) {
+          console.error('Failed to auto-process refund:', error);
+        }
+      });
+
+      console.log(`✅ Order ${orderId} rejected with auto-refund and stock restoration`);
+      
+      return updatedOrder;
+    });
+  }
+
+  // Normal status update (no refund needed)
   const updateData = { status };
 
   // Set filledAt timestamp for completed statuses
@@ -405,11 +539,6 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
     filledAt: updatedOrder.filledAt,
     pharmacyId 
   });
-
-  // Example: send notification to customer's email directly from order.email
-  // if (order.email) {
-  //   await notificationService.sendOrderStatusUpdate(order.email, updatedOrder);
-  // }
 
   return updatedOrder;
 }
@@ -1256,6 +1385,78 @@ async function fetchSales(pharmacyId, filters) {
   return sales;
 }
 
+/**
+ * Reject order and trigger automatic refund
+ */
+async function rejectOrder(orderId, pharmacyId, reason) {
+  try {
+    console.log(`🚫 Pharmacy ${pharmacyId} rejecting order ${orderId}...`);
+
+    // Verify order belongs to pharmacy
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        OrderItem: {
+          where: { pharmacyId: pharmacyId }
+        }
+      }
+    });
+
+    if (!order) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+
+    if (order.OrderItem.length === 0) {
+      throw new Error(`Order ${orderId} does not belong to pharmacy ${pharmacyId}`);
+    }
+
+    if (order.status === 'CANCELLED') {
+      throw new Error(`Order ${orderId} is already cancelled`);
+    }
+
+    if (order.status === 'DELIVERED') {
+      throw new Error(`Cannot reject delivered order ${orderId}`);
+    }
+
+    // Update order status
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelReason: `Rejected by pharmacy: ${reason}`
+      }
+    });
+
+    console.log(`✅ Order ${orderId} cancelled`);
+
+    // Trigger automatic refund if order was paid
+    if (order.paymentStatus === 'PAID') {
+      console.log(`💰 Triggering automatic refund for order ${orderId}...`);
+      
+      const refundService = require('./refundService');
+      
+      await refundService.createRefund({
+        orderId: orderId,
+        amount: order.totalPrice,
+        reason: `Order rejected by pharmacy: ${reason}`,
+        refundType: 'AUTOMATIC',
+        initiatedBy: pharmacyId
+      });
+
+      console.log(`✅ Automatic refund triggered for order ${orderId}`);
+    } else {
+      console.log(`⚠️  Order ${orderId} was not paid, no refund needed`);
+    }
+
+    return order;
+
+  } catch (error) {
+    console.error('❌ Error rejecting order:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   fetchOrders,
   fetchOrderById,
@@ -1272,4 +1473,5 @@ module.exports = {
   getWeeklyAnalytics,
   recordSale,
   fetchSales,
+  rejectOrder,
 };
