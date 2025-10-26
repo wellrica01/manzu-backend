@@ -3,7 +3,6 @@ const supabase = require('../utils/supabaseClient')
 const upload = require('../utils/upload')
 const { normalizeMedicationFields, handleImageUpload } = require('../utils/medicationUtils')
 const z = require('zod');
-const adminService = require('../services/adminService');
 const reconciliationService = require('../services/reconciliationService');
 const adminPrescriptionsService = require('../domains/admin/prescriptions/admin-prescriptions.service');
 const adminOrdersService = require('../domains/admin/orders/admin-orders.service');
@@ -12,6 +11,12 @@ const adminMedicationsService = require('../domains/admin/medications/admin-medi
 const adminPharmaciesService = require('../domains/admin/pharmacies/admin-pharmacies.service');
 const adminDashboardService = require('../domains/admin/dashboard/admin-dashboard.service');
 const atcClassificationsService = require('../domains/admin/atc-classifications/atc-classifications.service');
+const genericNamesService = require('../domains/admin/generic-names/generic-names.service');
+const activeSubstancesService = require('../domains/admin/active-substances/active-substances.service');
+const medicationIngredientsService = require('../domains/admin/medication-ingredients/medication-ingredients.service');
+const manufacturersService = require('../domains/admin/manufacturers/manufacturers.service');
+const indicationsService = require('../domains/admin/indications/indications.service');
+
 
 const { queryAuditLogs, getAuditTrail } = require('../utils/audit-logger');
 const {
@@ -687,7 +692,7 @@ router.delete('/chemical-substances/:id', authenticate, authorizeRoles('ADMIN', 
 // ==================== GENERIC NAMES ====================
 router.get('/generic-names', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { genericNames, pagination } = await adminService.getGenericNames(req.query);
+    const { genericNames, pagination } = await genericNamesService.getGenericNames(req.query);
     standardResponse(res, 200, 'Generic names fetched successfully', { genericNames }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -699,7 +704,7 @@ router.get('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
   if (!id) return;
 
   try {
-    const genericName = await adminService.getGenericName(id);
+    const genericName = await genericNamesService.getGenericName(id);
     standardResponse(res, 200, 'Generic name fetched successfully', { genericName });
   } catch (error) {
     handleError(res, error);
@@ -709,7 +714,7 @@ router.get('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
 router.post('/generic-names', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = GenericNameSchema.parse(req.body);
-    const genericName = await adminService.createGenericName(data);
+    const genericName = await genericNamesService.createGenericName(data);
     standardResponse(res, 201, 'Generic name created successfully', { genericName });
   } catch (error) {
     handleError(res, error);
@@ -722,7 +727,7 @@ router.patch('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_
 
   try {
     const data = GenericNameUpdateSchema.parse(req.body);
-    const genericName = await adminService.updateGenericName(id, data);
+    const genericName = await genericNamesService.updateGenericName(id, data);
     standardResponse(res, 200, 'Generic name updated successfully', { genericName });
   } catch (error) {
     handleError(res, error);
@@ -734,7 +739,7 @@ router.delete('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER
   if (!id) return;
 
   try {
-    await adminService.deleteGenericName(id);
+    await genericNamesService.deleteGenericName(id);
     standardResponse(res, 200, 'Generic name deleted successfully');
   } catch (error) {
     handleError(res, error);
@@ -744,7 +749,7 @@ router.delete('/generic-names/:id', authenticate, authorizeRoles('ADMIN', 'SUPER
 // ==================== ACTIVE SUBSTANCES ====================
 router.get('/active-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { activeSubstances, pagination } = await adminService.getActiveSubstances(req.query);
+    const { activeSubstances, pagination } = await activeSubstancesService.getActiveSubstances(req.query);
     standardResponse(res, 200, 'Active substances fetched successfully', { activeSubstances }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -756,7 +761,7 @@ router.get('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPE
   if (!id) return;
 
   try {
-    const activeSubstance = await adminService.getActiveSubstance(id);
+    const activeSubstance = await activeSubstancesService.getActiveSubstance(id);
     standardResponse(res, 200, 'Active substance fetched successfully', { activeSubstance });
   } catch (error) {
     handleError(res, error);
@@ -766,7 +771,7 @@ router.get('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'SUPE
 router.post('/active-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = ActiveSubstanceSchema.parse(req.body);
-    const activeSubstance = await adminService.createActiveSubstance(data);
+    const activeSubstance = await activeSubstancesService.createActiveSubstance(data);
     standardResponse(res, 201, 'Active substance created successfully', { activeSubstance });
   } catch (error) {
     handleError(res, error);
@@ -779,7 +784,7 @@ router.patch('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'SU
 
   try {
     const data = ActiveSubstanceUpdateSchema.parse(req.body);
-    const activeSubstance = await adminService.updateActiveSubstance(id, data);
+    const activeSubstance = await activeSubstancesService.updateActiveSubstance(id, data);
     standardResponse(res, 200, 'Active substance updated successfully', { activeSubstance });
   } catch (error) {
     handleError(res, error);
@@ -791,7 +796,7 @@ router.delete('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'S
   if (!id) return;
 
   try {
-    await adminService.deleteActiveSubstance(id);
+    await activeSubstancesService.deleteActiveSubstance(id);
     standardResponse(res, 200, 'Active substance deleted successfully');
   } catch (error) {
     handleError(res, error);
@@ -801,7 +806,7 @@ router.delete('/active-substances/:id', authenticate, authorizeRoles('ADMIN', 'S
 // ==================== MEDICATION INGREDIENTS ====================
 router.get('/medication-ingredients', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { medicationIngredients, pagination } = await adminService.getMedicationIngredients(req.query);
+    const { medicationIngredients, pagination } = await medicationIngredientsService.getMedicationIngredients(req.query);
     standardResponse(res, 200, 'Medication ingredients fetched successfully', { medicationIngredients }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -813,7 +818,7 @@ router.get('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN', 
   if (!id) return;
 
   try {
-    const medicationIngredient = await adminService.getMedicationIngredient(id);
+    const medicationIngredient = await medicationIngredientsService.getMedicationIngredient(id);
     standardResponse(res, 200, 'Medication ingredient fetched successfully', { medicationIngredient });
   } catch (error) {
     handleError(res, error);
@@ -823,7 +828,7 @@ router.get('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN', 
 router.post('/medication-ingredients', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = MedicationIngredientSchema.parse(req.body);
-    const medicationIngredient = await adminService.createMedicationIngredient(data);
+    const medicationIngredient = await medicationIngredientsService.createMedicationIngredient(data);
     standardResponse(res, 201, 'Medication ingredient created successfully', { medicationIngredient });
   } catch (error) {
     handleError(res, error);
@@ -836,7 +841,7 @@ router.patch('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN'
 
   try {
     const data = MedicationIngredientUpdateSchema.parse(req.body);
-    const medicationIngredient = await adminService.updateMedicationIngredient(id, data);
+    const medicationIngredient = await medicationIngredientsService.updateMedicationIngredient(id, data);
     standardResponse(res, 200, 'Medication ingredient updated successfully', { medicationIngredient });
   } catch (error) {
     handleError(res, error);
@@ -848,7 +853,7 @@ router.delete('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN
   if (!id) return;
 
   try {
-    await adminService.deleteMedicationIngredient(id);
+    await medicationIngredientsService.deleteMedicationIngredient(id);
     standardResponse(res, 200, 'Medication ingredient deleted successfully');
   } catch (error) {
     handleError(res, error);
@@ -858,7 +863,7 @@ router.delete('/medication-ingredients/:id', authenticate, authorizeRoles('ADMIN
 // ==================== MANUFACTURERS ====================
 router.get('/manufacturers', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { manufacturers, pagination } = await adminService.getManufacturers(req.query);
+    const { manufacturers, pagination } = await manufacturersService.getManufacturers(req.query);
     standardResponse(res, 200, 'Manufacturers fetched successfully', { manufacturers }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -870,7 +875,7 @@ router.get('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
   if (!id) return;
 
   try {
-    const manufacturer = await adminService.getManufacturer(id);
+    const manufacturer = await manufacturersService.getManufacturer(id);
     standardResponse(res, 200, 'Manufacturer fetched successfully', { manufacturer });
   } catch (error) {
     handleError(res, error);
@@ -880,7 +885,7 @@ router.get('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
 router.post('/manufacturers', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = manufacturerSchema.parse(req.body);
-    const manufacturer = await adminService.createManufacturer(data);
+    const manufacturer = await manufacturersService.createManufacturer(data);
     standardResponse(res, 201, 'Manufacturer created successfully', { manufacturer });
   } catch (error) {
     handleError(res, error);
@@ -893,7 +898,7 @@ router.patch('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_
 
   try {
     const data = manufacturerSchema.parse(req.body);
-    const manufacturer = await adminService.updateManufacturer(id, data);
+    const manufacturer = await manufacturersService.updateManufacturer(id, data);
     standardResponse(res, 200, 'Manufacturer updated successfully', { manufacturer });
   } catch (error) {
     handleError(res, error);
@@ -905,7 +910,7 @@ router.delete('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER
   if (!id) return;
 
   try {
-    await adminService.deleteManufacturer(id);
+    await manufacturersService.deleteManufacturer(id);
     standardResponse(res, 200, 'Manufacturer deleted successfully');
   } catch (error) {
     handleError(res, error);
@@ -915,7 +920,7 @@ router.delete('/manufacturers/:id', authenticate, authorizeRoles('ADMIN', 'SUPER
 // ==================== INDICATIONS ====================
 router.get('/indications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
-    const { indications, pagination } = await adminService.getIndications(req.query);
+    const { indications, pagination } = await indicationsService.getIndications(req.query);
     standardResponse(res, 200, 'Indications fetched successfully', { indications }, pagination);
   } catch (error) {
     handleError(res, error);
@@ -927,7 +932,7 @@ router.get('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMI
   if (!id) return;
 
   try {
-    const indication = await adminService.getIndication(id);
+    const indication = await indicationsService.getIndication(id);
     standardResponse(res, 200, 'Indication fetched successfully', { indication });
   } catch (error) {
     handleError(res, error);
@@ -937,7 +942,7 @@ router.get('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMI
 router.post('/indications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const data = indicationSchema.parse(req.body);
-    const indication = await adminService.createIndication(data);
+    const indication = await indicationsService.createIndication(data);
     standardResponse(res, 201, 'Indication created successfully', { indication });
   } catch (error) {
     handleError(res, error);
@@ -950,7 +955,7 @@ router.patch('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
 
   try {
     const data = indicationSchema.parse(req.body);
-    const indication = await adminService.updateIndication(id, data);
+    const indication = await indicationsService.updateIndication(id, data);
     standardResponse(res, 200, 'Indication updated successfully', { indication });
   } catch (error) {
     handleError(res, error);
@@ -962,7 +967,7 @@ router.delete('/indications/:id', authenticate, authorizeRoles('ADMIN', 'SUPER_A
   if (!id) return;
 
   try {
-    await adminService.deleteIndication(id);
+    await indicationsService.deleteIndication(id);
     standardResponse(res, 200, 'Indication deleted successfully');
   } catch (error) {
     handleError(res, error);
@@ -1016,7 +1021,7 @@ router.get('/audit-logs/:entityType/:entityId', authenticate, authorizeRoles('AD
 router.get('/search/active-substances', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { search, limit = 20 } = req.query;
-    const result = await adminService.searchActiveSubstances({ search, limit: parseInt(limit) });
+    const result = await activeSubstancesService.searchActiveSubstances({ search, limit: parseInt(limit) });
     standardResponse(res, 200, 'Active substances fetched successfully', { result });
   } catch (error) {
     handleError(res, error);
@@ -1026,7 +1031,7 @@ router.get('/search/active-substances', authenticate, authorizeRoles('ADMIN', 'S
 router.get('/search/medication-ingredients', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { search, limit = 20 } = req.query;
-    const result = await adminService.searchMedicationIngredients({ search, limit: parseInt(limit) });
+    const result = await medicationIngredientsService.searchMedicationIngredients({ search, limit: parseInt(limit) });
     standardResponse(res, 200, 'Medication ingredients fetched successfully', { result });
   } catch (error) {
     handleError(res, error);
@@ -1036,7 +1041,7 @@ router.get('/search/medication-ingredients', authenticate, authorizeRoles('ADMIN
 router.get('/search/manufacturers', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { search, limit = 20 } = req.query;
-    const result = await adminService.searchManufacturers({ search, limit: parseInt(limit) });
+    const result = await manufacturersService.searchManufacturers({ search, limit: parseInt(limit) });
     standardResponse(res, 200, 'Manufacturers fetched successfully', { result });
   } catch (error) {
     handleError(res, error);

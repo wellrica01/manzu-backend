@@ -2,7 +2,12 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt'); // ADD THIS
 const prisma = new PrismaClient();
-const pharmacyService = require('../services/pharmacyService');   
+const pharmacyOrdersService = require('../domains/pharmacy/orders/pharmacy-orders.service');
+const pharmacyMedicationsService = require('../domains/pharmacy/medications/pharmacy-medications.service');
+const pharmacyUsersService = require('../domains/pharmacy/users/pharmacy-users.service');
+const pharmacyProfileService = require('../domains/pharmacy/profile/pharmacy-profile.service');
+const pharmacyDashboardService = require('../domains/pharmacy/dashboard/pharmacy-dashboard.service');
+const pharmacySalesService = require('../domains/pharmacy/sales/pharmacy-sales.service');
 const { validateFetchOrders, validateUpdateOrder, 
   validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
@@ -113,7 +118,7 @@ router.get('/orders', authenticate, async (req, res) => {
       });
     }
 
-    const result = await pharmacyService.fetchOrders(req.user.pharmacyId, {
+    const result = await pharmacyOrdersService.fetchOrders(req.user.pharmacyId, {
       page: value.page,
       limit: value.limit,
       search: value.search,
@@ -146,7 +151,7 @@ router.patch('/orders/bulk', authenticate, async (req, res) => {
       });
     }
 
-    const results = await pharmacyService.bulkUpdateOrderStatus(
+    const results = await pharmacyOrdersService.bulkUpdateOrderStatus(
       orderIds, 
       status, 
       req.user.pharmacyId,
@@ -180,7 +185,7 @@ router.get('/orders/:orderId', authenticate, async (req, res) => {
     }
     
     // Fetch order using service
-    const order = await pharmacyService.fetchOrderById(
+    const order = await pharmacyOrdersService.fetchOrderById(
       req.user.pharmacyId, 
       Number(orderId)
     );
@@ -218,7 +223,7 @@ router.patch('/orders/:orderId', authenticate, async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    const updatedOrder = await pharmacyService.updateOrderStatus(Number(orderId), status, req.user.pharmacyId);
+    const updatedOrder = await pharmacyOrdersService.updateOrderStatus(Number(orderId), status, req.user.pharmacyId);
     res.status(200).json({ message: 'Order status updated', order: updatedOrder });
   } catch (error) {
     console.error('Order update error:', { message: error.message, stack: error.stack });
@@ -238,7 +243,7 @@ router.get('/medications', authenticate, async (req, res) => {
     }
 
     // Pass validated query params and pharmacyId to fetchMedications
-    const result = await pharmacyService.fetchMedications(req.user.pharmacyId, {
+    const result = await pharmacyMedicationsService.fetchMedications(req.user.pharmacyId, {
       page: value.page,
       limit: value.limit,
       search: value.search,
@@ -268,7 +273,7 @@ router.post('/medications', authenticate, async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    const medication = await pharmacyService.addMedication({
+    const medication = await pharmacyMedicationsService.addMedication({
       pharmacyId: req.user.pharmacyId,
       medicationId: Number(medicationId),
       stock: Number(stock),
@@ -295,7 +300,7 @@ router.patch('/medications', authenticate, async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    const updatedMedication = await pharmacyService.updateMedication({
+    const updatedMedication = await pharmacyMedicationsService.updateMedication({
       pharmacyId: req.user.pharmacyId,
       medicationId: Number(medicationId),
       stock: Number(stock),
@@ -323,7 +328,7 @@ router.delete('/medications', authenticate, async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    await pharmacyService.deleteMedication(req.user.pharmacyId, Number(medicationId));
+    await pharmacyMedicationsService.deleteMedication(req.user.pharmacyId, Number(medicationId));
     res.status(200).json({ message: 'Medication deleted' });
   } catch (error) {
     console.error('Delete medication error:', { message: error.message, stack: error.stack });
@@ -341,7 +346,7 @@ router.get('/users', authenticate, authorizeRoles('MANAGER'), async (req, res) =
       return res.status(400).json({ message: error.message });
     }
 
-    const users = await pharmacyService.fetchUsers(req.user.pharmacyId);
+    const users = await pharmacyUsersService.fetchUsers(req.user.pharmacyId);
     res.status(200).json({ message: 'Users fetched', users });
   } catch (error) {
     console.error('Fetch users error:', { message: error.message, stack: error.stack });
@@ -361,7 +366,7 @@ router.post('/notifications/register', authenticate, async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    await pharmacyService.registerDevice(req.user.pharmacyId, deviceToken);
+    await pharmacyProfileService.registerDevice(req.user.pharmacyId, deviceToken);
     res.status(200).json({ message: 'Device registered for notifications' });
   } catch (error) {
     console.error('Device registration error:', { message: error.message, stack: error.stack });
@@ -373,7 +378,7 @@ router.post('/notifications/register', authenticate, async (req, res) => {
 router.get('/profile', authenticate, async (req, res) => {
   try {
     const { userId, pharmacyId } = req.user;
-    const { user, pharmacy } = await pharmacyService.getProfile(userId, pharmacyId);
+    const { user, pharmacy } = await pharmacyProfileService.getProfile(userId, pharmacyId);
     res.status(200).json({
       message: 'Profile fetched successfully',
       user,
@@ -390,7 +395,7 @@ router.patch('/profile', authenticate, authorizeRoles('MANAGER'), async (req, re
   try {
     const { user, pharmacy } = require('../utils/adminValidation').editProfileSchema.parse(req.body);
     const { userId, pharmacyId } = req.user;
-    const { updatedUser, updatedPharmacy } = await pharmacyService.editProfile({ user, pharmacy }, userId, pharmacyId);
+    const { updatedUser, updatedPharmacy } = await pharmacyProfileService.editProfile({ user, pharmacy }, userId, pharmacyId);
     res.status(200).json({
       message: 'Profile updated successfully',
       user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role },
@@ -492,7 +497,7 @@ router.post('/operating-hours', authenticate, authorizeRoles('MANAGER'), async (
 // GET /pharmacy/dashboard - Dashboard summary for pharmacy 
 router.get('/dashboard', authenticate, async (req, res) => {
   try {
-    const data = await pharmacyService.getDashboardData(req.user.pharmacyId);
+    const data = await pharmacyDashboardService.getDashboardData(req.user.pharmacyId);
     res.status(200).json({ message: 'Dashboard data fetched', ...data });
   } catch (error) {
     console.error('Dashboard error:', { message: error.message, stack: error.stack });
@@ -503,7 +508,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
 // GET /pharmacy/analytics/weekly - Weekly analytics
 router.get('/analytics/weekly', authenticate, async (req, res) => {
   try {
-    const data = await pharmacyService.getWeeklyAnalytics(req.user.pharmacyId);
+    const data = await pharmacyDashboardService.getWeeklyAnalytics(req.user.pharmacyId);
     res.status(200).json({ message: 'Weekly analytics fetched', ...data });
   } catch (error) {
     console.error('Analytics error:', error.message);
@@ -518,7 +523,7 @@ router.post('/sales', authenticate, async (req, res) => {
     if (!items || !Array.isArray(items) || !total || !paymentMethod) {
       return res.status(400).json({ message: 'Invalid sale data' });
     }
-    const sale = await pharmacyService.recordSale({
+    const sale = await pharmacySalesService.recordSale({
       pharmacyId: req.user.pharmacyId,
       items,
       total,
