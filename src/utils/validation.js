@@ -277,7 +277,7 @@ function validateFetchOrders(data) {
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(20),
     search: Joi.string().trim().allow('').optional(),
-    status: Joi.string().valid('PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED').optional(),
+    status: Joi.string().valid('PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED', 'COMPLETED').optional(),
     date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(), // YYYY-MM-DD
     deliveryMethod: Joi.string().valid('PICKUP', 'COURIER').optional(),
   });
@@ -287,11 +287,30 @@ function validateFetchOrders(data) {
 function validateUpdateOrder(data) {
   const schema = Joi.object({
     orderId: Joi.string().pattern(/^[0-9]+$/).required(),
-    status: Joi.string().valid('PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED').required(),
+    status: Joi.string().valid('PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED', 'COMPLETED').required(),
   });
   return schema.validate(data, { abortEarly: false });
 }
 
+function validateBulkUpdateOrders(data) {
+  const schema = Joi.object({
+    orderIds: Joi.array()
+      .items(Joi.number().integer().positive())
+      .min(1)
+      .max(50) // Limit to 50 orders at once
+      .required(),
+    status: Joi.string()
+      .valid('PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED', 'COMPLETED')
+      .required(),
+    cancelReason: Joi.string()
+      .when('status', {
+        is: 'CANCELLED',
+        then: Joi.string().required(),
+        otherwise: Joi.string().optional().allow(null, '')
+      })
+  });
+  return schema.validate(data, { abortEarly: false });
+}
 
 function validateOrderId(data) {
   const schema = Joi.object({
@@ -393,6 +412,7 @@ module.exports = {
   validatePrescriptionOrder,
   validateFetchOrders,
   validateUpdateOrder,
+  validateBulkUpdateOrders,
   validateOrderId,
   validateFetchMedications,
   validateAddMedication,

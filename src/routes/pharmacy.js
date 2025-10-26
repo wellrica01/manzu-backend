@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt'); // ADD THIS
 const prisma = new PrismaClient();
 const pharmacyService = require('../services/pharmacyService');   
 const { validateFetchOrders, validateUpdateOrder, 
-  validateFetchMedications, validateAddMedication, validateUpdateMedication, 
+  validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
@@ -130,6 +130,41 @@ router.get('/orders', authenticate, async (req, res) => {
 });
 
 
+
+// PATCH /pharmacy/orders/bulk - Bulk update order statuses
+router.patch('/orders/bulk', authenticate, async (req, res) => {
+  try {
+    const { orderIds, status, cancelReason } = req.body;
+
+    // Validate input
+    const { error } = validateBulkUpdateOrders({ orderIds, status, cancelReason });
+    if (error) {
+      console.error('Validation error:', error.details.map(d => d.message).join(', '));
+      return res.status(400).json({ 
+        message: 'Invalid bulk update data',
+        errors: error.details.map(d => d.message)
+      });
+    }
+
+    const results = await pharmacyService.bulkUpdateOrderStatus(
+      orderIds, 
+      status, 
+      req.user.pharmacyId,
+      cancelReason
+    );
+
+    res.status(200).json({
+      message: `Bulk update completed: ${results.successful.length} updated, ${results.failed.length} failed`,
+      results
+    });
+  } catch (error) {
+    console.error('Bulk order update error:', { message: error.message, stack: error.stack });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+
+
 router.get('/orders/:orderId', authenticate, async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -190,6 +225,7 @@ router.patch('/orders/:orderId', authenticate, async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
 
 // GET /pharmacy/medications - Fetch pharmacy medications (new schema)
 router.get('/medications', authenticate, async (req, res) => {

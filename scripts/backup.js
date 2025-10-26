@@ -31,13 +31,29 @@ async function main() {
         break;
         
       case 'list':
-        const backups = await listBackups();
-        console.log('\n📋 Available Backups:');
-        console.table(backups.map(b => ({
-          name: b.name,
-          size: `${(b.metadata?.size / (1024 * 1024)).toFixed(2)} MB`,
-          created: new Date(b.created_at).toLocaleString()
-        })));
+        // List backups from all types
+        const types = ['daily', 'weekly', 'monthly'];
+        const allBackups = [];
+        
+        for (const type of types) {
+          const typeBackups = await listBackups(type);
+          allBackups.push(...typeBackups.map(b => ({
+            type,
+            name: b.name,
+            size: `${(b.metadata?.size / (1024 * 1024)).toFixed(2)} MB`,
+            created: new Date(b.created_at).toLocaleString(),
+            path: `${type}/${b.name}`
+          })));
+        }
+        
+        if (allBackups.length === 0) {
+          console.log('\n📋 No backups found');
+        } else {
+          console.log('\n📋 Available Backups:');
+          console.table(allBackups);
+          console.log('\n💡 To download: node scripts/restore.js download <path>');
+          console.log('   Example: node scripts/restore.js download daily/backup-daily-2025-10-26T11-30-38-309Z.sql.gz');
+        }
         break;
         
       case 'stats':

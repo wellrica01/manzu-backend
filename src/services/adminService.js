@@ -1,12 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
-const NodeGeocoder = require('node-geocoder');
 const prisma = new PrismaClient();
 const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, resolveManufacturer, computePackSizeQuantity, linkIngredients } = require('../utils/medicationUtils')
 
-const geocoder = NodeGeocoder({
-  provider: 'opencage',
-  apiKey: process.env.OPENCAGE_API_KEY,
-});
 
 
 async function getDashboardOverview() {

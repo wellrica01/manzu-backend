@@ -544,6 +544,279 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
 }
 
 
+async function bulkUpdateOrderStatus(orderIds, status, pharmacyId, cancelReason) {
+  // Import required services
+  const refundService = require('./refundService');
+  const { sendOrderRejectionNotification } = require('../utils/notifications');
+  const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
+  
+  const results = {
+    successful: [],
+    failed: []
+  };
+
+  // Process each order
+  for (const orderId of orderIds) {
+    try {
+      // Find the order that belongs to the given pharmacy
+      const order = await prisma.order.findFirst({
+        where: {
+          id: orderId,
+          OrderItem: {
+            some: { pharmacyId },
+          },
+        },
+        include: {
+          OrderItem: {
+            include: {
+              MedicationAvailability: {
+                include: {
+                  Medication: {
+                    select: { brandName: true },
+                  },
+                },
+              },
+            },
+          },
+          Pharmacy: {
+            select: { name: true }
+          }
+        }
+      });
+
+      if (!order) {
+        results.failed.push({
+          orderId,
+          reason: 'Order not found for pharmacy'
+        });
+        continue;
+      }
+
+      // Check if already in this status
+      if (order.status === status) {
+        results.failed.push({
+          orderId,
+          reason: `Order already in ${status} status`
+        });
+        continue;
+      }
+
+      // Check if this is a rejection of a paid order
+      const isRejection = status === 'CANCELLED';
+      const isPaidOrder = order.paymentStatus === 'PAID';
+      const needsAutoRefund = isRejection && isPaidOrder;
+
+      if (needsAutoRefund) {
+        console.log(`⚠️  Pharmacy ${pharmacyId} rejecting PAID order ${orderId} - initiating auto-refund...`);
+        
+        // Use transaction to ensure atomicity
+        const updatedOrder = await prisma.$transaction(async (tx) => {
+          // 1. Update order status
+          const updateData = { 
+            status,
+            cancelledAt: new Date(),
+            cancelReason: cancelReason || `Pharmacy rejected order (bulk action)`
+          };
+
+          const updated = await tx.order.update({
+            where: { id: orderId },
+            data: updateData,
+            include: {
+              OrderItem: {
+                where: { pharmacyId },
+                include: {
+                  MedicationAvailability: {
+                    include: {
+                      Medication: {
+                        select: { brandName: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          // 2. Restore stock for all order items
+          console.log(`📦 Restoring stock for ${order.OrderItem.length} items (Order ${orderId})...`);
+          
+          for (const item of order.OrderItem) {
+            await tx.medicationAvailability.update({
+              where: {
+                medicationId_pharmacyId: {
+                  medicationId: item.medicationId,
+                  pharmacyId: item.pharmacyId
+                }
+              },
+              data: {
+                stock: { increment: item.quantity }
+              }
+            });
+            
+            console.log(`  ✅ Restored ${item.quantity}x ${item.MedicationAvailability.Medication.brandName}`);
+          }
+
+          // 3. Create automatic refund
+          console.log(`💰 Creating automatic refund for order ${orderId}...`);
+          
+          const refund = await tx.refund.create({
+            data: {
+              amount: order.totalPrice,
+              reason: cancelReason || `Pharmacy rejected order (bulk action)`,
+              refundType: 'AUTOMATIC',
+              status: 'PENDING',
+              initiatedBy: pharmacyId,
+              orderId: orderId
+            }
+          });
+
+          console.log(`✅ Refund created: ID ${refund.id}, Amount: ${order.totalPrice}`);
+
+          // 4. Create audit log
+          await createAuditLog({
+            action: 'PHARMACY_ORDER_REJECTED',
+            entityType: ENTITY_TYPES.ORDER,
+            entityId: orderId,
+            userId: null,
+            details: {
+              pharmacyId,
+              pharmacyName: order.Pharmacy?.name,
+              refundId: refund.id,
+              refundAmount: order.totalPrice.toString(),
+              itemsCount: order.OrderItem.length,
+              stockRestored: true,
+              bulkAction: true
+            },
+            tx
+          }).catch(err => console.warn('Failed to create audit log:', err));
+
+          // 5. Send notifications (async, don't block transaction)
+          setImmediate(async () => {
+            try {
+              await sendOrderRejectionNotification(order, refund);
+            } catch (error) {
+              console.error(`Failed to send rejection notification for order ${orderId}:`, error);
+            }
+          });
+
+          // 6. Auto-process refund (async, don't block transaction)
+          setImmediate(async () => {
+            try {
+              console.log(`🤖 Auto-processing refund for order ${orderId}...`);
+              await refundService.processRefund(refund.id);
+            } catch (error) {
+              console.error(`Failed to auto-process refund for order ${orderId}:`, error);
+            }
+          });
+
+          console.log(`✅ Order ${orderId} rejected with auto-refund and stock restoration`);
+          
+          return updated;
+        });
+
+        results.successful.push({
+          orderId,
+          previousStatus: order.status,
+          newStatus: status,
+          refundInitiated: true,
+          stockRestored: true
+        });
+
+      } else {
+        // Normal status update (no refund needed)
+        const updateData = { status };
+
+        // Set filledAt timestamp for completed statuses
+        if (status === 'DELIVERED' || status === 'READY_FOR_PICKUP') {
+          updateData.filledAt = new Date();
+        }
+
+        // If cancelling non-paid order, still restore stock
+        if (status === 'CANCELLED') {
+          await prisma.$transaction(async (tx) => {
+            // Update order
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                ...updateData,
+                cancelledAt: new Date(),
+                cancelReason: cancelReason || `Pharmacy cancelled order (bulk action)`
+              }
+            });
+
+            // Restore stock
+            for (const item of order.OrderItem) {
+              await tx.medicationAvailability.update({
+                where: {
+                  medicationId_pharmacyId: {
+                    medicationId: item.medicationId,
+                    pharmacyId: item.pharmacyId
+                  }
+                },
+                data: {
+                  stock: { increment: item.quantity }
+                }
+              });
+            }
+          });
+
+          results.successful.push({
+            orderId,
+            previousStatus: order.status,
+            newStatus: status,
+            refundInitiated: false,
+            stockRestored: true
+          });
+
+        } else {
+          // Regular status update
+          await prisma.order.update({
+            where: { id: orderId },
+            data: updateData
+          });
+
+          results.successful.push({
+            orderId,
+            previousStatus: order.status,
+            newStatus: status,
+            refundInitiated: false,
+            stockRestored: false
+          });
+        }
+
+        console.log(`Order ${orderId} status updated:`, { 
+          orderId, 
+          previousStatus: order.status,
+          newStatus: status, 
+          filledAt: updateData.filledAt,
+          pharmacyId 
+        });
+      }
+
+    } catch (error) {
+      console.error(`❌ Error updating order ${orderId}:`, error);
+      results.failed.push({
+        orderId,
+        reason: error.message || 'Unknown error'
+      });
+    }
+  }
+
+  console.log(`\n📊 Bulk update summary: ${results.successful.length} successful, ${results.failed.length} failed`);
+  
+  // Log detailed results
+  if (results.successful.length > 0) {
+    console.log(`✅ Successfully updated orders: ${results.successful.map(r => r.orderId).join(', ')}`);
+  }
+  if (results.failed.length > 0) {
+    console.log(`❌ Failed orders: ${results.failed.map(r => `${r.orderId} (${r.reason})`).join(', ')}`);
+  }
+  
+  return results;
+}
+
+
+
 async function fetchMedications(pharmacyId, {
   page = 1,
   limit = 10,
@@ -1461,6 +1734,7 @@ module.exports = {
   fetchOrders,
   fetchOrderById,
   updateOrderStatus,
+  bulkUpdateOrderStatus,
   fetchMedications,
   addMedication,
   updateMedication,
