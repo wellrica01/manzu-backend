@@ -292,6 +292,24 @@ function validateAddMedications(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
+
+function validateDeleteSingle(data) {
+  const schema = Joi.object({
+    id: Joi.number().integer().required(),
+    prescriptionMedicationId: Joi.number().integer().required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+function validateDeleteBulk(data) {
+  const schema = Joi.object({
+    id: Joi.number().integer().required(),
+    prescriptionMedicationIds: Joi.array().items(Joi.number().integer().required()).min(1).required(),
+  });
+  return schema.validate(data, { abortEarly: false });
+}
+
+
 function validateVerifyPrescription(data) {
   const schema = Joi.object({
     id: Joi.string().pattern(/^[0-9]+$/).required(),
@@ -448,6 +466,8 @@ module.exports = {
   validateMedicationSearch,
   validatePrescriptionUpload,
   validateAddMedications,
+  validateDeleteSingle,
+  validateDeleteBulk,
   validateVerifyPrescription,
   validatePrescriptionOrder,
   validateFetchOrders,

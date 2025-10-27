@@ -11,7 +11,8 @@ const {
 const path = require('path');
 const fs = require('fs/promises'); // for cleanup after upload if needed
 const prescriptionService = require('../services/prescriptionService');
-const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateVerifyPrescription, validatePrescriptionRetrieve, validatePrescriptionOrder } = require('../utils/validation');
+const { isValidEmail, validatePrescriptionUpload, validateAddMedications, validateDeleteSingle,
+  validateDeleteBulk, validateVerifyPrescription, validatePrescriptionRetrieve, validatePrescriptionOrder } = require('../utils/validation');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const requireConsent = require('../middleware/requireConsent');
 const { reportError, ErrorCategory } = require('../utils/error-reporter');
@@ -216,6 +217,75 @@ router.post('/:id/medications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADM
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+
+// -----------------------------
+// DELETE single prescription medication
+// -----------------------------
+router.delete('/remove/:id/medications/:prescriptionMedicationId',
+  authenticate,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+  async (req, res) => {
+    try {
+      const { id, prescriptionMedicationId } = req.params;
+
+      // Validate input
+      const { error } = validateDeleteSingle({ id, prescriptionMedicationId });
+      if (error) {
+        console.error('Validation error:', error.message);
+        return res.status(400).json({ message: error.message });
+      }
+
+      const result = await prescriptionService.deletePrescriptionMedication(
+        Number(id),
+        Number(prescriptionMedicationId)
+      );
+
+      res.status(200).json({ message: 'Medication deleted', deletedMedication: result });
+    } catch (error) {
+      console.error('Delete medication error:', error);
+      const status = error.statusCode || 500;
+      res.status(status).json({ message: error.message });
+    }
+  }
+);
+
+// -----------------------------
+// DELETE multiple prescription medications (bulk)
+// -----------------------------
+router.delete('/remove/:id/medications',
+  authenticate,
+  authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { prescriptionMedicationIds } = req.body;
+
+      // Validate input
+      const { error } = validateDeleteBulk({ id, prescriptionMedicationIds });
+      if (error) {
+        console.error('Validation error:', error.message);
+        return res.status(400).json({ message: error.message });
+      }
+
+      const result = await prescriptionService.bulkDeletePrescriptionMedications(
+        Number(id),
+        prescriptionMedicationIds.map(Number)
+      );
+
+      res.status(200).json({
+        message: 'Medications deleted successfully',
+        deletedCount: result.deletedCount
+      });
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      const status = error.statusCode || 500;
+      res.status(status).json({ message: error.message });
+    }
+  }
+);
+
+
 
 // PATCH /prescription/:id/verify - Verify or reject a prescription
 router.patch('/:id/verify', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {

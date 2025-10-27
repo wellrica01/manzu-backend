@@ -161,6 +161,7 @@ model MedicationAvailability {
   expiryDate   DateTime?
   batchNumber  String?
   Medication   Medication     @relation(fields: [medicationId], references: [id])
+  Pharmacy     Pharmacy       @relation(fields: [pharmacyId], references: [id])
   OrderItem    OrderItem[]
   PriceHistory PriceHistory[]
 
@@ -201,6 +202,7 @@ model OperatingHour {
   openTime   DateTime  @db.Time(6)
   closeTime  DateTime  @db.Time(6)
   createdAt  DateTime? @default(now()) @db.Timestamptz(6)
+  Pharmacy   Pharmacy  @relation(fields: [pharmacyId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([pharmacyId, dayOfWeek, openTime, closeTime], map: "uniq_OperatingHour")
 }
@@ -228,7 +230,7 @@ model Order {
   paymentChannel    String?
   checkoutSessionId String?
   name              String?
-  Pharmacy          Pharmacy?       @relation(fields: [pharmacyId], references: [id])
+  Pharmacy          Pharmacy?       @relation(fields: [pharmacyId], references: [id], onDelete: Restrict)
   Prescription      Prescription?   @relation(fields: [prescriptionId], references: [id])
   OrderItem         OrderItem[]
   Refund            Refund[]
@@ -240,7 +242,6 @@ model Order {
   @@index([pharmacyId, status])
   @@index([status])
   @@index([userIdentifier, status])
-  @@index([pharmacyId])
 }
 
 model OrderItem {
@@ -269,28 +270,37 @@ model PharmacologicalClass {
 }
 
 model Pharmacy {
-  id                   Int                      @id @default(autoincrement())
-  name                 String
-  location             Unsupported("geometry")?
-  address              String
-  lga                  String
-  state                String
-  phone                String
-  licenseNumber        String
-  pharmacyType         PharmacyType?            @default(COMMUNITY)
-  status               PharmacyStatus           @default(PENDING)
-  createdAt            DateTime                 @default(now())
-  verifiedAt           DateTime?
-  logoUrl              String?
-  isActive             Boolean                  @default(true)
-  ward                 String?
-  devicetoken          String?
-  deliveryAvailability Boolean?                 @default(false)
-  latitude             Decimal?                 @db.Decimal(10, 8)
-  longitude            Decimal?                 @db.Decimal(11, 8)
-  locationAccuracy     Int?
-  locationCapturedAt   DateTime?                @db.Timestamp(6)
-  Order                Order[]
+  id                     Int                      @id @default(autoincrement())
+  name                   String
+  location               Unsupported("geometry")?
+  address                String
+  lga                    String
+  state                  String
+  phone                  String
+  licenseNumber          String                   @unique
+  pharmacyType           PharmacyType?            @default(COMMUNITY)
+  status                 PharmacyStatus           @default(PENDING)
+  createdAt              DateTime                 @default(now())
+  verifiedAt             DateTime?
+  logoUrl                String?
+  isActive               Boolean                  @default(true)
+  ward                   String?
+  devicetoken            String?
+  deliveryAvailability   Boolean?                 @default(false)
+  latitude               Decimal?                 @db.Decimal(10, 8)
+  longitude              Decimal?                 @db.Decimal(11, 8)
+  locationAccuracy       Int?
+  locationCapturedAt     DateTime?                @db.Timestamp(6)
+  MedicationAvailability MedicationAvailability[]
+  OperatingHour          OperatingHour[]
+  Order                  Order[]
+  PharmacyUser           PharmacyUser[]
+  Sale                   Sale[]
+
+  @@index([licenseNumber])
+  @@index([name, state])
+  @@index([latitude, longitude], map: "idx_pharmacy_lat_lon")
+  @@index([location], map: "idx_pharmacy_location", type: Gist)
 }
 
 model PharmacyUser {
@@ -302,6 +312,7 @@ model PharmacyUser {
   pharmacyId          Int
   lastLogin           DateTime?
   createdAt           DateTime              @default(now())
+  Pharmacy            Pharmacy              @relation(fields: [pharmacyId], references: [id])
   PharmacyUserConsent PharmacyUserConsent[]
 
   @@index([email])
@@ -367,6 +378,7 @@ model Sale {
   total         Float
   paymentMethod String
   createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  Pharmacy      Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy")
 }
 
 model TherapeuticClass {
