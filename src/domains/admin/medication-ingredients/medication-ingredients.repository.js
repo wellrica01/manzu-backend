@@ -19,8 +19,12 @@ async function findMedicationIngredients({ skip, limit, where }) {
         ActiveSubstance: {
           select: { id: true, name: true, type: true }
         },
-        Medication: {
-          select: { id: true, brandName: true }
+        Medication_MedicationIngredient: {
+          select: {
+            Medication: {
+              select: { id: true, brandName: true }
+            }
+          }
         }
       },
       orderBy: { id: 'desc' }
@@ -39,8 +43,12 @@ async function findMedicationIngredientById(id) {
       ActiveSubstance: {
         select: { id: true, name: true, type: true }
       },
-      Medication: {
-        select: { id: true, brandName: true, form: true }
+      Medication_MedicationIngredient: {
+        select: {
+          Medication: {
+            select: { id: true, brandName: true, form: true }
+          }
+        }
       }
     }
   });
@@ -74,8 +82,7 @@ async function searchMedicationIngredients({ search, limit }) {
   const where = search
     ? {
         OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
+          { ActiveSubstance: { name: { contains: search, mode: 'insensitive' } } },
         ],
       }
     : {};
@@ -83,12 +90,16 @@ async function searchMedicationIngredients({ search, limit }) {
   return await prisma.medicationIngredient.findMany({
     where,
     take: limit,
-    orderBy: { name: 'asc' },
+    orderBy: { id: 'asc' },
     select: {
       id: true,
-      name: true,
       strengthValue: true,
       strengthUnit: true,
+      ActiveSubstance: {
+        select: {
+          name: true
+        }
+      }
     },
   });
 }

@@ -24,7 +24,12 @@ async function findPrescriptions({ skip, limit, where }) {
             id: true,
             trackingCode: true,
             status: true,
-            Pharmacy: { select: { id: true, name: true } },
+            Pharmacy: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
       },
@@ -46,11 +51,25 @@ async function findPrescriptionById(id) {
     where: { id },
     include: {
       PrescriptionMedication: {
-        include: { Medication: true },
+        include: { 
+          Medication: {
+            select: {
+              id: true,
+              brandName: true,
+              fullName: true,
+              brandDescription: true,
+            }
+          }
+        },
       },
       Order: {
         include: {
-          Pharmacy: true,
+          Pharmacy: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           OrderItem: {
             include: {
               MedicationAvailability: {

@@ -1,5 +1,40 @@
 const Joi = require('joi');
 
+
+const DOSAGE_FREQUENCY = [
+  'ONCE_DAILY',
+  'TWICE_DAILY',
+  'THREE_TIMES_DAILY',
+  'FOUR_TIMES_DAILY',
+  'EVERY_4_HOURS',
+  'EVERY_6_HOURS',
+  'EVERY_8_HOURS',
+  'EVERY_12_HOURS',
+  'AT_BEDTIME',
+  'AS_NEEDED',
+  'WEEKLY',
+  'CUSTOM'
+];
+
+const DOSAGE_TIMING = [
+  'BEFORE_MEALS',
+  'AFTER_MEALS',
+  'WITH_FOOD',
+  'ON_EMPTY_STOMACH',
+  'MORNING',
+  'EVENING',
+  'ANYTIME'
+];
+
+const DURATION_TYPE = [
+  'DAYS',
+  'WEEKS',
+  'MONTHS',
+  'UNTIL_FINISHED',
+  'ONGOING'
+];
+
+
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -245,7 +280,12 @@ function validateAddMedications(data) {
       Joi.object({
         medicationId: Joi.number().integer().required(),
         quantity: Joi.number().integer().min(1).required(),
-        dosageInstructions: Joi.string().optional().allow(null, ''),
+        dosageAmount: Joi.string().optional().allow(null, ''),
+        dosageFrequency: Joi.string().valid(...DOSAGE_FREQUENCY).optional().allow(null),
+        dosageTiming: Joi.string().valid(...DOSAGE_TIMING).optional().allow(null),
+        durationValue: Joi.number().integer().min(1).optional().allow(null),
+        durationType: Joi.string().valid(...DURATION_TYPE).optional().allow(null),
+        additionalNotes: Joi.string().optional().allow(null, ''),
       })
     ).min(1).required(),
   });
