@@ -146,10 +146,12 @@ function getConfig() {
       debug: process.env.SENTRY_DEBUG === 'true'
     },
     
-    // Geocoding
-    opencage: {
-      apiKey: process.env.OPENCAGE_API_KEY
-    }
+  // Geocoding (fallback to OpenStreetMap if no API key)
+  geocoding: {
+    provider: process.env.OPENCAGE_API_KEY ? 'opencage' : 'openstreetmap',
+    apiKey: process.env.OPENCAGE_API_KEY || null
+  }
+
   };
 
   // Environment-specific overrides
