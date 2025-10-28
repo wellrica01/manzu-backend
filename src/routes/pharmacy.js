@@ -8,6 +8,8 @@ const pharmacyUsersService = require('../domains/pharmacy/users/pharmacy-users.s
 const pharmacyProfileService = require('../domains/pharmacy/profile/pharmacy-profile.service');
 const pharmacyDashboardService = require('../domains/pharmacy/dashboard/pharmacy-dashboard.service');
 const pharmacySalesService = require('../domains/pharmacy/sales/pharmacy-sales.service');
+const pharmacyBankingService = require('../domains/pharmacy/banking/pharmacy-banking.service');
+const pharmacyPayoutsService = require('../domains/pharmacy/payouts/pharmacy-payouts.service');
 const { validateFetchOrders, validateUpdateOrder, 
   validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
@@ -33,6 +35,278 @@ const upload = multer({
 });
 
 console.log('Loaded pharmacy.js version: 2025-06-19-v3 (deep linking support)');
+
+
+
+
+
+
+// ======================
+// BANKING ROUTES
+// ======================
+
+// GET /pharmacy/banking/banks - Get list of Nigerian banks
+router.get('/banking/banks', authenticate, async (req, res) => {
+  try {
+    const banks = await pharmacyBankingService.getNigerianBanks();
+    res.status(200).json({ banks });
+  } catch (error) {
+    console.error('Fetch banks error:', error);
+    res.status(500).json({ message: 'Failed to fetch banks', error: error.message });
+  }
+});
+
+// GET /pharmacy/banking/status - Check banking setup status
+router.get('/banking/status', authenticate, async (req, res) => {
+  try {
+    const status = await pharmacyBankingService.getBankingStatus(req.user.pharmacyId);
+    res.status(200).json(status);
+  } catch (error) {
+    console.error('Banking status error:', error);
+    res.status(500).json({ message: 'Failed to fetch banking status', error: error.message });
+  }
+});
+
+// POST /pharmacy/banking/setup - Setup bank account
+router.post('/banking/setup', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
+  try {
+    const { accountNumber, bankCode, bankName } = req.body;
+
+    if (!accountNumber || !bankCode || !bankName) {
+      return res.status(400).json({ 
+        message: 'Account number, bank code, and bank name are required' 
+      });
+    }
+
+    const result = await pharmacyBankingService.setupBankAccount(
+      req.user.pharmacyId,
+      { accountNumber, bankCode, bankName }
+    );
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Banking setup error:', error);
+    
+    if (error.message.includes('already configured')) {
+      return res.status(400).json({ message: error.message });
+    }
+    
+    res.status(500).json({ 
+      message: 'Failed to setup banking', 
+      error: error.message 
+    });
+  }
+});
+
+// PUT /pharmacy/banking/update - Update bank account
+router.put('/banking/update', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
+  try {
+    const { accountNumber, bankCode, bankName } = req.body;
+
+    if (!accountNumber || !bankCode || !bankName) {
+      return res.status(400).json({ 
+        message: 'Account number, bank code, and bank name are required' 
+      });
+    }
+
+    const result = await pharmacyBankingService.updateBankAccount(
+      req.user.pharmacyId,
+      { accountNumber, bankCode, bankName }
+    );
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Banking update error:', error);
+    res.status(500).json({ 
+      message: 'Failed to update banking', 
+      error: error.message 
+    });
+  }
+});
+
+// POST /pharmacy/banking/verify - Verify bank account (before saving)
+router.post('/banking/verify', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
+  try {
+    const { accountNumber, bankCode } = req.body;
+
+    if (!accountNumber || !bankCode) {
+      return res.status(400).json({ 
+        message: 'Account number and bank code are required' 
+      });
+    }
+
+    const verification = await pharmacyBankingService.verifyBankAccount(
+      accountNumber,
+      bankCode
+    );
+
+    if (verification.success) {
+      res.status(200).json({
+        message: 'Account verified successfully',
+        accountName: verification.accountName,
+        accountNumber: verification.accountNumber,
+      });
+    } else {
+      res.status(400).json({
+        message: verification.error || 'Account verification failed',
+      });
+    }
+  } catch (error) {
+    console.error('Bank verification error:', error);
+    res.status(500).json({ 
+      message: 'Failed to verify account', 
+      error: error.message 
+    });
+  }
+});
+
+// ======================
+// PAYOUT ROUTES
+// ======================
+
+// GET /pharmacy/payouts/summary - Get payout summary
+router.get('/payouts/summary', authenticate, async (req, res) => {
+  try {
+    const summary = await pharmacyPayoutsService.getPayoutSummary(req.user.pharmacyId);
+    res.status(200).json({
+      message: 'Payout summary fetched',
+      ...summary,
+    });
+  } catch (error) {
+    console.error('Payout summary error:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch payout summary', 
+      error: error.message 
+    });
+  }
+});
+
+// GET /pharmacy/payouts/history - Get payout history
+router.get('/payouts/history', authenticate, async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+
+    const result = await pharmacyPayoutsService.getPayoutHistory(
+      req.user.pharmacyId,
+      { page: parseInt(page), limit: parseInt(limit) }
+    );
+
+    res.status(200).json({
+      message: 'Payout history fetched',
+      ...result,
+    });
+  } catch (error) {
+    console.error('Payout history error:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch payout history', 
+      error: error.message 
+    });
+  }
+});
+
+// GET /pharmacy/orders/pending-payout - Get orders awaiting payout
+router.get('/orders/pending-payout', authenticate, async (req, res) => {
+  try {
+    const orders = await pharmacyPayoutsService.getOrdersPendingPayout(req.user.pharmacyId);
+    
+    // Calculate totals
+    const totalAmount = orders.reduce((sum, order) => sum + (order.pharmacyAmount || 0), 0);
+    const totalOrders = orders.length;
+
+    res.status(200).json({
+      message: 'Pending payout orders fetched',
+      orders,
+      summary: {
+        totalOrders,
+        totalAmount,
+      },
+    });
+  } catch (error) {
+    console.error('Pending payout orders error:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch pending payout orders', 
+      error: error.message 
+    });
+  }
+});
+
+// GET /pharmacy/earnings/analytics - Get earnings analytics
+router.get('/earnings/analytics', authenticate, async (req, res) => {
+  try {
+    const { period = 'week' } = req.query; // week, month, year
+
+    let startDate = new Date();
+    
+    if (period === 'week') {
+      startDate.setDate(startDate.getDate() - 7);
+    } else if (period === 'month') {
+      startDate.setMonth(startDate.getMonth() - 1);
+    } else if (period === 'year') {
+      startDate.setFullYear(startDate.getFullYear() - 1);
+    }
+
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+
+    // Get completed orders in period
+    const completedOrders = await prisma.order.findMany({
+      where: {
+        pharmacyId: req.user.pharmacyId,
+        status: 'COMPLETED',
+        filledAt: {
+          gte: startDate,
+        },
+      },
+      select: {
+        pharmacyAmount: true,
+        totalPrice: true,
+        platformFee: true,
+        filledAt: true,
+      },
+    });
+
+    // Get completed payouts in period
+    const completedPayouts = await prisma.payout.findMany({
+      where: {
+        pharmacyId: req.user.pharmacyId,
+        status: 'COMPLETED',
+        completedAt: {
+          gte: startDate,
+        },
+      },
+    });
+
+    const totalEarnings = completedOrders.reduce(
+      (sum, order) => sum + (order.pharmacyAmount || 0), 
+      0
+    );
+
+    const totalPaid = completedPayouts.reduce(
+      (sum, payout) => sum + parseFloat(payout.amount), 
+      0
+    );
+
+    const pendingPayout = totalEarnings - totalPaid;
+
+    res.status(200).json({
+      message: 'Earnings analytics fetched',
+      period,
+      totalEarnings,
+      totalPaid,
+      pendingPayout,
+      orderCount: completedOrders.length,
+      payoutCount: completedPayouts.length,
+    });
+  } catch (error) {
+    console.error('Earnings analytics error:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch earnings analytics', 
+      error: error.message 
+    });
+  }
+});
+
+
 
 // POST /pharmacy/profile/logo - Upload pharmacy logo
 router.post('/profile/logo', 
@@ -679,5 +953,7 @@ router.post('/change-password', authenticate, async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+
 
 module.exports = router;

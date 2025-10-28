@@ -2,9 +2,9 @@ const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { normalizePhone } = require('../utils/validation');
+const { calculateCommission } = require('../utils/commissionCalculator');
 const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
 const prisma = new PrismaClient();
-
 
 
 
@@ -140,6 +140,9 @@ const cartOrders = await prisma.order.findMany({
     const { items, pharmacy } = itemsByPharmacy[pharmacyId];
     const totalPrice = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const orderStatus = 'PENDING';
+
+    const { platformFee, pharmacyAmount } = calculateCommission(totalPrice);
+
     // Use UUID to prevent collisions in concurrent checkouts
     const paymentReference = `order_${uuidv4()}_${pharmacyId}`;
     
@@ -161,6 +164,9 @@ const cartOrders = await prisma.order.findMany({
           totalPrice,
           paymentReference,
           paymentStatus: 'PENDING',
+          platformFee,
+          pharmacyAmount,
+          payoutStatus: null,
           checkoutSessionId,
           createdAt: new Date(),
           updatedAt: new Date(),

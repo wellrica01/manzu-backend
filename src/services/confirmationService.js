@@ -311,6 +311,7 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
           data: {
             paymentStatus: newPaymentStatus,
             status: newStatus,
+            payoutStatus: 'PENDING',
             trackingCode,
             ...(requiresPrescription && newPrescriptionId
               ? { prescriptionId: newPrescriptionId }

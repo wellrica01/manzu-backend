@@ -253,9 +253,7 @@ async function bulkDeletePrescriptionMedications(prescriptionId, prescriptionMed
   return { prescriptionId, deletedCount: deleted.count };
 }
 
-
-
-async function verifyPrescription(prescriptionId, status) {
+async function verifyPrescription(prescriptionId, status, rejectionReason) {
   const upperStatus = status.toUpperCase();
   const prescription = await prisma.prescription.findUnique({
     where: { id: prescriptionId },
@@ -279,13 +277,22 @@ async function verifyPrescription(prescriptionId, status) {
   }
 
   const updatedPrescription = await prisma.$transaction(async (tx) => {
+    const updateData = {
+      status: upperStatus,
+    };
+    
+    // Add rejection reason if status is REJECTED
+    if (upperStatus === 'REJECTED' && rejectionReason) {
+      updateData.rejectionReason = rejectionReason;
+    }
+    
     const prescriptionUpdate = await tx.prescription.update({
       where: { id: prescriptionId },
-      data: {
-        status: upperStatus,
-      },
+      data: updateData,
     });
 
+    // ... rest of the function remains the same
+    
     if (prescription.Order && prescription.Order.length > 0) {
       if (upperStatus === 'REJECTED') {
         for (const order of prescription.Order) {
@@ -324,6 +331,7 @@ async function verifyPrescription(prescriptionId, status) {
         details: {
           previousStatus: prescription.status,
           newStatus: upperStatus,
+          rejectionReason: rejectionReason || null,
           affectedOrders: prescription.Order?.map(o => o.id) || []
         },
         tx
@@ -342,6 +350,8 @@ async function verifyPrescription(prescriptionId, status) {
   console.log('Prescription updated:', { prescriptionId: updatedPrescription.id, status: upperStatus });
   return updatedPrescription;
 }
+
+
 
 async function retrievePrescription({ email, phone }) {
   let guestId = null;

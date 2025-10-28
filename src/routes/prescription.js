@@ -291,17 +291,20 @@ router.delete('/remove/:id/medications',
 router.patch('/:id/verify', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, rejectionReason } = req.body;
 
     // Validate input
-    const { error } = validateVerifyPrescription({ id, status });
+    const { error } = validateVerifyPrescription({ id, status, rejectionReason });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    // Always use uppercase for status
-    const prescription = await prescriptionService.verifyPrescription(Number(id), status.toUpperCase());
+    const prescription = await prescriptionService.verifyPrescription(
+      Number(id), 
+      status.toUpperCase(),
+      rejectionReason
+    );
     res.status(200).json({ message: 'Prescription updated', prescription });
   } catch (error) {
     console.error('Verification error:', { message: error.message });

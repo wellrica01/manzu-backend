@@ -230,6 +230,12 @@ model Order {
   paymentChannel    String?
   checkoutSessionId String?
   name              String?
+  platformFee       Float?
+  pharmacyAmount    Float?
+  payoutStatus      PayoutStatus?
+  payoutReference   String?         @unique(map: "Order_payoutReference_unique") @db.VarChar(255)
+  payoutInitiatedAt DateTime?
+  payoutCompletedAt DateTime?
   Pharmacy          Pharmacy?       @relation(fields: [pharmacyId], references: [id], onDelete: Restrict)
   Prescription      Prescription?   @relation(fields: [prescriptionId], references: [id])
   OrderItem         OrderItem[]
@@ -242,6 +248,7 @@ model Order {
   @@index([pharmacyId, status])
   @@index([status])
   @@index([userIdentifier, status])
+  @@index([payoutStatus])
 }
 
 model OrderItem {
@@ -291,9 +298,15 @@ model Pharmacy {
   longitude              Decimal?                 @db.Decimal(11, 8)
   locationAccuracy       Int?
   locationCapturedAt     DateTime?                @db.Timestamp(6)
+  bankAccountNumber      String?                  @db.VarChar(10)
+  bankCode               String?                  @db.VarChar(10)
+  bankName               String?                  @db.VarChar(100)
+  accountName            String?                  @db.VarChar(255)
+  recipientCode          String?                  @unique(map: "Pharmacy_recipientCode_unique") @db.VarChar(255)
   MedicationAvailability MedicationAvailability[]
   OperatingHour          OperatingHour[]
   Order                  Order[]
+  Payout                 Payout[]
   PharmacyUser           PharmacyUser[]
   Sale                   Sale[]
 
@@ -341,6 +354,7 @@ model Prescription {
   updatedAt              DateTime?                @default(now()) @db.Timestamptz(6)
   expiryDate             DateTime                 @db.Timestamp(6)
   expiryDays             Int                      @default(30)
+  rejectionReason        String?
   Order                  Order[]
   PrescriptionMedication PrescriptionMedication[]
 
@@ -493,6 +507,25 @@ model ReconciliationReport {
 
   @@index([createdAt])
   @@index([reconciliationDate])
+  @@index([status])
+}
+
+model Payout {
+  id               Int          @id @default(autoincrement())
+  pharmacyId       Int
+  amount           Float
+  orderIds         Int[]        @default([])
+  status           PayoutStatus
+  reference        String       @unique @db.VarChar(255)
+  initiatedAt      DateTime     @default(now())
+  completedAt      DateTime?
+  failureReason    String?
+  paystackResponse Json?
+  Pharmacy         Pharmacy     @relation(fields: [pharmacyId], references: [id])
+
+  @@index([initiatedAt])
+  @@index([pharmacyId])
+  @@index([reference])
   @@index([status])
 }
 
@@ -741,4 +774,11 @@ enum DurationType {
   MONTHS
   UNTIL_FINISHED
   ONGOING
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }

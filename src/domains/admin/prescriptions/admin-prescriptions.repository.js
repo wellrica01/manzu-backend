@@ -18,6 +18,7 @@ async function findPrescriptions({ skip, limit, where }) {
         userIdentifier: true,
         fileUrl: true,
         status: true,
+        rejectionReason: true,
         createdAt: true,
         Order: {
           select: {

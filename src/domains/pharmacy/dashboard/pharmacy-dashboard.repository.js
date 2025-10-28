@@ -1,104 +1,112 @@
 /**
- * PHARMACY DASHBOARD REPOSITORY
+ * PHARMACY DASHBOARD REPOSITORY - OPTIMIZED
  * 
- * Database access layer for pharmacy dashboard operations
+ * Reduced from 13 queries to 8 queries by combining similar operations
+ * Uses groupBy and single aggregate queries where possible
  */
 
 const prisma = require('../../../core/database/prisma');
 
 /**
  * Get dashboard metrics for a pharmacy
+ * OPTIMIZED: Reduced query count by combining similar queries
  */
 async function getDashboardMetrics(pharmacyId, { startOfDay, endOfDay, startOfYesterday, endOfYesterday }) {
-  return await Promise.all([
-    // Orders today
-    prisma.order.count({
-      where: {
-        OrderItem: { some: { pharmacyId } },
-        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
-        createdAt: { gte: startOfDay, lte: endOfDay },
+  // Batch 1: Order counts by status (3 queries → 1 query)
+  const ordersByStatus = prisma.order.groupBy({
+    by: ['status'],
+    where: {
+      OrderItem: { some: { pharmacyId } },
+    },
+    _count: { id: true },
+  });
+
+  // Batch 2: Order counts by date range (2 queries → 1 query with raw SQL)
+  const orderDateCounts = prisma.$queryRaw`
+    SELECT 
+      COUNT(DISTINCT o.id) FILTER (WHERE o."createdAt" >= ${startOfDay} AND o."createdAt" <= ${endOfDay}) as orders_today,
+      COUNT(DISTINCT o.id) FILTER (WHERE o."createdAt" >= ${startOfYesterday} AND o."createdAt" <= ${endOfYesterday}) as orders_yesterday
+    FROM "Order" o
+    INNER JOIN "OrderItem" oi ON o.id = oi."orderId"
+    WHERE oi."pharmacyId" = ${pharmacyId}
+      AND o.status NOT IN ('CART', 'PENDING', 'PENDING_PRESCRIPTION')
+  `;
+
+  // Batch 3: Revenue aggregates (2 queries → 1 query with raw SQL)
+  const orderRevenue = prisma.$queryRaw`
+    SELECT 
+      COALESCE(SUM(o."totalPrice") FILTER (WHERE o."createdAt" >= ${startOfDay} AND o."createdAt" <= ${endOfDay}), 0) as revenue_today,
+      COALESCE(SUM(o."totalPrice") FILTER (WHERE o."createdAt" >= ${startOfYesterday} AND o."createdAt" <= ${endOfYesterday}), 0) as revenue_yesterday
+    FROM "Order" o
+    INNER JOIN "OrderItem" oi ON o.id = oi."orderId"
+    WHERE oi."pharmacyId" = ${pharmacyId}
+      AND o.status NOT IN ('CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED')
+  `;
+
+  // Batch 4: Inventory alerts (stays as 2 separate queries - different conditions)
+  const inventoryAlerts = prisma.medicationAvailability.count({
+    where: { pharmacyId, stock: { lt: 10 } },
+  });
+
+  const expiringMeds = prisma.medicationAvailability.count({
+    where: {
+      pharmacyId,
+      expiryDate: {
+        gte: new Date(),
+        lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       },
-    }),
-    // Orders yesterday
-    prisma.order.count({
-      where: {
-        OrderItem: { some: { pharmacyId } },
-        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION'] },
-        createdAt: { gte: startOfYesterday, lte: endOfYesterday },
-      },
-    }),
-    // Pending orders
-    prisma.order.count({
-      where: {
-        OrderItem: { some: { pharmacyId } },
-        status: 'CONFIRMED',
-      },
-    }),
-    // Processing orders
-    prisma.order.count({
-      where: {
-        OrderItem: { some: { pharmacyId } },
-        status: 'PROCESSING',
-      },
-    }),
-    // Ready for pickup
-    prisma.order.count({
-      where: {
-        OrderItem: { some: { pharmacyId } },
-        status: 'READY_FOR_PICKUP',
-      },
-    }),
-    // Inventory alerts
-    prisma.medicationAvailability.count({
-      where: { pharmacyId, stock: { lt: 10 } },
-    }),
-    // Expiring meds
-    prisma.medicationAvailability.count({
-      where: {
-        pharmacyId,
-        expiryDate: {
-          gte: new Date(),
-          lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        },
-      },
-    }),
-    // Revenue today
-    prisma.order.aggregate({
-      _sum: { totalPrice: true },
-      where: {
-        OrderItem: { some: { pharmacyId } },
-        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED'] },
-        createdAt: { gte: startOfDay, lte: endOfDay },
-      },
-    }),
-    // Revenue yesterday
-    prisma.order.aggregate({
-      _sum: { totalPrice: true },
-      where: {
-        OrderItem: { some: { pharmacyId } },
-        status: { notIn: ['CART', 'PENDING', 'PENDING_PRESCRIPTION', 'CANCELLED'] },
-        createdAt: { gte: startOfYesterday, lte: endOfYesterday },
-      },
-    }),
-    // PoS sales today
-    prisma.sale.count({
-      where: { pharmacyId, createdAt: { gte: startOfDay, lte: endOfDay } },
-    }),
-    // PoS sales yesterday
-    prisma.sale.count({
-      where: { pharmacyId, createdAt: { gte: startOfYesterday, lte: endOfYesterday } },
-    }),
-    // PoS revenue today
-    prisma.sale.aggregate({
-      _sum: { total: true },
-      where: { pharmacyId, createdAt: { gte: startOfDay, lte: endOfDay } },
-    }),
-    // PoS revenue yesterday
-    prisma.sale.aggregate({
-      _sum: { total: true },
-      where: { pharmacyId, createdAt: { gte: startOfYesterday, lte: endOfYesterday } },
-    }),
+    },
+  });
+
+  // Batch 5: PoS sales metrics (4 queries → 1 query with raw SQL)
+  const posSalesMetrics = prisma.$queryRaw`
+    SELECT 
+      COUNT(id) FILTER (WHERE "createdAt" >= ${startOfDay} AND "createdAt" <= ${endOfDay}) as sales_today,
+      COUNT(id) FILTER (WHERE "createdAt" >= ${startOfYesterday} AND "createdAt" <= ${endOfYesterday}) as sales_yesterday,
+      COALESCE(SUM(total) FILTER (WHERE "createdAt" >= ${startOfDay} AND "createdAt" <= ${endOfDay}), 0) as revenue_today,
+      COALESCE(SUM(total) FILTER (WHERE "createdAt" >= ${startOfYesterday} AND "createdAt" <= ${endOfYesterday}), 0) as revenue_yesterday
+    FROM "Sale"
+    WHERE "pharmacyId" = ${pharmacyId}
+  `;
+
+  // Execute all batches in parallel (8 queries instead of 13)
+  const [
+    orderStatusGroups,
+    [orderDateResult],
+    [orderRevenueResult],
+    lowStockCount,
+    expiringCount,
+    [posMetricsResult],
+  ] = await Promise.all([
+    ordersByStatus,
+    orderDateCounts,
+    orderRevenue,
+    inventoryAlerts,
+    expiringMeds,
+    posSalesMetrics,
   ]);
+
+  // Extract order status counts
+  const getStatusCount = (status) => {
+    const found = orderStatusGroups.find(g => g.status === status);
+    return found ? found._count.id : 0;
+  };
+
+  return {
+    ordersToday: Number(orderDateResult.orders_today),
+    ordersYesterday: Number(orderDateResult.orders_yesterday),
+    pendingOrders: getStatusCount('CONFIRMED'),
+    processingOrders: getStatusCount('PROCESSING'),
+    readyOrders: getStatusCount('READY_FOR_PICKUP'),
+    inventoryAlerts: lowStockCount,
+    expiringMeds: expiringCount,
+    revenueToday: Number(orderRevenueResult.revenue_today),
+    revenueYesterday: Number(orderRevenueResult.revenue_yesterday),
+    posSalesToday: Number(posMetricsResult.sales_today),
+    posSalesYesterday: Number(posMetricsResult.sales_yesterday),
+    posRevenueToday: Number(posMetricsResult.revenue_today),
+    posRevenueYesterday: Number(posMetricsResult.revenue_yesterday),
+  };
 }
 
 /**

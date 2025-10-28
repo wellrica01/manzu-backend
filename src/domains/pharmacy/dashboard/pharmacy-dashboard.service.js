@@ -1,7 +1,7 @@
 /**
- * PHARMACY DASHBOARD SERVICE
+ * PHARMACY DASHBOARD SERVICE - OPTIMIZED
  * 
- * Business logic for pharmacy dashboard operations
+ * Simplified to work with optimized repository
  */
 
 const repository = require('./pharmacy-dashboard.repository');
@@ -21,29 +21,15 @@ async function getDashboardData(pharmacyId) {
   const endOfYesterday = new Date(endOfDay);
   endOfYesterday.setDate(endOfYesterday.getDate() - 1);
 
-  // Get all metrics in parallel
-  const [
-    ordersToday,
-    ordersYesterday,
-    pendingOrders,
-    processingOrders,
-    readyOrders,
-    inventoryAlerts,
-    expiringMeds,
-    revenueTodayResult,
-    revenueYesterdayResult,
-    posSalesToday,
-    posSalesYesterday,
-    posRevenueTodayResult,
-    posRevenueYesterdayResult,
-  ] = await repository.getDashboardMetrics(pharmacyId, {
+  // Batch 1: Get all metrics (now returns formatted object)
+  const metrics = await repository.getDashboardMetrics(pharmacyId, {
     startOfDay,
     endOfDay,
     startOfYesterday,
     endOfYesterday,
   });
 
-  // Get additional data
+  // Batch 2: Get additional data
   const [topSellingMeds, recentOrders, recentSales, lowStockMeds] = await Promise.all([
     repository.getTopSellingMedications(pharmacyId),
     repository.getRecentOrders(pharmacyId),
@@ -51,12 +37,7 @@ async function getDashboardData(pharmacyId) {
     repository.getLowStockMedications(pharmacyId),
   ]);
 
-  // Calculations
-  const revenueToday = revenueTodayResult._sum.totalPrice || 0;
-  const revenueYesterday = revenueYesterdayResult._sum.totalPrice || 0;
-  const posRevenueToday = posRevenueTodayResult._sum.total || 0;
-  const posRevenueYesterday = posRevenueYesterdayResult._sum.total || 0;
-
+  // Helper function
   const calculateTrend = (today, yesterday) => {
     if (yesterday === 0) return today > 0 ? 100 : 0;
     return Math.round(((today - yesterday) / yesterday) * 100);
@@ -87,19 +68,19 @@ async function getDashboardData(pharmacyId) {
 
   // Final return
   return {
-    ordersToday,
-    ordersTrend: calculateTrend(ordersToday, ordersYesterday),
-    posSalesToday,
-    posSalesTrend: calculateTrend(posSalesToday, posSalesYesterday),
-    revenueToday,
-    revenueTrend: calculateTrend(revenueToday, revenueYesterday),
-    posRevenueToday,
-    posRevenueTrend: calculateTrend(posRevenueToday, posRevenueYesterday),
-    pendingOrders,
-    processingOrders,
-    readyOrders,
-    inventoryAlerts,
-    expiringMeds,
+    ordersToday: metrics.ordersToday,
+    ordersTrend: calculateTrend(metrics.ordersToday, metrics.ordersYesterday),
+    posSalesToday: metrics.posSalesToday,
+    posSalesTrend: calculateTrend(metrics.posSalesToday, metrics.posSalesYesterday),
+    revenueToday: metrics.revenueToday,
+    revenueTrend: calculateTrend(metrics.revenueToday, metrics.revenueYesterday),
+    posRevenueToday: metrics.posRevenueToday,
+    posRevenueTrend: calculateTrend(metrics.posRevenueToday, metrics.posRevenueYesterday),
+    pendingOrders: metrics.pendingOrders,
+    processingOrders: metrics.processingOrders,
+    readyOrders: metrics.readyOrders,
+    inventoryAlerts: metrics.inventoryAlerts,
+    expiringMeds: metrics.expiringMeds,
     topSellingMeds: topSellingMeds.map(med => ({
       name: med.brandName,
       quantity: Number(med.total_quantity),

@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const confirmationService = require('../services/confirmationService');
+const payoutsService = require('../domains/pharmacy/payouts/pharmacy-payouts.service');
 const { validateOrderConfirmation } = require('../utils/validation');
 const { PrismaClient } = require('@prisma/client');
 const router = express.Router();
@@ -205,7 +206,47 @@ router.post('/webhook', async (req, res) => {
         // Don't fail the webhook if notification fails
         console.error('Notification failed:', notificationError.message);
       }
-    } else {
+    } 
+    
+    if (event.event === 'transfer.success') {
+  try {
+    console.log('📥 Transfer success webhook received:', event.data.reference);
+    await payoutsService.handlePayoutWebhook(event.data);
+    console.log('✅ Payout webhook processed successfully');
+  } catch (error) {
+    console.error('❌ Payout webhook processing error:', error);
+    // Don't throw - acknowledge webhook anyway
+  }
+}
+
+// Handle transfer.failed (payout failed)
+if (event.event === 'transfer.failed') {
+  try {
+    console.log('📥 Transfer failed webhook received:', event.data.reference);
+    await payoutsService.handlePayoutWebhook(event.data);
+    console.log('✅ Failed payout webhook processed');
+  } catch (error) {
+    console.error('❌ Failed payout webhook processing error:', error);
+  }
+}
+
+// Handle transfer.reversed (rare - payout reversed)
+if (event.event === 'transfer.reversed') {
+  try {
+    console.log('📥 Transfer reversed webhook received:', event.data.reference);
+    // Mark payout as failed and alert admin
+    await payoutsService.handlePayoutWebhook({
+      ...event.data,
+      status: 'failed',
+      message: 'Transfer was reversed',
+    });
+    console.log('✅ Reversed transfer webhook processed');
+  } catch (error) {
+    console.error('❌ Reversed transfer webhook processing error:', error);
+  }
+}
+ 
+else {
       // For other event types, webhook already marked as processed
       console.log('Webhook event recorded:', event);
     }

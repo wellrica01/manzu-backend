@@ -11,6 +11,8 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { reportError, ErrorCategory } = require('./error-reporter');
 
+
+
 const execAsync = promisify(exec);
 
 // Initialize Supabase client for backup storage

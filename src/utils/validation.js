@@ -314,6 +314,11 @@ function validateVerifyPrescription(data) {
   const schema = Joi.object({
     id: Joi.string().pattern(/^[0-9]+$/).required(),
     status: Joi.string().valid('VERIFIED', 'REJECTED', 'EXPIRED', 'PENDING').required(),
+    rejectionReason: Joi.string().when('status', {
+      is: 'REJECTED',
+      then: Joi.required(),
+      otherwise: Joi.optional()
+    })
   });
   return schema.validate(data, { abortEarly: false });
 }

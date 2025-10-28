@@ -170,9 +170,19 @@ cron.schedule('0 3 * * *', async () => {
 
 console.log('✅ Payment reconciliation job initialized (Daily 3:00 AM)');
 
+
+
 // Initialize refund processing jobs
 const { initializeRefundJobs } = require('./process-refunds');
 initializeRefundJobs();
+
+
+// Initialize payout processing jobs
+const { initializePayoutJobs } = require('./process-payouts');
+initializePayoutJobs();
+
+console.log('✅ Payout processing jobs initialized (Daily 11:00 PM)');
+
 
 // Initialize database backup jobs
 const { initializeBackupJobs } = require('./backup-database');
