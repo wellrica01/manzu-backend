@@ -1,8 +1,11 @@
 const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
 const { recalculateOrderTotal } = require('../utils/cartUtils');
-const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils')
-const { validatePrescriptionExpiry } = require('./prescriptionService');
+const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils');
+const { reportError, ErrorCategory } = require('../utils/error-reporter');
+
+
+const prescriptionService = require('./prescriptionService');
 const prisma = new PrismaClient();
 
 async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
@@ -60,9 +63,8 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   // Determine which order to use based on medication type
   let targetOrder;
   if (medication.prescriptionRequired) {
-    // If verified prescription exists, create order with status 'pending' and link prescriptionId
     if (verifiedPrescription) {
-      // Check if a 'pending' order with this prescription already exists
+      // Use or create pending order linked to verified prescription
       let pendingOrder = await prisma.order.findFirst({
         where: {
           userIdentifier: userId,
@@ -86,13 +88,10 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       }
       targetOrder = pendingOrder;
     } else if (prescriptionOrder) {
-      // Check if the existing prescription covers this medication
       const isCovered = await checkPrescriptionCoverage(prescriptionOrder.prescriptionId, medicationId);
       if (isCovered) {
-        // Medication is covered by existing prescription - add to prescription order
         targetOrder = prescriptionOrder;
       } else {
-        // Medication is not covered - add to cart order for new prescription upload
         if (!cartOrder) {
           cartOrder = await prisma.order.create({
             data: {
@@ -111,7 +110,6 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
     } else if (cartOrder) {
       targetOrder = cartOrder;
     } else {
-      // Create new cart order for prescription items
       targetOrder = await prisma.order.create({
         data: {
           userIdentifier: userId,
@@ -142,12 +140,11 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
     targetOrder = cartOrder;
   }
 
-    // Validate prescription expiry if prescription exists
+  // Validate prescription expiry if applicable
   if (targetOrder.prescriptionId) {
     try {
-      await validatePrescriptionExpiry(targetOrder.prescriptionId);
+      await prescriptionService.validatePrescriptionExpiry(targetOrder.prescriptionId);
     } catch (error) {
-      // If expired, clear prescriptionId and set order back to CART
       await prisma.order.update({
         where: { id: targetOrder.id },
         data: { 
@@ -163,23 +160,34 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   // Use the target order for adding items
   const order = targetOrder;
 
-  // Check if the medication is available at the selected pharmacy with sufficient stock
+  // Check stock availability
   const pharmacyMedication = await prisma.medicationAvailability.findFirst({
-    where: { medicationId, pharmacyId, stock: { gte: quantity } },
+    where: { medicationId, pharmacyId },
   });
 
   if (!pharmacyMedication) {
-    throw new Error('Medication not available at this pharmacy or insufficient stock');
+    throw new Error('Medication not available at this pharmacy');
   }
 
-  // Perform order item creation/update and total recalculation in a transaction
+  // 🧩 NEW: Clear & structured insufficient stock error
+  if (pharmacyMedication.stock < quantity) {
+    const error = new Error('INSUFFICIENT_STOCK');
+    error.availableStock = pharmacyMedication.stock;
+    error.requestedQuantity = quantity;
+    error.pharmacyId = pharmacyId;
+    error.medicationId = medicationId;
+    error.detailsMessage = `Only ${pharmacyMedication.stock} unit${pharmacyMedication.stock !== 1 ? 's' : ''} available. You requested ${quantity}.`;
+    throw error;
+  }
+
+  // Perform transaction: create/update item + recalc totals
   const result = await prisma.$transaction(async (tx) => {
     const orderItem = await tx.orderItem.upsert({
       where: {
         orderId_pharmacyId_medicationId: {
           orderId: order.id,
-          pharmacyId: pharmacyId,
-          medicationId: medicationId,
+          pharmacyId,
+          medicationId,
         },
       },
       update: {
@@ -188,8 +196,8 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
       },
       create: {
         orderId: order.id,
-        pharmacyId: pharmacyId,
-        medicationId: medicationId,
+        pharmacyId,
+        medicationId,
         quantity,
         price: pharmacyMedication.price,
       },
@@ -197,7 +205,6 @@ async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
 
     const { updatedOrder } = await recalculateOrderTotal(tx, order.id);
 
-    // Clean up empty orders (except the one we just added to)
     await cleanupEmptyOrders(tx, userId, order.id);
 
     return { orderItem, order: updatedOrder };
@@ -231,7 +238,7 @@ async function addBulkToCart({ userIdentifier, guestId, items, prescriptionId })
 
   // Validate prescription expiry
   try {
-    await validatePrescriptionExpiry(prescriptionId);
+    await prescriptionService.validatePrescriptionExpiry(prescriptionId);
   } catch (error) {
     throw new Error(error.message);
   }
@@ -874,7 +881,7 @@ async function linkPrescriptionToCart({ prescriptionId, userId }) {
 
   // Validate prescription expiry
   try {
-    await validatePrescriptionExpiry(prescriptionId);
+    await prescriptionService.validatePrescriptionExpiry(prescriptionId);
   } catch (error) {
     throw new Error(error.message);
   }
@@ -1078,7 +1085,7 @@ async function linkPrescriptionToSpecificOrder({ userId, prescriptionId, medicat
 
     // Validate prescription expiry
     try {
-      await validatePrescriptionExpiry(prescriptionId);
+      await prescriptionService.validatePrescriptionExpiry(prescriptionId);
     } catch (error) {
       throw new Error(error.message);
     }
@@ -1268,6 +1275,161 @@ async function autoAdjustCartForStock(userId) {
 }
 
 
+async function uploadCartPrescription({
+  file,
+  userIdentifier,
+  medicationIds,
+  phone
+}) {
+  const { 
+    validateUploadedFile, 
+    stripMetadataAndCompress, 
+    generateSecureFilename 
+  } = require('../utils/secure-upload');
+  const supabase = require('../utils/supabaseClient');
+  const { reportError, ErrorCategory } = require('../utils/error-reporter');
+  
+  try {
+    // Comprehensive file validation
+    console.log('Validating uploaded file...');
+    const validation = await validateUploadedFile(file);
+    
+    if (!validation.valid) {
+      console.warn('File validation failed:', validation.errors);
+      const error = new Error(`File validation failed: ${validation.errors.join(', ')}`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    console.log('File validation passed:', validation.metadata);
+
+    // Strip EXIF metadata and compress
+    console.log('Stripping metadata and compressing...');
+    const processed = await stripMetadataAndCompress(file.buffer);
+    
+    if (!processed.success) {
+      console.error('Failed to process image:', processed.error);
+      
+      // Report to Sentry
+      reportError(new Error('Image processing failed'), {
+        category: ErrorCategory.SYSTEM,
+        customContext: {
+          fileName: file.originalname,
+          fileSize: file.size,
+          processingError: processed.error
+        }
+      });
+      
+      const error = new Error('Failed to process image');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    console.log(`Image processed: ${processed.originalSize} → ${processed.processedSize} bytes (${processed.compressionRatio}% reduction)`);
+
+    // Generate secure filename
+    const fileName = generateSecureFilename(file.originalname, 'prescription');
+    const filePath = `prescriptions/${fileName}`;
+
+    console.log(`Uploading to Supabase: ${filePath}`);
+
+    // Upload processed (secure) image to Supabase Storage
+    const { data, error: uploadError } = await supabase.storage
+      .from('prescriptions')
+      .upload(filePath, processed.buffer, {
+        contentType: 'image/jpeg', // Always JPEG after processing
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError);
+      
+      // Report to Sentry
+      reportError(new Error('Supabase upload failed'), {
+        category: ErrorCategory.EXTERNAL_API,
+        customContext: {
+          error: uploadError.message,
+          fileName: fileName,
+          userIdentifier
+        }
+      });
+      
+      throw new Error(`File upload failed: ${uploadError.message}`);
+    }
+
+    // Get public URL
+    const { data: publicUrlData } = supabase.storage
+      .from('prescriptions')
+      .getPublicUrl(filePath);
+
+    const publicFileUrl = publicUrlData?.publicUrl || null;
+
+    console.log(`File uploaded successfully: ${publicFileUrl}`);
+
+    // Create prescription record
+    const prescription = await prescriptionService.uploadPrescription({
+      userIdentifier,
+      email: null,
+      phone: phone || null,
+      fileUrl: publicFileUrl,
+    });
+
+    // Handle medication linking
+    const medicationIdArray = medicationIds
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id);
+
+    console.log('Prescription upload - medication IDs:', {
+      original: medicationIds,
+      parsed: medicationIdArray,
+      prescriptionId: prescription.id,
+    });
+
+    if (medicationIdArray.length > 0) {
+      const medications = medicationIdArray.map((medicationId) => ({
+        medicationId: parseInt(medicationId),
+        quantity: 1,
+      }));
+
+      await prescriptionService.addMedications(prescription.id, medications);
+    }
+
+    await linkPrescriptionToSpecificOrder({
+      prescriptionId: prescription.id,
+      userId: userIdentifier,
+      medicationIds: medicationIdArray,
+    });
+
+    // Return prescription with file processing stats
+    return {
+      prescription,
+      fileInfo: {
+        originalSize: processed.originalSize,
+        processedSize: processed.processedSize,
+        compressionRatio: processed.compressionRatio + '%',
+        secureFilename: fileName
+      }
+    };
+  } catch (error) {
+    // Report unexpected errors to Sentry
+    if (!error.statusCode) {
+      reportError(error, {
+        category: ErrorCategory.SYSTEM,
+        customContext: {
+          fileName: file.originalname,
+          fileSize: file.size,
+          userIdentifier
+        }
+      });
+    }
+    
+    throw error;
+  }
+}
+
+
 module.exports = {
   addToCart,
   addBulkToCart,
@@ -1284,4 +1446,5 @@ module.exports = {
   checkPrescriptionCoverage,
   validateCartStock,
   autoAdjustCartForStock,
+  uploadCartPrescription
 };

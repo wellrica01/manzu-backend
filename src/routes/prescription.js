@@ -40,11 +40,11 @@ router.post('/upload', upload.single('prescriptionFile'), requireConsent, async 
       return res.status(400).json({ message: error.message });
     }
 
-    const email = isValidEmail(contact) ? contact : null;
-    const phone = !email ? contact : null;
+    const email =null;
+    const phone = contact;
 
-    if (!email && !phone) {
-      return res.status(400).json({ message: 'Invalid contact format' });
+    if (!phone) {
+      return res.status(400).json({ message: 'Phone number is required' });
     }
 
     // Comprehensive file validation
@@ -313,19 +313,20 @@ router.patch('/:id/verify', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN')
 });
 
 
-// POST /prescription/retrieve - Retrieve prescription by email or phone
+// POST /prescription/retrieve - Retrieve prescription by phone number
 router.post('/retrieve', requireConsent, async (req, res) => {
   try {
-    const { email, phone } = req.body;
+    const { phone } = req.body;  
 
-    // Validate input
-    const { error } = validatePrescriptionRetrieve({ email, phone });
-    if (error) {
-      console.error('Validation error:', error.message);
-      return res.status(400).json({ message: error.message });
+    // Validate input 
+    if (!phone) {
+      return res.status(400).json({ message: 'Phone number is required' });
     }
 
-    const guestId = await prescriptionService.retrievePrescription({ email, phone });
+    const guestId = await prescriptionService.retrievePrescription({ 
+      email: null,  // Always null
+      phone 
+    });
 
     // Always return 200 with guestId (null if not found)
     res.status(200).json({ guestId });
@@ -337,7 +338,6 @@ router.post('/retrieve', requireConsent, async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
-
 
 
 

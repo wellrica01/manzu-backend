@@ -1,12 +1,12 @@
 const express = require('express');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 const upload = require('../utils/upload')
 const { validateFile, generateSecureFilename } = upload;
 const supabase = require('../utils/supabaseClient')
 const path = require('path');
 const { validateAddToCart, validateBulkAddToCart, validateUpdateCart, validateRemoveFromCart, validateBulkRemoveFromCart } = require('../utils/validation');
 const cartService = require('../services/cartService');
-const prescriptionService = require('../services/prescriptionService');
-const { isValidEmail } = require('../utils/validation');
 const requireConsent = require('../middleware/requireConsent');
 const router = express.Router();
 
@@ -14,21 +14,115 @@ const router = express.Router();
 
 // Add item to cart
 router.post('/add', async (req, res) => {
-  try {
-    const { medicationId, pharmacyId, quantity } = req.body;
-    const userId = req.headers['x-guest-id'];
+  const { medicationId, pharmacyId, quantity } = req.body;
+  const userId = req.headers['x-guest-id'];
 
+  try {
     // Validate input
     const { error } = validateAddToCart({ medicationId, pharmacyId, quantity, userId });
     if (error) {
       return res.status(400).json({ message: error.message });
     }
 
-    const { orderItem, userId: returnedUserId } = await cartService.addToCart({ medicationId, pharmacyId, quantity, userId });
-    res.status(201).json({ message: 'Added to cart', orderItem, userId: returnedUserId });
+    // Add or update item in cart
+    const { orderItem, userId: returnedUserId } = await cartService.addToCart({
+      medicationId,
+      pharmacyId,
+      quantity,
+      userId
+    });
+
+    return res.status(201).json({
+      message: 'Added to cart',
+      orderItem,
+      userId: returnedUserId
+    });
   } catch (error) {
     console.error('Cart add error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+
+ console.log('INSUFFICIENT_STOCK caught:', {
+  message: error.message,
+  pharmacyId: error.pharmacyId,
+  medicationId: error.medicationId,
+  available: error.availableStock,
+  requested: error.requestedQuantity
+});
+
+    // Check for specific error types
+    if (
+      error.message === 'INSUFFICIENT_STOCK' ||
+      error.message.includes('Only')
+    ) {
+      try {
+        // Fetch pharmacy & medication names
+        const [pharmacy, medication] = await Promise.all([
+          prisma.pharmacy.findUnique({
+            where: { id: error.pharmacyId || pharmacyId },
+            select: { name: true }
+          }),
+          prisma.medication.findUnique({
+            where: { id: error.medicationId || medicationId },
+            select: { brandName: true, packSizeExpression: true } // ✅ corrected fields
+          })
+        ]);
+
+        const pharmacyName = pharmacy?.name || 'This pharmacy';
+        const medName = medication
+          ? `${medication.brandName}${medication.packSizeExpression ? ' (' + medication.packSizeExpression + ')' : ''}`
+          : 'this medication';
+
+        const available = error.availableStock || 0;
+        const requested = error.requestedQuantity || req.body.quantity;
+
+        // ✅ clearer user-friendly message
+        return res.status(409).json({
+          message: `${pharmacyName} currently has only ${available} unit${available !== 1 ? 's' : ''} of ${medName} in stock. You requested ${requested}. Please adjust your quantity or choose another pharmacy with available stock.`,
+          error: 'INSUFFICIENT_STOCK',
+          details: {
+            requested,
+            available,
+            medicationName: medName,
+            pharmacyName
+          }
+        });
+
+      } catch (fetchError) {
+        console.error('⚠️ Prisma fetch error:', fetchError);
+
+        // fallback if fetching names fails
+        return res.status(409).json({
+          message: `Only ${error.availableStock} unit${error.availableStock !== 1 ? 's' : ''} available. You requested ${error.requestedQuantity}.`,
+          error: 'INSUFFICIENT_STOCK',
+          details: {
+            requested: error.requestedQuantity,
+            available: error.availableStock
+          }
+        });
+      }
+    }
+
+
+    // 🧩 Medication not found
+    if (error.message.includes('Medication not found')) {
+      return res.status(404).json({
+        message: 'Medication not found',
+        error: 'MEDICATION_NOT_FOUND'
+      });
+    }
+
+    // 🧩 Pharmacy not found
+    if (error.message.includes('Pharmacy not found')) {
+      return res.status(404).json({
+        message: 'Pharmacy not found',
+        error: 'PHARMACY_NOT_FOUND'
+      });
+    }
+
+    // 🧩 Fallback for all other errors
+    return res.status(500).json({
+      message: 'Server error',
+      error: error.message
+    });
   }
 });
 
@@ -76,6 +170,7 @@ router.get('/', async (req, res) => {
 });
 
 // Update cart item
+// Update cart item
 router.put('/update', async (req, res) => {
   try {
     const { orderItemId, quantity } = req.body;
@@ -91,9 +186,76 @@ router.put('/update', async (req, res) => {
     res.status(200).json({ message: 'Cart updated', orderItem: updatedItem });
   } catch (error) {
     console.error('Cart update error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    
+    // ✅ Handle insufficient stock error
+    if (error.message.includes('Insufficient stock')) {
+      try {
+        // Fetch current stock information with pharmacy details
+        const orderItem = await prisma.orderItem.findFirst({
+          where: { id: req.body.orderItemId },
+          include: { 
+            MedicationAvailability: {
+              include: { 
+                Medication: true,
+                Pharmacy: true  // ✅ Include pharmacy info
+              }
+            }
+          }
+        });
+
+        const availableStock = orderItem?.MedicationAvailability?.stock || 0;
+        const medicationName = orderItem?.MedicationAvailability?.Medication?.brandName || 'this item';
+        const pharmacyName = orderItem?.MedicationAvailability?.Pharmacy?.name || 'this pharmacy';
+
+        return res.status(409).json({ 
+          message: `${pharmacyName} only has ${availableStock} unit${availableStock !== 1 ? 's' : ''} of ${medicationName} in stock`,
+          error: 'INSUFFICIENT_STOCK',
+          details: {
+            orderItemId: req.body.orderItemId,
+            requested: req.body.quantity,
+            available: availableStock,
+            medicationName,
+            pharmacyName  // ✅ Include pharmacy name
+          }
+        });
+      } catch (fetchError) {
+        // Fallback if we can't fetch the item
+        return res.status(409).json({ 
+          message: 'Insufficient stock available at this pharmacy',
+          error: 'INSUFFICIENT_STOCK',
+          details: {
+            orderItemId: req.body.orderItemId,
+            requested: req.body.quantity,
+            available: 0
+          }
+        });
+      }
+    }
+
+    // Handle item not found
+    if (error.message.includes('Item not found')) {
+      return res.status(404).json({
+        message: 'Item not found in cart',
+        error: 'ITEM_NOT_FOUND'
+      });
+    }
+
+    // Handle cart not found
+    if (error.message.includes('Cart not found')) {
+      return res.status(404).json({
+        message: 'Cart not found or access denied',
+        error: 'CART_NOT_FOUND'
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 });
+
+
 
 // Remove item from cart
 router.delete('/remove/:id', async (req, res) => {
@@ -141,7 +303,6 @@ router.delete('/remove-bulk', async (req, res) => {
 });
 
 
-
 // Upload prescription for cart items
 router.post(
   '/prescription/upload',
@@ -150,98 +311,95 @@ router.post(
   async (req, res) => {
     try {
       if (!req.file) {
-        return res.status(400).json({ message: 'No file uploaded' });
-      }
-
-      // Validate file with magic byte checking
-      const validation = await validateFile(req.file, 'IMAGE');
-      if (!validation.valid) {
         return res.status(400).json({ 
-          message: 'File validation failed', 
-          errors: validation.errors 
+          message: 'No file was uploaded. Please select a file and try again.',
+          error: 'MISSING_FILE'
         });
       }
 
       const userIdentifier = req.headers['x-guest-id'];
-      const { medicationIds, email, phone } = req.body;
+      const { medicationIds, phone } = req.body;
 
       if (!userIdentifier) {
-        return res.status(400).json({ message: 'User identifier is required' });
+        return res.status(400).json({ 
+          message: 'Session expired. Please refresh the page and try again.' 
+        });
       }
 
       if (!medicationIds) {
-        return res.status(400).json({ message: 'Medication IDs are required' });
-      }
-
-      // Generate secure filename
-      const fileName = generateSecureFilename(req.file.originalname, 'prescription');
-      const filePath = `prescriptions/${fileName}`;
-
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from('prescriptions') // Replace with your actual bucket name
-        .upload(filePath, req.file.buffer, {
-          contentType: req.file.mimetype,
+        return res.status(400).json({ 
+          message: 'No medications selected. Please add items to your cart first.' 
         });
-
-      if (error) {
-        console.error('Supabase upload error:', error);
-        return res.status(500).json({ message: 'File upload failed', error: error.message });
       }
 
-      // Optional: Get public URL
-      const { data: publicUrlData } = supabase.storage
-        .from('prescriptions')
-        .getPublicUrl(filePath);
+      if (!phone) {
+        return res.status(400).json({ 
+          message: 'Phone number is required for SMS notifications.' 
+        });
+      }
 
-      const publicFileUrl = publicUrlData?.publicUrl || null;
-
-      // Create prescription record
-      const prescription = await prescriptionService.uploadPrescription({
+      // Call the enhanced service
+      const result = await cartService.uploadCartPrescription({
+        file: req.file,
         userIdentifier,
-        email: email || null,
-        phone: phone || null,
-        fileUrl: publicFileUrl,
-      });
-
-      // Handle medication linking
-      const medicationIdArray = medicationIds
-        .split(',')
-        .map((id) => id.trim())
-        .filter((id) => id);
-
-      console.log('Prescription upload - medication IDs:', {
-        original: medicationIds,
-        parsed: medicationIdArray,
-        prescriptionId: prescription.id,
-      });
-
-      if (medicationIdArray.length > 0) {
-        const medications = medicationIdArray.map((medicationId) => ({
-          medicationId: parseInt(medicationId),
-          quantity: 1,
-        }));
-
-        await prescriptionService.addMedications(prescription.id, medications);
-      }
-
-      await cartService.linkPrescriptionToSpecificOrder({
-        prescriptionId: prescription.id,
-        userId: userIdentifier,
-        medicationIds: medicationIdArray,
+        medicationIds,
+        phone,
       });
 
       return res.status(201).json({
-        message:
-          "Prescription uploaded successfully for cart items. You will be notified when it's ready.",
-        prescription,
+        message: "Prescription uploaded successfully! You'll receive an SMS notification when it's verified.",
+        prescription: result.prescription,
+        fileInfo: result.fileInfo
       });
     } catch (error) {
       console.error('Cart prescription upload error:', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
+      
+      const statusCode = error.statusCode || 500;
+      
+      // User-friendly error messages based on error type
+      if (error.message.includes('File validation failed')) {
+        return res.status(400).json({ 
+          message: 'The uploaded file appears to be corrupted or in an unsupported format. Please try uploading a different file.',
+          error: 'INVALID_FILE',
+          technicalDetails: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+      }
+      
+      if (error.message.includes('Failed to process image')) {
+        return res.status(400).json({ 
+          message: 'We couldn\'t process your image. Please ensure it\'s a clear photo and try again.',
+          error: 'PROCESSING_FAILED',
+          technicalDetails: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+      }
+      
+      if (error.message.includes('File upload failed')) {
+        return res.status(500).json({ 
+          message: 'Upload failed due to a server issue. Please check your internet connection and try again.',
+          error: 'UPLOAD_FAILED'
+        });
+      }
+
+      if (error.message.includes('Prescription not found') || 
+          error.message.includes('Medication') && error.message.includes('not found')) {
+        return res.status(404).json({ 
+          message: 'Some items in your cart are no longer available. Please refresh and try again.',
+          error: 'ITEM_NOT_FOUND'
+        });
+      }
+      
+      // Generic fallback error
+      res.status(statusCode).json({ 
+        message: 'Something went wrong while uploading your prescription. Please try again or contact support if the issue persists.',
+        error: 'INTERNAL_ERROR'
+      });
     }
   }
 );
+
+
+
+
 
 // Get prescription statuses for cart items
 router.get('/prescription/status', requireConsent, async (req, res) => {

@@ -11,8 +11,107 @@ const {
 const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
 const { alertPaymentVerificationFailed, alertPaymentGatewayDown } = require('../utils/error-reporter');
 
-
 const prisma = new PrismaClient();
+
+// Helper function to format order response
+function formatOrderResponse(orders, session) {
+  const trackingCode = orders.find(o => o.trackingCode)?.trackingCode || 
+                      generateTrackingCode(session, orders[0]?.id);
+  
+  const allConfirmed = orders.every(o => o.status === 'CONFIRMED' && o.paymentStatus === 'PAID');
+  const status = allConfirmed ? 'COMPLETED' : 'PENDING_PRESCRIPTION';
+
+  const ordersByPharmacy = orders
+    .filter(o => o.status === 'CONFIRMED' && o.paymentStatus === 'PAID')
+    .reduce((acc, order) => {
+      const pharmacyId = order.pharmacyId;
+      if (!acc[pharmacyId]) {
+        acc[pharmacyId] = {
+          pharmacy: {
+            id: pharmacyId,
+            name: order.Pharmacy?.name || 'Unknown',
+            address: order.Pharmacy?.address || '',
+            logoUrl: order.Pharmacy?.logoUrl || '',
+            phone: order.Pharmacy?.phone || '',
+            operatingHours: Array.isArray(order.Pharmacy?.OperatingHour)
+              ? order.Pharmacy.OperatingHour.map(h => ({
+                  dayOfWeek: h.dayOfWeek,
+                  openTime: h.openTime,
+                  closeTime: h.closeTime,
+                }))
+              : [],
+            ward: order.Pharmacy?.ward || '',
+            lga: order.Pharmacy?.lga || '',
+            state: order.Pharmacy?.state || '',
+          },
+          orders: [],
+          subtotal: 0,
+        };
+      }
+
+      acc[pharmacyId].orders.push({
+        id: order.id,
+        name: order.name,
+        totalPrice: order.totalPrice,
+        status: order.status,
+        deliveryMethod: order.deliveryMethod,
+        address: order.address,
+        paymentReference: order.paymentReference,
+        prescription: order.Prescription
+          ? {
+              id: order.Prescription.id,
+              status: order.Prescription.status,
+              fileUrl: order.Prescription.fileUrl,
+            }
+          : null,
+        items: order.OrderItem.map(item => {
+          const med = item.MedicationAvailability.Medication;
+
+          const ingredients = med.Medication_MedicationIngredient.map(mmi => {
+            const ingredient = mmi.MedicationIngredient;
+            return {
+              activeSubstance: ingredient.ActiveSubstance?.name || null,
+              strengthValue: ingredient.strengthValue || null,
+              strengthUnit: formatStrengthUnit(ingredient.strengthUnit),
+              perUnitValue: ingredient.perUnitValue || null,
+              perUnitType: formatPerUnitType(ingredient.perUnitType),
+            };
+          });
+
+          const displayName = med.form
+            ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(
+                med.form
+              )})`
+            : med.brandName;
+
+          return {
+            id: item.id,
+            medication: {
+              id: med.id,
+              brandName: med.brandName,
+              displayName,
+              prescriptionRequired: med.prescriptionRequired,
+              packSizeUnit: formatPackSizeUnit(med.packSizeUnit),
+              ingredients,
+            },
+            quantity: item.quantity,
+            price: item.price,
+          };
+        }),
+      });
+
+      acc[pharmacyId].subtotal += order.totalPrice;
+      return acc;
+    }, {});
+
+  return {
+    message: status === 'COMPLETED' ? 'Payment verified' : 'Orders retrieved, some awaiting verification',
+    status,
+    checkoutSessionId: session,
+    trackingCode,
+    pharmacies: Object.values(ordersByPharmacy),
+  };
+}
 
 async function confirmOrder({ reference, session, userId }) {
   try {
@@ -38,41 +137,12 @@ async function confirmOrder({ reference, session, userId }) {
     }
 
     if (transactionRef) {
-  console.log('📝 Transaction ref details:', {
-    transactionReference: transactionRef.transactionReference,
-    orderReferences: transactionRef.orderReferences,
-    checkoutSessionId: transactionRef.checkoutSessionId
-  });
-}
-
-// Add this RIGHT AFTER the transactionRef logging
-const debugOrders = await prisma.order.findMany({
-  where: { checkoutSessionId: session },
-  select: { 
-    id: true, 
-    userIdentifier: true, 
-    paymentReference: true, 
-    status: true,
-    checkoutSessionId: true 
-  }
-});
-console.log('🔎 All orders for this session:', debugOrders);
-
-// Also check orders by payment reference
-const debugOrdersByRef = await prisma.order.findMany({
-  where: { 
-    paymentReference: { 
-      in: ['order_1759916257915_3', 'order_1759916257963_5'] 
+      console.log('📝 Transaction ref details:', {
+        transactionReference: transactionRef.transactionReference,
+        orderReferences: transactionRef.orderReferences,
+        checkoutSessionId: transactionRef.checkoutSessionId
+      });
     }
-  },
-  select: { 
-    id: true, 
-    userIdentifier: true, 
-    paymentReference: true, 
-    status: true 
-  }
-});
-console.log('🔎 Orders by payment reference:', debugOrdersByRef);
 
     // ✅ Fetch orders linked to reference/session
     const orderWhere = transactionRef
@@ -93,8 +163,7 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
       orderWhere
     });
 
-
-        const orders = await prisma.order.findMany({
+    const orders = await prisma.order.findMany({
       where: orderWhere,
       include: {
         OrderItem: {
@@ -130,6 +199,19 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
 
     if (orders.length === 0) throw new Error('Orders not found');
 
+    // ✅ Check if payment already processed (idempotency check)
+    if (transactionRef) {
+      const existingVerification = await prisma.processedWebhook.findUnique({
+        where: { eventId: `verification_${transactionRef.transactionReference}` }
+      });
+
+      if (existingVerification) {
+        console.log('✅ Payment already verified - returning existing order details');
+        
+        // 🎯 Return the already-confirmed orders instead of throwing error
+        return formatOrderResponse(orders, session);
+      }
+    }
 
     // ✅ Generate or reuse tracking code
     const existingTrackingCode = orders.find(o => o.trackingCode)?.trackingCode;
@@ -143,24 +225,10 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
       orderBy: [{ createdAt: 'desc' }],
     });
 
-    // ✅ CRITICAL: Check idempotency OUTSIDE transaction to prevent race condition
-    // If inside transaction, two concurrent requests could both pass the check
-    if (transactionRef) {
-      const existingVerification = await prisma.processedWebhook.findUnique({
-        where: { eventId: `verification_${transactionRef.transactionReference}` }
-      });
-
-      if (existingVerification) {
-        console.log('Payment already verified:', transactionRef.transactionReference);
-        throw new Error('Payment already processed');
-      }
-    }
-
     // ✅ ATOMIC PAYMENT VERIFICATION + DATABASE UPDATE
-    // Everything happens inside one transaction for atomicity
     const updatedOrders = await prisma.$transaction(async tx => {
 
-      // Step 2: Verify payment with Paystack (with retry logic)
+      // Step 1: Verify payment with Paystack (with retry logic)
       if (transactionRef) {
         let paystackVerified = false;
         let lastError = null;
@@ -245,7 +313,7 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
           throw new Error(`Payment verification failed: ${lastError?.message || 'Unknown error'}`);
         }
 
-        // Step 3: Record verification in ProcessedWebhook for idempotency
+        // Step 2: Record verification in ProcessedWebhook for idempotency
         await tx.processedWebhook.create({
           data: {
             eventId: `verification_${transactionRef.transactionReference}`,
@@ -259,7 +327,7 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
         });
       }
 
-      // Step 4: Update orders atomically (now that payment is verified)
+      // Step 3: Update orders atomically (now that payment is verified)
       const updated = [];
 
       for (const order of orders) {
@@ -374,100 +442,9 @@ console.log('🔎 Orders by payment reference:', debugOrdersByRef);
       isolationLevel: 'Serializable' // Highest isolation level for payment operations
     });
 
-    // ✅ Format response grouped by pharmacy
-    const ordersByPharmacy = updatedOrders
-      .filter(o => o.status === 'CONFIRMED' && o.paymentStatus === 'PAID')
-      .reduce((acc, order) => {
-        const pharmacyId = order.pharmacyId;
-        if (!acc[pharmacyId]) {
-          acc[pharmacyId] = {
-            pharmacy: {
-              id: pharmacyId,
-              name: order.Pharmacy?.name || 'Unknown',
-              address: order.Pharmacy?.address || '',
-              logoUrl: order.Pharmacy?.logoUrl || '',
-              phone: order.Pharmacy?.phone || '',
-              operatingHours: Array.isArray(order.Pharmacy?.OperatingHour)
-                ? order.Pharmacy.OperatingHour.map(h => ({
-                    dayOfWeek: h.dayOfWeek,
-                    openTime: h.openTime,
-                    closeTime: h.closeTime,
-                  }))
-                : [],
-              ward: order.Pharmacy?.ward || '',
-              lga: order.Pharmacy?.lga || '',
-              state: order.Pharmacy?.state || '',
-            },
-            orders: [],
-            subtotal: 0,
-          };
-        }
+    // ✅ Format and return response
+    return formatOrderResponse(updatedOrders, session);
 
-        acc[pharmacyId].orders.push({
-          id: order.id,
-          name: order.name,
-          totalPrice: order.totalPrice,
-          status: order.status,
-          deliveryMethod: order.deliveryMethod,
-          address: order.address,
-          paymentReference: order.paymentReference,
-          prescription: order.Prescription
-            ? {
-                id: order.Prescription.id,
-                status: order.Prescription.status,
-                fileUrl: order.Prescription.fileUrl,
-              }
-            : null,
-          items: order.OrderItem.map(item => {
-            const med = item.MedicationAvailability.Medication;
-
-            const ingredients = med.Medication_MedicationIngredient.map(mmi => {
-              const ingredient = mmi.MedicationIngredient;
-              return {
-                activeSubstance: ingredient.ActiveSubstance?.name || null,
-                strengthValue: ingredient.strengthValue || null,
-                strengthUnit: formatStrengthUnit(ingredient.strengthUnit),
-                perUnitValue: ingredient.perUnitValue || null,
-                perUnitType: formatPerUnitType(ingredient.perUnitType),
-              };
-            });
-
-            const displayName = med.form
-              ? `${med.brandName}${med.pharmacopeia ? ` ${med.pharmacopeia}` : ''} (${capitalize(
-                  med.form
-                )})`
-              : med.brandName;
-
-            return {
-              id: item.id,
-              medication: {
-                id: med.id,
-                brandName: med.brandName,
-                displayName,
-                prescriptionRequired: med.prescriptionRequired,
-                packSizeUnit: formatPackSizeUnit(med.packSizeUnit),
-                ingredients,
-              },
-              quantity: item.quantity,
-              price: item.price,
-            };
-          }),
-        });
-
-        acc[pharmacyId].subtotal += order.totalPrice;
-        return acc;
-      }, {});
-
-    return {
-      message:
-        status === 'COMPLETED'
-          ? 'Payment verified'
-          : 'Orders retrieved, some awaiting verification',
-      status,
-      checkoutSessionId: session,
-      trackingCode,
-      pharmacies: Object.values(ordersByPharmacy),
-    };
   } catch (error) {
     console.error('Error in confirmOrder:', error);
     throw error;

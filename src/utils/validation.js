@@ -157,25 +157,18 @@ function validateCheckout(data) {
   return schema.validate(data, { abortEarly: false });
 }
 
-function validatePrescriptionRetrieve(data) {
+const validatePrescriptionRetrieve = (data) => {
   const schema = Joi.object({
-    email: Joi.string().custom((value, helpers) => {
-      if (value && !isValidEmail(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid email format' });
-      }
-      return value;
-    }, 'email validation').optional(),
-
-    phone: Joi.string().custom((value, helpers) => {
-      if (value && !isValidPhone(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid phone number format' });
-      }
-      return value;
-    }, 'phone validation').optional(),
-  }).or('email', 'phone'); // At least one required
-
-  return schema.validate(data, { abortEarly: false });
-}
+    phone: Joi.string()
+      .pattern(/^\+?\d{10,15}$/)
+      .required()
+      .messages({
+        'string.pattern.base': 'Please provide a valid phone number',
+        'any.required': 'Phone number is required'
+      })
+  });
+  return schema.validate(data);
+};
 
 
 function validateOrderConfirmation(data) {
@@ -263,12 +256,13 @@ function validateMedicationSearch(data) {
 function validatePrescriptionUpload(data) {
   const schema = Joi.object({
     userIdentifier: Joi.string().required(),
-    contact: Joi.string().required().custom((value, helpers) => {
-      if (!isValidEmail(value) && !isValidPhone(value)) {
-        return helpers.error('any.invalid', { message: 'Invalid email or phone number format (e.g., example@domain.com or +2349031615501)' });
-      }
-      return value;
-    }, 'contact validation'),
+    contact: Joi.string()
+      .pattern(/^\+?\d{10,15}$/)
+      .required()
+      .messages({
+        'string.pattern.base': 'Please provide a valid phone number',
+        'any.required': 'Phone number is required'
+      })
   });
   return schema.validate(data, { abortEarly: false });
 }

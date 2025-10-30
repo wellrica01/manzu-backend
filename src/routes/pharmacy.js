@@ -523,6 +523,7 @@ router.get('/medications', authenticate, async (req, res) => {
       search: value.search,
       lowStock: value.lowStock,
       outOfStock: value.outOfStock,
+      expiringSoon: value.expiringSoon,
       prescriptionRequired: value.prescriptionRequired,
     });
 
@@ -564,13 +565,14 @@ router.post('/medications', authenticate, async (req, res) => {
 });
 
 // PATCH /pharmacy/medications - Update pharmacy medication (new schema)
-router.patch('/medications', authenticate, async (req, res) => {
+// PATCH should use URL parameter
+router.patch('/medications/:medicationId', authenticate, async (req, res) => {
   try {
-    const { medicationId, stock, price, receivedDate, expiryDate, batchNumber } = req.body;
-    // Validate input
+    const { medicationId } = req.params;
+    const { stock, price, receivedDate, expiryDate, batchNumber } = req.body;
+    
     const { error } = validateUpdateMedication({ medicationId, stock, price, receivedDate, expiryDate, batchNumber });
     if (error) {
-      console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
@@ -585,30 +587,29 @@ router.patch('/medications', authenticate, async (req, res) => {
     });
     res.status(200).json({ message: 'Medication updated', medication: updatedMedication });
   } catch (error) {
-    console.error('Update medication error:', { message: error.message, stack: error.stack });
+    console.error('Update medication error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// DELETE /pharmacy/medications - Delete pharmacy medication (new schema)
-router.delete('/medications', authenticate, async (req, res) => {
+// DELETE should use URL parameter
+router.delete('/medications/:medicationId', authenticate, async (req, res) => {
   try {
-    const { medicationId } = req.query;
+    const { medicationId } = req.params;
 
-    // Validate input
     const { error } = validateDeleteMedication({ medicationId });
     if (error) {
-      console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
     await pharmacyMedicationsService.deleteMedication(req.user.pharmacyId, Number(medicationId));
     res.status(200).json({ message: 'Medication deleted' });
   } catch (error) {
-    console.error('Delete medication error:', { message: error.message, stack: error.stack });
+    console.error('Delete medication error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
 
 // GET /pharmacy/users - Fetch pharmacy users (manager only)
 router.get('/users', authenticate, authorizeRoles('MANAGER'), async (req, res) => {
@@ -810,23 +811,20 @@ router.post('/sales', authenticate, async (req, res) => {
   }
 });
 
-// GET /pharmacy/sales?date=YYYY-MM-DD - Fetch sales for a day (new schema)
+
+// GET /pharmacy/sales - Fetch sales with pagination and filters
 router.get('/sales', authenticate, async (req, res) => {
   try {
     const { 
-      date, 
-      startDate, 
-      endDate, 
-      paymentMethod, 
-      minAmount, 
-      maxAmount 
+      date, startDate, endDate, paymentMethod, minAmount, maxAmount,
+      page = 1, limit = 20
     } = req.query;
     
     let where = { pharmacyId: req.user.pharmacyId };
     
     // Date filtering
     if (date) {
-       const start = new Date(date + 'T00:00:00.000Z');
+      const start = new Date(date + 'T00:00:00.000Z');
       const end = new Date(date + 'T23:59:59.999Z');
       where.createdAt = { gte: start, lte: end };
     } else if (startDate && endDate) {
@@ -848,17 +846,43 @@ router.get('/sales', authenticate, async (req, res) => {
       if (maxAmount) where.total.lte = parseFloat(maxAmount);
     }
     
-    const sales = await prisma.sale.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    res.status(200).json({ message: 'Sales fetched', sales });
+    const [sales, total, allSales] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.sale.count({ where }),
+      prisma.sale.findMany({ where, select: { total: true, paymentMethod: true } })
+    ]);
+    
+    const stats = {
+      totalRevenue: allSales.reduce((sum, s) => sum + s.total, 0),
+      cashSales: allSales.filter(s => s.paymentMethod === 'CASH').length,
+      cardSales: allSales.filter(s => s.paymentMethod === 'CARD').length,
+    };
+    
+    res.status(200).json({ 
+      message: 'Sales fetched', 
+      sales,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      stats
+    });
   } catch (error) {
     console.error('Fetch sales error:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+
 
 // New export endpoint
 router.get('/sales/export', authenticate, async (req, res) => {
