@@ -69,6 +69,7 @@ async function fetchOrders(pharmacyId, { page = 1, limit = 20, search = '', stat
     address: order.address,
     status: order.status,
     totalPrice: order.totalPrice,
+    pharmacyAmount: order.pharmacyAmount,
     prescription: order.Prescription
       ? { id: order.Prescription.id, fileUrl: order.Prescription.fileUrl, status: order.Prescription.status }
       : null,
@@ -149,6 +150,7 @@ async function fetchOrderById(pharmacyId, orderId) {
     address: order.address,
     status: order.status,
     totalPrice: order.totalPrice,
+    pharmacyAmount: order.pharmacyAmount,
     paymentReference: order.paymentReference,
     paymentStatus: order.paymentStatus,
     paymentMethod: order.paymentMethod,

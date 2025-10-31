@@ -35,8 +35,8 @@ async function getDashboardMetrics(pharmacyId, { startOfDay, endOfDay, startOfYe
   // Batch 3: Revenue aggregates (2 queries → 1 query with raw SQL)
   const orderRevenue = prisma.$queryRaw`
     SELECT 
-      COALESCE(SUM(o."totalPrice") FILTER (WHERE o."createdAt" >= ${startOfDay} AND o."createdAt" <= ${endOfDay}), 0) as revenue_today,
-      COALESCE(SUM(o."totalPrice") FILTER (WHERE o."createdAt" >= ${startOfYesterday} AND o."createdAt" <= ${endOfYesterday}), 0) as revenue_yesterday
+      COALESCE(SUM(o."pharmacyAmount") FILTER (WHERE o."createdAt" >= ${startOfDay} AND o."createdAt" <= ${endOfDay}), 0) as revenue_today,
+      COALESCE(SUM(o."pharmacyAmount") FILTER (WHERE o."createdAt" >= ${startOfYesterday} AND o."createdAt" <= ${endOfYesterday}), 0) as revenue_yesterday
     FROM "Order" o
     INNER JOIN "OrderItem" oi ON o.id = oi."orderId"
     WHERE oi."pharmacyId" = ${pharmacyId}
@@ -144,7 +144,7 @@ async function getRecentOrders(pharmacyId) {
     select: {
       id: true,
       status: true,
-      totalPrice: true,
+      pharmacyAmount: true,
       createdAt: true,
       name: true,
     },

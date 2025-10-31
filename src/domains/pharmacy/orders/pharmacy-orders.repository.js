@@ -25,6 +25,7 @@ async function findOrders(pharmacyId, { skip, limit, where }) {
         address: true,
         status: true,
         totalPrice: true,
+        pharmacyAmount: true,
         Prescription: { select: { id: true, fileUrl: true, status: true } },
         OrderItem: {
           select: {
@@ -110,6 +111,7 @@ async function findOrderById(pharmacyId, orderId) {
       address: true,
       status: true,
       totalPrice: true,
+      pharmacyAmount: true,
       paymentReference: true,
       paymentStatus: true,
       paymentMethod: true,

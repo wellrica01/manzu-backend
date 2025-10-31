@@ -49,7 +49,7 @@ async function getDashboardData(pharmacyId) {
     type: 'ORDER',
     name: o.name,
     status: o.status,
-    amount: o.totalPrice,
+    amount: o.pharmacyAmount,
     time: o.createdAt,
   }));
 
