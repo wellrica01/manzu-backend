@@ -382,18 +382,19 @@ function validateOrderId(data) {
 }
 
 
-function validateFetchMedications(data) {
+function validateFetchMedications(query) {
   const schema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(10),
-    search: Joi.string().trim().allow('').optional(),
+    search: Joi.string().allow('').optional(),
+    status: Joi.string().valid('all', 'stocked', 'not_stocked', 'low_stock', 'out_of_stock', 'expiring_soon').optional(),
+    // Legacy filters (for backward compatibility)
     lowStock: Joi.boolean().optional(),
     outOfStock: Joi.boolean().optional(),
-    expiringSoon: Joi.boolean().optional(), // NEW: medications expiring within 30 days
+    expiringSoon: Joi.boolean().optional(),
     prescriptionRequired: Joi.string().valid('true', 'false').optional(),
-  }).oxor('lowStock', 'outOfStock');
-
-  return schema.validate(data, { abortEarly: false, convert: true });
+  });
+  return schema.validate(query);
 }
 
 

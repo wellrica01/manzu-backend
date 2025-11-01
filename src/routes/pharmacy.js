@@ -506,28 +506,56 @@ router.patch('/orders/:orderId', authenticate, async (req, res) => {
 });
 
 
-// GET /pharmacy/medications - Fetch pharmacy medications (new schema)
-router.get('/medications', authenticate, async (req, res) => {
+// GET /pharmacy/medications/catalog - NEW unified endpoint
+router.get('/medications/catalog', authenticate, async (req, res) => {
   try {
-    // Validate query parameters
     const { error, value } = validateFetchMedications(req.query);
     if (error) {
       console.error('Validation error:', error.details.map(d => d.message).join(', '));
-      return res.status(400).json({ message: 'Invalid query parameters', error: error.details.map(d => d.message) });
+      return res.status(400).json({ 
+        message: 'Invalid query parameters', 
+        errors: error.details.map(d => d.message) 
+      });
     }
 
-    // Pass validated query params and pharmacyId to fetchMedications
-    const result = await pharmacyMedicationsService.fetchMedications(req.user.pharmacyId, {
+    const result = await pharmacyMedicationsService.fetchMedicationCatalog(req.user.pharmacyId, {
       page: value.page,
       limit: value.limit,
       search: value.search,
-      lowStock: value.lowStock,
-      outOfStock: value.outOfStock,
-      expiringSoon: value.expiringSoon,
+      status: value.status, // 'all', 'stocked', 'not_stocked', 'low_stock', 'out_of_stock', 'expiring_soon'
       prescriptionRequired: value.prescriptionRequired,
     });
 
-    // Return result directly to match frontend expectation
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Pharmacy medication catalog error:', { message: error.message, stack: error.stack });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// GET /pharmacy/medications - Keep for backward compatibility
+router.get('/medications', authenticate, async (req, res) => {
+  try {
+    const { error, value } = validateFetchMedications(req.query);
+    if (error) {
+      console.error('Validation error:', error.details.map(d => d.message).join(', '));
+      return res.status(400).json({ 
+        message: 'Invalid query parameters', 
+        errors: error.details.map(d => d.message) 
+      });
+    }
+
+    // Use new catalog endpoint
+    const result = await pharmacyMedicationsService.fetchMedicationCatalog(req.user.pharmacyId, {
+      page: value.page,
+      limit: value.limit,
+      search: value.search,
+      status: value.lowStock ? 'low_stock' : 
+              value.outOfStock ? 'out_of_stock' : 
+              value.expiringSoon ? 'expiring_soon' : 'stocked',
+      prescriptionRequired: value.prescriptionRequired,
+    });
+
     res.status(200).json(result);
   } catch (error) {
     console.error('Pharmacy medications error:', { message: error.message, stack: error.stack });
@@ -535,20 +563,18 @@ router.get('/medications', authenticate, async (req, res) => {
   }
 });
 
-
-// POST /pharmacy/medications - Add new pharmacy medication (new schema)
+// POST /pharmacy/medications - Simplified (now upserts)
 router.post('/medications', authenticate, async (req, res) => {
   try {
     const { medicationId, stock, price, receivedDate, expiryDate, batchNumber } = req.body;
 
-    // Validate input
     const { error } = validateAddMedication({ medicationId, stock, price, batchNumber });
     if (error) {
       console.error('Validation error:', error.message);
       return res.status(400).json({ message: error.message });
     }
 
-    const medication = await pharmacyMedicationsService.addMedication({
+    const medication = await pharmacyMedicationsService.updateOrCreateMedication({
       pharmacyId: req.user.pharmacyId,
       medicationId: Number(medicationId),
       stock: Number(stock),
@@ -557,15 +583,23 @@ router.post('/medications', authenticate, async (req, res) => {
       expiryDate,
       batchNumber,
     });
-    res.status(201).json({ message: 'Medication added', medication });
+    
+    res.status(200).json({ 
+      message: 'Inventory updated successfully', 
+      medication 
+    });
   } catch (error) {
-    console.error('Add medication error:', { message: error.message, stack: error.stack });
+    console.error('Update medication error:', { message: error.message, stack: error.stack });
+    
+    if (error.message.includes('cannot stock this medication')) {
+      return res.status(403).json({ message: error.message });
+    }
+    
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// PATCH /pharmacy/medications - Update pharmacy medication (new schema)
-// PATCH should use URL parameter
+// PATCH /pharmacy/medications/:medicationId - Now also uses upsert
 router.patch('/medications/:medicationId', authenticate, async (req, res) => {
   try {
     const { medicationId } = req.params;
@@ -576,7 +610,7 @@ router.patch('/medications/:medicationId', authenticate, async (req, res) => {
       return res.status(400).json({ message: error.message });
     }
 
-    const updatedMedication = await pharmacyMedicationsService.updateMedication({
+    const updatedMedication = await pharmacyMedicationsService.updateOrCreateMedication({
       pharmacyId: req.user.pharmacyId,
       medicationId: Number(medicationId),
       stock: Number(stock),
@@ -585,14 +619,23 @@ router.patch('/medications/:medicationId', authenticate, async (req, res) => {
       expiryDate,
       batchNumber,
     });
-    res.status(200).json({ message: 'Medication updated', medication: updatedMedication });
+    
+    res.status(200).json({ 
+      message: 'Inventory updated successfully', 
+      medication: updatedMedication 
+    });
   } catch (error) {
     console.error('Update medication error:', error);
+    
+    if (error.message.includes('cannot stock this medication')) {
+      return res.status(403).json({ message: error.message });
+    }
+    
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// DELETE should use URL parameter
+// DELETE remains the same
 router.delete('/medications/:medicationId', authenticate, async (req, res) => {
   try {
     const { medicationId } = req.params;
@@ -603,7 +646,7 @@ router.delete('/medications/:medicationId', authenticate, async (req, res) => {
     }
 
     await pharmacyMedicationsService.deleteMedication(req.user.pharmacyId, Number(medicationId));
-    res.status(200).json({ message: 'Medication deleted' });
+    res.status(200).json({ message: 'Medication removed from inventory' });
   } catch (error) {
     console.error('Delete medication error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
