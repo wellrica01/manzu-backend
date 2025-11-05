@@ -107,13 +107,19 @@ model Indication {
 }
 
 model Manufacturer {
-  id          Int          @id @default(autoincrement())
-  name        String       @unique
-  country     String?
-  contactInfo String?
-  Medication  Medication[]
+  id            Int          @id @default(autoincrement())
+  name          String       @unique
+  country       String?
+  contactInfo   String?
+  countryCode   String?      @db.VarChar(10)
+  parentCompany String?      @db.VarChar(255)
+  productCount  Int?
+  originalNames String[]
+  Medication    Medication[]
 
   @@index([name])
+  @@index([countryCode], map: "idx_manufacturer_countryCode")
+  @@index([name], map: "idx_manufacturer_name")
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
@@ -127,7 +133,7 @@ model Medication {
   route                           Route?
   packSizeQuantity                Int?
   packSizeUnit                    PackSizeUnit?
-  nafdacCode                      String                            @unique
+  nafdacCode                      String?
   nafdacStatus                    NafdacStatus?                     @default(PENDING)
   prescriptionRequired            Boolean
   regulatoryClass                 RegulatoryClass?
@@ -139,10 +145,11 @@ model Medication {
   storageConditions               String?
   imageUrl                        String?
   fullName                        String?
-  packSizeExpression              String?                           @db.VarChar(50)
+  packSizeExpression              String?                           @db.VarChar(200)
   pharmacopeia                    Pharmacopeia?
   Manufacturer                    Manufacturer?                     @relation(fields: [manufacturerId], references: [id])
   MedicationAvailability          MedicationAvailability[]
+  MedicationRoute                 MedicationRoute[]
   Medication_MedicationIngredient Medication_MedicationIngredient[]
   PrescriptionMedication          PrescriptionMedication[]
 
@@ -181,7 +188,7 @@ model MedicationIngredient {
   ActiveSubstance                 ActiveSubstance                   @relation(fields: [substanceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   Medication_MedicationIngredient Medication_MedicationIngredient[]
 
-  @@unique([substanceId, strengthValue, strengthUnit, perUnitType], map: "unique_ingredient_per_strength")
+  @@unique([substanceId, strengthValue, strengthUnit, perUnitValue, perUnitType], map: "unique_ingredient_per_strength")
   @@index([substanceId])
 }
 
@@ -529,6 +536,17 @@ model Payout {
   @@index([status])
 }
 
+model MedicationRoute {
+  id            Int        @id @default(autoincrement())
+  medication_id Int
+  route         String     @db.VarChar(50)
+  created_at    DateTime?  @default(now()) @db.Timestamp(6)
+  Medication    Medication @relation(fields: [medication_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([medication_id, route], map: "uq_medication_route")
+  @@index([medication_id], map: "idx_medicationroute_medication_id")
+}
+
 enum AdminRole {
   ADMIN
   SUPER_ADMIN
@@ -583,6 +601,9 @@ enum DosageForm {
   MOUTHWASH
   IMPLANT
   MICROSPHERES
+  EXPECTORANT
+  KIT
+  SPRAY
 }
 
 enum NafdacStatus {
@@ -616,6 +637,10 @@ enum PackSizeUnit {
   BOTTLE
   TUBE
   BLISTER
+  DOSE
+  G
+  INHALATION
+  SPRAY
 }
 
 enum PaymentMethod {
@@ -697,6 +722,17 @@ enum Route {
   SUBLINGUAL
   BUCCAL
   TRANSDERMAL
+  INTRASYNOVIAL
+  INTRALESIONAL
+  INTRA_ARTICULAR
+  INTRAUTERINE
+  BLOCK
+  INFILTRATION
+  INTRATRACHEAL
+  INTRAVASCULAR
+  CUTANEOUS
+  DENTAL
+  INTRASPINAL
 }
 
 enum StrengthUnit {
@@ -705,9 +741,12 @@ enum StrengthUnit {
   G
   MCG
   IU
+  BILLIONSPORES
   NG
   MMOL
   PERCENT
+  MU
+  UL
 }
 
 enum SubstanceType {
