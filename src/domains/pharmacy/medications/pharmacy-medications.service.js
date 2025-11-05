@@ -7,11 +7,13 @@
 const repository = require('./pharmacy-medications.repository');
 const { formatPackSizeUnit, formatPerUnitType, formatStrengthUnit } = require('../../../utils/medicationUtils');
 const { getPharmacyAccessInfo, canPharmacyAccessMedication } = require('../../../utils/medicationAccessControl');
+const { buildMedicationWhereClause } = require('../../../utils/medicationAccessControl');
 const prisma = require('../../../core/database/prisma');
 
 /**
  * Fetch medication catalog with inventory status (NEW UNIFIED APPROACH)
  */
+
 async function fetchMedicationCatalog(pharmacyId, {
   page = 1,
   limit = 10,
@@ -31,104 +33,200 @@ async function fetchMedicationCatalog(pharmacyId, {
     throw new Error('Pharmacy not found');
   }
 
-  // Build medication search filter
-  const medicationWhere = {};
-  
-  if (search) {
-    medicationWhere.OR = [
-      { brandName: { contains: search, mode: 'insensitive' } },
-      {
-        Medication_MedicationIngredient: {
-          some: {
-            MedicationIngredient: {
-              ActiveSubstance: { name: { contains: search, mode: 'insensitive' } },
-            },
-          },
-        },
-      },
-    ];
-  }
-
-  if (prescriptionRequired !== undefined) {
-    const isRequired = prescriptionRequired === 'true';
-    medicationWhere.prescriptionRequired = isRequired;
-  }
-
-  // Get medications with inventory status
-  const { medications, total } = await repository.getMedicationCatalogWithInventory(
-    pharmacyId,
-    pharmacy.pharmacyType,
-    { skip, limit, where: { Medication: medicationWhere } }
-  );
-
-  // Get inventory stats
+  // Get inventory stats (used for summary regardless of filter)
   const [totalItems, lowStockCount, outOfStockCount, expiringSoonCount, allItemsForValue] = 
     await repository.getInventoryStats(pharmacyId);
-
-  // Calculate total inventory value
   const totalValue = allItemsForValue.reduce((sum, item) => sum + (item.stock * item.price), 0);
 
-  // Format medications with inventory status
-  const formattedMedications = medications
-    .map(m => {
-      const inventoryItem = m.MedicationAvailability?.[0];
-      const ingredients = formatIngredients(m.Medication_MedicationIngredient);
-      const activeSubstancesDisplay = formatActiveSubstancesDisplay(ingredients);
+  let medications = [];
+  let total = 0;
 
-      return {
-        medicationId: m.id,
-        brandName: m.brandName,
-        form: m.form,
-        packSizeExpression: m.packSizeExpression,
-        packSizeUnit: formatPackSizeUnit(m.packSizeUnit),
-        regulatoryClass: m.regulatoryClass,
-        prescriptionRequired: m.prescriptionRequired,
-        ingredients: ingredients,
-        activeSubstances: activeSubstancesDisplay,
-        displayName: `${m.brandName} (${activeSubstancesDisplay})`,
-        manufacturer: m.Manufacturer ? {
-          id: m.Manufacturer.id,
-          name: m.Manufacturer.name
-        } : null,
-        manufacturerName: m.Manufacturer?.name || null,
-        
-        // Inventory status
-        isStocked: !!inventoryItem,
-        pharmacyId: inventoryItem?.pharmacyId || null,
-        stock: inventoryItem?.stock || null,
-        price: inventoryItem?.price || null,
-        expiryDate: inventoryItem?.expiryDate || null,
-        receivedDate: inventoryItem?.receivedDate || null,
-        batchNumber: inventoryItem?.batchNumber || null,
+  // ===== INVENTORY-BASED FILTERS: Query MedicationAvailability table =====
+  if (['stocked', 'low_stock', 'out_of_stock', 'expiring_soon'].includes(status)) {
+    const inventoryWhere = { pharmacyId };
+    
+    // Stock filters
+    if (status === 'stocked') {
+      inventoryWhere.stock = { gt: 0 };
+    } else if (status === 'low_stock') {
+      inventoryWhere.stock = { gt: 0, lt: 10 };
+    } else if (status === 'out_of_stock') {
+      inventoryWhere.stock = { equals: 0 };
+    } else if (status === 'expiring_soon') {
+      const today = new Date();
+      const thirtyDaysFromNow = new Date();
+      thirtyDaysFromNow.setDate(today.getDate() + 30);
+      inventoryWhere.expiryDate = { 
+        gte: today, 
+        lte: thirtyDaysFromNow 
       };
-    })
-    .filter(m => {
-      // Apply status filters
-      if (status === 'stocked') {
-        return m.isStocked && m.stock > 0;
-      } else if (status === 'not_stocked') {
-        return !m.isStocked || m.stock === 0;
-      } else if (status === 'low_stock') {
-        return m.isStocked && m.stock > 0 && m.stock < 10;
-      } else if (status === 'out_of_stock') {
-        return m.isStocked && m.stock === 0;
-      } else if (status === 'expiring_soon') {
-        if (!m.expiryDate) return false;
-        const today = new Date();
-        const thirtyDaysFromNow = new Date();
-        thirtyDaysFromNow.setDate(today.getDate() + 30);
-        const expiryDate = new Date(m.expiryDate);
-        return expiryDate >= today && expiryDate <= thirtyDaysFromNow;
+      inventoryWhere.stock = { gt: 0 }; // Only show stocked items that are expiring
+    }
+    
+    // Add search filter on the medication relation
+    if (search || prescriptionRequired !== undefined) {
+      inventoryWhere.Medication = {};
+      
+      if (search) {
+        inventoryWhere.Medication.OR = [
+          { brandName: { contains: search, mode: 'insensitive' } },
+          {
+            Medication_MedicationIngredient: {
+              some: {
+                MedicationIngredient: {
+                  ActiveSubstance: { name: { contains: search, mode: 'insensitive' } }
+                }
+              }
+            }
+          }
+        ];
       }
-      return true; // 'all'
-    });
+      
+      if (prescriptionRequired !== undefined) {
+        inventoryWhere.Medication.prescriptionRequired = prescriptionRequired === 'true';
+      }
+    }
+    
+    // Query inventory with medication details
+    const [inventoryItems, inventoryTotal] = await prisma.$transaction([
+      prisma.medicationAvailability.findMany({
+        where: inventoryWhere,
+        include: {
+          Medication: {
+            include: {
+              Manufacturer: { select: { id: true, name: true } },
+              Medication_MedicationIngredient: {
+                include: {
+                  MedicationIngredient: {
+                    include: { ActiveSubstance: true }
+                  }
+                }
+              }
+            }
+          }
+        },
+        orderBy: { Medication: { brandName: 'asc' } },
+        skip,
+        take: limit,
+      }),
+      prisma.medicationAvailability.count({ where: inventoryWhere })
+    ]);
+    
+    // Transform to match expected format
+    medications = inventoryItems.map(item => ({
+      ...item.Medication,
+      MedicationAvailability: [item]
+    }));
+    total = inventoryTotal;
+  } 
+  
+  // ===== CATALOG-BASED FILTERS: Query Medication table =====
+  else if (status === 'all' || status === 'not_stocked' || !status) {
+    const medicationWhere = buildMedicationWhereClause(pharmacy.pharmacyType);
+    
+    // Add search
+    if (search) {
+      if (!medicationWhere.AND) medicationWhere.AND = [];
+      medicationWhere.AND.push({
+        OR: [
+          { brandName: { contains: search, mode: 'insensitive' } },
+          {
+            Medication_MedicationIngredient: {
+              some: {
+                MedicationIngredient: {
+                  ActiveSubstance: { name: { contains: search, mode: 'insensitive' } }
+                }
+              }
+            }
+          }
+        ]
+      });
+    }
+    
+    // Add prescription filter
+    if (prescriptionRequired !== undefined) {
+      medicationWhere.prescriptionRequired = prescriptionRequired === 'true';
+    }
+    
+    // For 'not_stocked', exclude medications with stock
+    if (status === 'not_stocked') {
+      medicationWhere.OR = [
+        { MedicationAvailability: { none: { pharmacyId } } },
+        { MedicationAvailability: { every: { pharmacyId, stock: 0 } } }
+      ];
+    }
+    
+    // Query medications with optional inventory
+    [medications, total] = await prisma.$transaction([
+      prisma.medication.findMany({
+        where: medicationWhere,
+        include: {
+          Manufacturer: { select: { id: true, name: true } },
+          Medication_MedicationIngredient: {
+            include: {
+              MedicationIngredient: {
+                include: { ActiveSubstance: true }
+              }
+            }
+          },
+          MedicationAvailability: {
+            where: { pharmacyId }
+          }
+        },
+        orderBy: { brandName: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.medication.count({ where: medicationWhere })
+    ]);
+  }
+
+  // ===== FORMAT MEDICATIONS =====
+  const formattedMedications = medications.map(m => {
+    const inventoryItem = m.MedicationAvailability?.[0];
+    const ingredients = formatIngredients(m.Medication_MedicationIngredient);
+    const activeSubstancesDisplay = formatActiveSubstancesDisplay(ingredients);
+
+    return {
+      medicationId: m.id,
+      brandName: m.brandName,
+      form: m.form,
+      packSizeExpression: m.packSizeExpression,
+      packSizeUnit: formatPackSizeUnit(m.packSizeUnit),
+      regulatoryClass: m.regulatoryClass,
+      prescriptionRequired: m.prescriptionRequired,
+      ingredients: ingredients,
+      activeSubstances: activeSubstancesDisplay,
+      displayName: `${m.brandName} (${activeSubstancesDisplay})`,
+      manufacturer: m.Manufacturer ? {
+        id: m.Manufacturer.id,
+        name: m.Manufacturer.name
+      } : null,
+      manufacturerName: m.Manufacturer?.name || null,
+      
+      // Inventory status
+      isStocked: !!inventoryItem && inventoryItem.stock > 0,
+      pharmacyId: inventoryItem?.pharmacyId || null,
+      stock: inventoryItem?.stock || null,
+      price: inventoryItem?.price || null,
+      expiryDate: inventoryItem?.expiryDate || null,
+      receivedDate: inventoryItem?.receivedDate || null,
+      batchNumber: inventoryItem?.batchNumber || null,
+    };
+  });
+
+  // Get total catalog size for this pharmacy type
+  const catalogSize = await prisma.medication.count({
+    where: buildMedicationWhereClause(pharmacy.pharmacyType)
+  });
 
   // Get access info for this pharmacy type
   const accessInfo = getPharmacyAccessInfo(pharmacy.pharmacyType);
 
   console.log('Medication catalog fetched:', { 
     pharmacyType: pharmacy.pharmacyType,
-    catalogSize: formattedMedications.length, 
+    status,
+    resultCount: formattedMedications.length, 
     total, 
     totalItems,
     stats: { 
@@ -148,9 +246,9 @@ async function fetchMedicationCatalog(pharmacyId, {
       outOfStockCount,
       expiringSoonCount,
       totalValue: Math.round(totalValue),
-      catalogSize: total, // Total medications available to this pharmacy type
+      catalogSize, // Total medications available to this pharmacy type
       stockedCount: totalItems,
-      notStockedCount: total - totalItems,
+      notStockedCount: catalogSize - totalItems,
     },
     pharmacyInfo: {
       type: pharmacy.pharmacyType,
@@ -159,6 +257,8 @@ async function fetchMedicationCatalog(pharmacyId, {
     }
   };
 }
+
+
 
 /**
  * Legacy method - Fetch medications in pharmacy inventory with filters and stats
@@ -262,7 +362,7 @@ async function deleteMedication(pharmacyId, medicationId) {
   console.log('Medication deleted from inventory:', { pharmacyId, medicationId });
 }
 
-// Helper functions
+// Helper functions (keep existing implementations)
 function formatIngredients(medicationIngredients) {
   return medicationIngredients.map(mmi => ({
     id: mmi.MedicationIngredient.id,

@@ -15,7 +15,7 @@
  */
 const API_RATE_LIMIT = {
   windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 100,                   // 100 requests per window
+  max: 1000,                   // 100 requests per window
   message: {
     error: 'RATE_LIMIT_EXCEEDED',
     message: 'Too many requests from this IP, please try again later.',
