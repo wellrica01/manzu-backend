@@ -252,67 +252,77 @@ async function resolveManufacturer(tx, data) {
  * @param {Array} ingredients - Array of ingredient objects
  * @param {boolean} removeOrphans - Whether to remove orphaned ingredients
  */
-async function linkIngredients(tx, medicationId, ingredients) {
-  if (!Array.isArray(ingredients) || ingredients.length === 0) return;
-
-  // 1️⃣ Get existing links before clearing
-  const currentLinks = await tx.medication_MedicationIngredient.findMany({
-    where: { medicationId },
-  });
-  const oldIngredientIds = currentLinks.map(l => l.ingredientId);
-
-  // 2️⃣ Delete all old links for this medication only
-  await tx.medication_MedicationIngredient.deleteMany({
-    where: { medicationId },
-  });
-
-  const newIngredientIds = [];
-
-  // 3️⃣ Find or create ingredients (these are shared, not owned by a medication)
-  for (const ingredient of ingredients) {
-    let medIngredient = await tx.medicationIngredient.findFirst({
-      where: {
-        substanceId: ingredient.activeSubstanceId,
-        strengthValue: ingredient.strengthValue || null,
-        strengthUnit: ingredient.strengthUnit || null,
-        perUnitValue: ingredient.perUnitValue || null,
-        perUnitType: ingredient.perUnitType || null,
-      },
-    });
-
-    if (!medIngredient) {
-      medIngredient = await tx.medicationIngredient.create({
-        data: {
-          substanceId: ingredient.activeSubstanceId,
-          strengthValue: ingredient.strengthValue || null,
-          strengthUnit: ingredient.strengthUnit || null,
-          perUnitValue: ingredient.perUnitValue || null,
-          perUnitType: ingredient.perUnitType || null,
-        },
+async function linkIngredients(tx, medicationId, ingredients, removeOrphans = false) {
+   if (!Array.isArray(ingredients) || ingredients.length === 0) return;
+ 
+   // 1️⃣ Get existing links before clearing
+   const currentLinks = await tx.medication_MedicationIngredient.findMany({
+     where: { medicationId },
+   });
+   const oldIngredientIds = currentLinks.map(l => l.ingredientId);
+ 
+   // 2️⃣ Delete all old links for this medication only
+   await tx.medication_MedicationIngredient.deleteMany({
+     where: { medicationId },
+   });
+ 
+   const newIngredientIds = [];
+ 
+   // 3️⃣ Find or create ingredients (these are shared, not owned by a medication)
+   for (const ingredient of ingredients) {
+        let medIngredient;
+   if (ingredient.id) {
+     medIngredient = await tx.medicationIngredient.findUnique({
+        where: { id: ingredient.id },
       });
+      if (!medIngredient) {
+        throw new Error(`Ingredient ${ingredient.id} not found`);
+      }
+    } else {
+       let medIngredient = await tx.medicationIngredient.findFirst({
+         where: {
+           substanceId: ingredient.activeSubstanceId,
+           strengthValue: ingredient.strengthValue || null,
+           strengthUnit: ingredient.strengthUnit || null,
+           perUnitValue: ingredient.perUnitValue || null,
+           perUnitType: ingredient.perUnitType || null,
+         },
+       });
+ 
+       if (!medIngredient) {
+         medIngredient = await tx.medicationIngredient.create({
+           data: {
+             substanceId: ingredient.activeSubstanceId,
+             strengthValue: ingredient.strengthValue || null,
+             strengthUnit: ingredient.strengthUnit || null,
+             perUnitValue: ingredient.perUnitValue || null,
+             perUnitType: ingredient.perUnitType || null,
+           },
+         });
+       }
     }
-
-    newIngredientIds.push(medIngredient.id);
-  }
-
-  // 4️⃣ Re-link all new ingredients to this medication
-  await tx.medication_MedicationIngredient.createMany({
-    data: newIngredientIds.map(id => ({ medicationId, ingredientId: id })),
-    skipDuplicates: true,
-  });
-
-  // 5️⃣ Clean up orphaned ingredient records (not used by *any* medication)
-  const orphanIds = oldIngredientIds.filter(id => !newIngredientIds.includes(id));
-
-  if (orphanIds.length > 0) {
-    await tx.medicationIngredient.deleteMany({
-      where: {
-        id: { in: orphanIds },
-        Medication_MedicationIngredient: { none: {} }, // ensures it's unused globally
-      },
-    });
-  }
-}
+ 
+     newIngredientIds.push(medIngredient.id);
+   }
+ 
+   // 4️⃣ Re-link all new ingredients to this medication
+   await tx.medication_MedicationIngredient.createMany({
+     data: newIngredientIds.map(id => ({ medicationId, ingredientId: id })),
+     skipDuplicates: true,
+   });
+ 
+   // 5️⃣ Clean up orphaned ingredient records (not used by *any* medication)
+   const orphanIds = oldIngredientIds.filter(id => !newIngredientIds.includes(id));
+ 
+  if (removeOrphans && orphanIds.length > 0) {
+     await tx.medicationIngredient.deleteMany({
+       where: {
+         id: { in: orphanIds },
+         Medication_MedicationIngredient: { none: {} }, // ensures it's unused globally
+       },
+     });
+   }
+ }
 
 // ============================================================================
 // EXPORTS

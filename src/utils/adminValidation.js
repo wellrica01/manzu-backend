@@ -67,7 +67,29 @@ const editPharmacySchema = z.object({
 }).merge(paginationSchema);
 
 
+
+
 // ------------------ CREATE MEDICATION SCHEMA ------------------
+
+
+const ingredientObject = z.object({
+    id: z.number().int().positive().optional(),
+    activeSubstanceId: z.number().int().positive().optional(),
+    strengthValue: z.number().positive().optional(),
+    strengthUnit: z.enum(StrengthUnits).optional(),
+    perUnitValue: z.number().positive().optional(),
+    perUnitType: z.enum(PackSizeUnits).optional(),
+  }).refine(data => {
+    if (!data.id) {  // For new ingredients
+      if (!data.activeSubstanceId) return false;
+      if (!data.strengthValue) return false;
+      if (data.strengthValue && !data.strengthUnit) return false;
+      if (data.perUnitValue && !data.perUnitType) return false;
+    }
+    return true;
+  }, { message: "Invalid ingredient data" });
+
+
 const createMedicationSchema = z.object({
   brandName: z.string().min(1, 'Brand name required'),
   brandDescription: z.string().optional(),
@@ -90,27 +112,14 @@ const createMedicationSchema = z.object({
   prescriptionRequired: z.boolean().default(false),
   imageUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
 
-  ingredients: z.array(
-    z.object({
-      activeSubstanceId: z.number().int().positive(),
-      strengthValue: z.number().positive().optional(),
-      strengthUnit: z.enum(StrengthUnits).optional(),
-      perUnitValue: z.number().positive().optional(),
-      perUnitType: z.enum(PackSizeUnits).optional(),
-      id: z.number().int().positive().optional()
-    }).refine(data => {
-      if (data.strengthValue && !data.strengthUnit) return false;
-      if (data.perUnitValue && !data.perUnitType) return false;
-      return true;
-    }, { message: "Units are required when values are provided" })
-  ).min(1, 'At least one active substance is required'),
+  ingredients: z.array(ingredientObject).min(1, 'At least one ingredient required'),
 });
 
 // ------------------ UPDATE MEDICATION SCHEMA ------------------
 const updateMedicationSchema = createMedicationSchema.partial().extend({
   ingredients: z.array(
     z.object({
-      activeSubstanceId: z.number().int().positive(),
+      activeSubstanceId: z.number().int().positive().optional(),
       strengthValue: z.number().positive().optional(),
       strengthUnit: z.enum(StrengthUnits).optional(),
       perUnitValue: z.number().positive().optional(),
@@ -122,6 +131,12 @@ const updateMedicationSchema = createMedicationSchema.partial().extend({
       if (data.perUnitValue && !data.perUnitType) return false;
       return true;
     }, { message: "Units are required when values are provided" })
+    .refine(data => {
+      if ((!data.id && (!data._action || data._action === 'CREATE')) && !data.activeSubstanceId) {
+        return false;
+      }
+      return true;
+    }, { message: "activeSubstanceId is required for new ingredients" })
   ).optional()
 });
 

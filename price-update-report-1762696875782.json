@@ -1,0 +1,76 @@
+{
+  "timestamp": "2025-11-09T14:01:15.765Z",
+  "config": {
+    "dryRun": false,
+    "batchSize": 100,
+    "pharmacyIdRange": {
+      "min": 1,
+      "max": 9
+    }
+  },
+  "summary": {
+    "totalPharmacies": 9,
+    "processed": 9,
+    "successful": 0,
+    "failed": 9,
+    "updatesPerformed": 0,
+    "successRate": "0.00%"
+  },
+  "warnings": [],
+  "errors": [
+    {
+      "pharmacyId": 1,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s1\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 2,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s1\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 3,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 4,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 5,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 6,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 7,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 8,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 9,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "timestamp": "2025-11-09T13:48:06.045Z",
+  "config": {
+    "dryRun": false,
+    "batchSize": 100,
+    "medIdRange": {
+      "min": 1,
+      "max": 6575
+    },
+    "pharmacyIdRange": {
+      "min": 1,
+      "max": 9
+    }
+  },
+  "summary": {
+    "totalPharmacies": 9,
+    "processed": 9,
+    "successful": 9,
+    "failed": 0,
+    "assignmentsCreated": 900,
+    "successRate": "100.00%"
+  },
+  "warnings": [],
+  "errors": []
+}

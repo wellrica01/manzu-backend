@@ -137,16 +137,22 @@ async function createMedication(data) {
   try {
     console.log('Received data:', JSON.stringify(data, null, 2));
 
-    // Validate ingredients before starting the transaction
-    if (!data.ingredients || !Array.isArray(data.ingredients) || data.ingredients.length === 0) {
-      throw new Error('At least one active substance is required');
-    }
+  // Validate active substances only for new ingredients
+  const newIngredients = data.ingredients.filter(ing => !ing.id);
+  const activeSubstanceIds = newIngredients
+    .map(ing => ing.activeSubstanceId)
+    .filter(id => id != null);
 
-    const activeSubstanceIds = data.ingredients.map(i => i.activeSubstanceId);
+  let activeSubstanceMap = new Map();
+  if (activeSubstanceIds.length > 0) {
     const activeSubstances = await medicationsRepository.findActiveSubstancesByIds(activeSubstanceIds);
-    if (activeSubstances.length !== activeSubstanceIds.length) {
-      throw new Error('One or more active substances not found');
+    activeSubstanceMap = new Map(activeSubstances.map(as => [as.id, as]));
+    for (const ing of newIngredients) {
+      if (!activeSubstanceMap.has(ing.activeSubstanceId)) {
+        throw new Error(`Active substance not found for ID ${ing.activeSubstanceId}`);
+      }
     }
+  }
 
     // Check for duplicate NAFDAC code
     const existingMed = await medicationsRepository.findMedicationByNafdacCode(data.nafdacCode);
@@ -174,6 +180,30 @@ async function createMedication(data) {
         packSizeUnit: data.packSizeUnit || null,
         imageUrl: data.imageUrl || null,
       }, tx);
+
+      for (const ing of data.ingredients) {
+        if (ing.id) {
+          const existing = await tx.medicationIngredient.findUnique({
+            where: { id: ing.id },
+          });
+          if (!existing) {
+            throw new Error(`MedicationIngredient ${ing.id} not found`);
+          }
+          // Merge any provided updates if needed, but for create, probably just link
+        }
+      }
+
+
+      // Validate existing ingredients
+      const existingIngredients = data.ingredients.filter(ing => ing.id);
+      for (const ing of existingIngredients) {
+        const existingIng = await tx.medicationIngredient.findUnique({
+          where: { id: ing.id },
+        });
+        if (!existingIng) {
+          throw new Error(`MedicationIngredient ${ing.id} not found`);
+        }
+      }
 
       // Link ingredients to this medication
       await linkIngredients(tx, med.id, data.ingredients);
@@ -203,6 +233,23 @@ async function updateMedication(id, data) {
       error.status = HTTP_STATUS.NOT_FOUND;
       error.code = ERROR_CODES.NOT_FOUND;
       throw error;
+    }
+
+
+    const newIngredients = data.ingredients.filter(ing => !ing.id);
+    const activeSubstanceIds = newIngredients
+      .map(ing => ing.activeSubstanceId)
+      .filter(id => id != null);
+
+    let activeSubstanceMap = new Map();
+    if (activeSubstanceIds.length > 0) {
+      const activeSubstances = await medicationsRepository.findActiveSubstancesByIds(activeSubstanceIds, tx);  // Pass tx if needed, but since outside, move inside
+      activeSubstanceMap = new Map(activeSubstances.map(as => [as.id, as]));
+      for (const ing of newIngredients) {
+        if (!activeSubstanceMap.has(ing.activeSubstanceId)) {
+          throw new Error(`Active substance not found for ID ${ing.activeSubstanceId}`);
+        }
+      }
     }
 
     // Check NAFDAC code uniqueness if being updated
@@ -248,6 +295,17 @@ async function updateMedication(id, data) {
 
       // Update ingredients if provided
       if (Array.isArray(data.ingredients)) {
+      
+        const existingIngredients = data.ingredients.filter(ing => ing.id);
+          for (const ing of existingIngredients) {
+            const existingIng = await tx.medicationIngredient.findUnique({
+              where: { id: ing.id },
+            });
+            if (!existingIng) {
+              throw new Error(`MedicationIngredient ${ing.id} not found`);
+            }
+          }
+
         await linkIngredients(tx, id, data.ingredients, true); // true = remove orphaned ingredients
       }
 

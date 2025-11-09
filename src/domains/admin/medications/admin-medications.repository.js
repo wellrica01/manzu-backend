@@ -131,7 +131,7 @@ async function findMedicationById(id) {
  * Find medication by NAFDAC code
  */
 async function findMedicationByNafdacCode(nafdacCode) {
-  return await prisma.medication.findUnique({
+ return await prisma.medication.findFirst({
     where: { nafdacCode },
   });
 }

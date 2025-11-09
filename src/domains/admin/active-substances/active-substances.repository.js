@@ -72,7 +72,6 @@ async function searchActiveSubstances({ search, limit }) {
     ? {
         OR: [
           { name: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
         ],
       }
     : {};
@@ -83,8 +82,7 @@ async function searchActiveSubstances({ search, limit }) {
     orderBy: { name: 'asc' },
     select: {
       id: true,
-      name: true,
-      description: true,
+      name: true
     },
   });
 }

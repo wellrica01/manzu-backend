@@ -1,0 +1,76 @@
+{
+  "timestamp": "2025-11-09T13:56:06.403Z",
+  "config": {
+    "dryRun": false,
+    "batchSize": 100,
+    "pharmacyIdRange": {
+      "min": 1,
+      "max": 9
+    }
+  },
+  "summary": {
+    "totalPharmacies": 9,
+    "processed": 9,
+    "successful": 0,
+    "failed": 9,
+    "updatesPerformed": 0,
+    "successRate": "0.00%"
+  },
+  "warnings": [],
+  "errors": [
+    {
+      "pharmacyId": 1,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 1,\n      medicationId: 6311\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 250000\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 2,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 2,\n      medicationId: 1759\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 1802\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 3,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 3,\n      medicationId: 3920\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 3882\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 4,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 4,\n      medicationId: 2577\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 3840.9999999999995\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 5,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 5,\n      medicationId: 1890\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 3592\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 6,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 6,\n      medicationId: 1931\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 1455\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 7,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 7,\n      medicationId: 2429\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 1338\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 8,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 8,\n      medicationId: 4065\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 3670.0000000000005\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    },
+    {
+      "pharmacyId": 9,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n{\n  where: {\n    pharmacyId_medicationId: {\n    ~~~~~~~~~~~~~~~~~~~~~~~\n      pharmacyId: 9,\n      medicationId: 5625\n    },\n?   medicationId_pharmacyId?: MedicationAvailabilityMedicationIdPharmacyIdCompoundUniqueInput,\n?   AND?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   OR?: MedicationAvailabilityWhereInput[],\n?   NOT?: MedicationAvailabilityWhereInput | MedicationAvailabilityWhereInput[],\n?   medicationId?: IntFilter | Int,\n?   pharmacyId?: IntFilter | Int,\n?   stock?: IntNullableFilter | Int | Null,\n?   price?: FloatNullableFilter | Float | Null,\n?   receivedDate?: DateTimeNullableFilter | DateTime | Null,\n?   expiryDate?: DateTimeNullableFilter | DateTime | Null,\n?   batchNumber?: StringNullableFilter | String | Null,\n?   Medication?: MedicationScalarRelationFilter | MedicationWhereInput,\n?   Pharmacy?: PharmacyScalarRelationFilter | PharmacyWhereInput,\n?   OrderItem?: OrderItemListRelationFilter,\n?   PriceHistory?: PriceHistoryListRelationFilter\n  },\n  data: {\n    price: 4333\n  }\n}\n\nUnknown argument `pharmacyId_medicationId`. Available options are marked with ?."
+      ]
+    }
+  ]
+}

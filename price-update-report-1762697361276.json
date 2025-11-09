@@ -1,0 +1,76 @@
+{
+  "timestamp": "2025-11-09T14:09:21.245Z",
+  "config": {
+    "dryRun": false,
+    "batchSize": 100,
+    "pharmacyIdRange": {
+      "min": 1,
+      "max": 9
+    }
+  },
+  "summary": {
+    "totalPharmacies": 9,
+    "processed": 9,
+    "successful": 0,
+    "failed": 9,
+    "updatesPerformed": 0,
+    "successRate": "0.00%"
+  },
+  "warnings": [],
+  "errors": [
+    {
+      "pharmacyId": 1,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nCan't reach database server at `aws-0-eu-central-2.pooler.supabase.com:6543`\n\nPlease make sure your database server is running at `aws-0-eu-central-2.pooler.supabase.com:6543`."
+      ]
+    },
+    {
+      "pharmacyId": 2,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n\nCan't reach database server at `aws-0-eu-central-2.pooler.supabase.com:6543`\n\nPlease make sure your database server is running at `aws-0-eu-central-2.pooler.supabase.com:6543`."
+      ]
+    },
+    {
+      "pharmacyId": 3,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nTimed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 5)"
+      ]
+    },
+    {
+      "pharmacyId": 4,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s3\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 5,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s6\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 6,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s3\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    },
+    {
+      "pharmacyId": 7,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nTimed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 5)"
+      ]
+    },
+    {
+      "pharmacyId": 8,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.findMany()` invocation:\n\n\nTimed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 5)"
+      ]
+    },
+    {
+      "pharmacyId": 9,
+      "errors": [
+        "Processing failed: \nInvalid `prisma.medicationAvailability.update()` invocation:\n\n\nError occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: \"26000\", message: \"prepared statement \\\"s10\\\" does not exist\", severity: \"ERROR\", detail: None, column: None, hint: None }), transient: false })"
+      ]
+    }
+  ]
+}
