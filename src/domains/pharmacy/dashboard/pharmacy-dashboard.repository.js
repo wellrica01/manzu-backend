@@ -98,6 +98,7 @@ async function getDashboardMetrics(pharmacyId, { startOfDay, endOfDay, startOfYe
     pendingOrders: getStatusCount('CONFIRMED'),
     processingOrders: getStatusCount('PROCESSING'),
     readyOrders: getStatusCount('READY_FOR_PICKUP'),
+    completedOrders: getStatusCount('COMPLETED'),
     inventoryAlerts: lowStockCount,
     expiringMeds: expiringCount,
     revenueToday: Number(orderRevenueResult.revenue_today),

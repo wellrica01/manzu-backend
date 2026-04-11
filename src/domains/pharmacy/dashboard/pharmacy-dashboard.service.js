@@ -79,6 +79,7 @@ async function getDashboardData(pharmacyId) {
     pendingOrders: metrics.pendingOrders,
     processingOrders: metrics.processingOrders,
     readyOrders: metrics.readyOrders,
+    completedOrders: metrics.completedOrders,
     inventoryAlerts: metrics.inventoryAlerts,
     expiringMeds: metrics.expiringMeds,
     topSellingMeds: topSellingMeds.map(med => ({
