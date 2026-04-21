@@ -65,6 +65,7 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const consentRoutes = require('./routes/consent');
 const refundRoutes = require('./routes/refunds');
+const prisma = require('./core/database/prisma');
 require('./jobs/cron');
 
 const app = express();
@@ -262,6 +263,29 @@ const { apiLimiter, authLimiter, checkoutLimiter } = require('./middleware/rate-
 // ====== HEALTH CHECK ======
 app.get('/', (req, res) => {
   res.send('Manzu backend is live 🚀');
+});
+
+app.get('/health', async (req, res) => {
+  const start = Date.now();
+  try {
+    // Ping database
+    await prisma.$queryRaw`SELECT 1`;
+    const latency = Date.now() - start;
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      db: 'connected',
+      latencyMs: latency,
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      db: 'disconnected',
+      error: error.message,
+    });
+  }
 });
 
 // ====== API ROUTES ======
