@@ -10,6 +10,8 @@ const pharmacyDashboardService = require('../domains/pharmacy/dashboard/pharmacy
 const pharmacySalesService = require('../domains/pharmacy/sales/pharmacy-sales.service');
 const pharmacyBankingService = require('../domains/pharmacy/banking/pharmacy-banking.service');
 const pharmacyPayoutsService = require('../domains/pharmacy/payouts/pharmacy-payouts.service');
+const pharmacyPushService = require('../domains/pharmacy/push/push.service');
+const { validateRegisterPushToken, validatePushTokenParam } = require('../domains/pharmacy/push/push.validation');
 const { validateFetchOrders, validateUpdateOrder, 
   validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
@@ -689,6 +691,39 @@ router.post('/notifications/register', authenticatePharmacy, async (req, res) =>
   } catch (error) {
     console.error('Device registration error:', { message: error.message, stack: error.stack });
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// POST /pharmacy/push-tokens - Register this device for push (one row per device)
+router.post('/push-tokens', authenticatePharmacy, async (req, res) => {
+  try {
+    const { error, value } = validateRegisterPushToken(req.body);
+    if (error) {
+      return res.status(400).json({ message: error.message });
+    }
+    const { userId, pharmacyId } = req.user;
+    await pharmacyPushService.registerToken({ userId, pharmacyId, token: value.token, platform: value.platform });
+    res.status(200).json({ message: 'Push token registered' });
+  } catch (error) {
+    // Never log the token itself.
+    console.error('Push token register error:', { message: error.message });
+    res.status(error.status === 400 ? 400 : 500).json({ message: error.status === 400 ? error.message : 'Server error' });
+  }
+});
+
+// DELETE /pharmacy/push-tokens/:token - Unregister this device (call on logout; the token must be URL-encoded)
+router.delete('/push-tokens/:token', authenticatePharmacy, async (req, res) => {
+  try {
+    const { error, value } = validatePushTokenParam({ token: req.params.token });
+    if (error) {
+      return res.status(400).json({ message: error.message });
+    }
+    const { userId, pharmacyId } = req.user;
+    await pharmacyPushService.unregisterToken({ userId, pharmacyId, token: value.token });
+    res.status(200).json({ message: 'Push token removed' });
+  } catch (error) {
+    console.error('Push token delete error:', { message: error.message });
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

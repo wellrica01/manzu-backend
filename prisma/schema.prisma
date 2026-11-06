@@ -315,6 +315,7 @@ model Pharmacy {
   Order                  Order[]
   Payout                 Payout[]
   PharmacyUser           PharmacyUser[]
+  PushToken              PushToken[]
   Sale                   Sale[]
 
   @@index([licenseNumber])
@@ -334,8 +335,24 @@ model PharmacyUser {
   createdAt           DateTime              @default(now())
   Pharmacy            Pharmacy              @relation(fields: [pharmacyId], references: [id])
   PharmacyUserConsent PharmacyUserConsent[]
+  PushToken           PushToken[]
 
   @@index([email])
+}
+
+model PushToken {
+  id           Int          @id @default(autoincrement())
+  userId       Int
+  pharmacyId   Int
+  token        String       @unique
+  platform     String       @db.VarChar(20)
+  createdAt    DateTime     @default(now())
+  lastSeenAt   DateTime     @default(now())
+  PharmacyUser PharmacyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Pharmacy     Pharmacy     @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@index([pharmacyId])
+  @@index([userId])
 }
 
 model PharmacyUserConsent {

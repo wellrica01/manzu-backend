@@ -10,6 +10,7 @@ const {
 } = require('../utils/medicationUtils');
 const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
 const { alertPaymentVerificationFailed, alertPaymentGatewayDown } = require('../utils/error-reporter');
+const { notifyNewPaidOrders } = require('../domains/pharmacy/push/push.service');
 
 const prisma = new PrismaClient();
 
@@ -441,6 +442,15 @@ async function confirmOrder({ reference, session, userId }) {
       timeout: 15000, // 15 second timeout for entire transaction
       isolationLevel: 'Serializable' // Highest isolation level for payment operations
     });
+
+    // Push to the pharmacy app. Fire-and-forget: never delays or fails the payment response.
+    // notifyNewPaidOrders never throws and sends only once per order (the webhook may have won the race).
+    const paidOrderIds = updatedOrders
+      .filter(o => o.status === 'CONFIRMED' && o.paymentStatus === 'PAID')
+      .map(o => o.id);
+    if (paidOrderIds.length > 0) {
+      setImmediate(() => { notifyNewPaidOrders(paidOrderIds); });
+    }
 
     // ✅ Format and return response
     return formatOrderResponse(updatedOrders, session);
