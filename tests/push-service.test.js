@@ -1,8 +1,6 @@
 /**
  * Unit tests for the pharmacy push service (G4). No database, no network:
  * Prisma and the Expo sender are mocked.
- * Run: npx jest --config '{"testEnvironment":"node","rootDir":".","testMatch":["**/tests/push-service.test.js"]}' --runInBand
- * (the repo's jest config points at tests/setup.js, which does not exist)
  */
 
 const mockPrisma = {
