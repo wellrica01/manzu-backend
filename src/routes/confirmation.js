@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const confirmationService = require('../services/confirmationService');
 const payoutsService = require('../domains/pharmacy/payouts/pharmacy-payouts.service');
+const { notifyPaidOrdersByReferences } = require('../domains/pharmacy/push/push.service');
 const { validateOrderConfirmation } = require('../utils/validation');
 const { PrismaClient } = require('@prisma/client');
 const router = express.Router();
@@ -136,6 +137,9 @@ router.post('/webhook', async (req, res) => {
       });
       
       console.log('Orders updated to paid status for reference:', reference);
+
+      // Push to the pharmacy app. Fire-and-forget; never throws; sends once per order.
+      setImmediate(() => { notifyPaidOrdersByReferences(transactionRef.orderReferences); });
     } else if (event === 'charge.failed') {
       // ✅ PAYMENT FAILURE HANDLER: Restore stock when payment fails
       const { reference, amount, customer, gateway_response } = data;
