@@ -6,6 +6,7 @@ const pharmacyOrdersService = require('../domains/pharmacy/orders/pharmacy-order
 const pharmacyMedicationsService = require('../domains/pharmacy/medications/pharmacy-medications.service');
 const pharmacyUsersService = require('../domains/pharmacy/users/pharmacy-users.service');
 const pharmacyProfileService = require('../domains/pharmacy/profile/pharmacy-profile.service');
+const pharmacyAnalyticsService = require('../domains/pharmacy/analytics/pharmacy-analytics.service');
 const pharmacyDashboardService = require('../domains/pharmacy/dashboard/pharmacy-dashboard.service');
 const pharmacySalesService = require('../domains/pharmacy/sales/pharmacy-sales.service');
 const pharmacyBankingService = require('../domains/pharmacy/banking/pharmacy-banking.service');
@@ -860,6 +861,21 @@ router.post('/operating-hours', authenticatePharmacy, authorizeRoles('MANAGER'),
   }
 });
 
+
+// GET /pharmacy/analytics - Aggregated analytics for the mobile Analytics screen (G8)
+router.get('/analytics', authenticatePharmacy, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const data = await pharmacyAnalyticsService.getAnalytics(req.user.pharmacyId, { from, to });
+    res.status(200).json({ message: 'Analytics fetched', ...data });
+  } catch (error) {
+    if (error.status === 400) {
+      return res.status(400).json({ error: error.code || 'BAD_REQUEST', message: error.message });
+    }
+    console.error('Analytics error:', { message: error.message, stack: error.stack });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Server error' });
+  }
+});
 
 // GET /pharmacy/dashboard - Dashboard summary for pharmacy 
 router.get('/dashboard', authenticatePharmacy, async (req, res) => {
