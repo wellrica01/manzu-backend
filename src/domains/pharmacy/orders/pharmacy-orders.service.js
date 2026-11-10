@@ -8,6 +8,56 @@ const repository = require('./pharmacy-orders.repository');
 const prisma = require('../../../core/database/prisma');
 const { HTTP_STATUS } = require('../../../config/constants');
 
+
+/**
+ * Server-side order status transition graph (G10).
+ * Enforced in both single and bulk updates. Mirrors PLAN.md D1: every status that is
+ * reachable for the delivery method is offered, whatever the current status is.
+ *
+ * @throws {Error} with `.status = 400` and `.code = 'INVALID_STATUS_TRANSITION'`
+ */
+const ALLOWED_TRANSITIONS = {
+  // from -> [to...]
+  CART: [],
+  PENDING: [],
+  PENDING_PRESCRIPTION: [],
+  CONFIRMED: ['PROCESSING', 'READY_FOR_PICKUP', 'CANCELLED'],
+  PROCESSING: ['SHIPPED', 'READY_FOR_PICKUP', 'CANCELLED'],
+  SHIPPED: ['DELIVERED', 'CANCELLED'],
+  READY_FOR_PICKUP: ['COMPLETED', 'CANCELLED'],
+  DELIVERED: ['COMPLETED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+function assertValidTransition(order, newStatus) {
+  const current = order.status;
+  if (current === newStatus) return; // no-op, handled by caller
+  const allowed = ALLOWED_TRANSITIONS[current] ?? [];
+  if (!allowed.includes(newStatus)) {
+    const error = new Error(`Cannot move order from ${current} to ${newStatus}`);
+    error.status = 400;
+    error.code = 'INVALID_STATUS_TRANSITION';
+    throw error;
+  }
+  // Delivery-method constraints
+  if (newStatus === 'SHIPPED' || newStatus === 'DELIVERED') {
+    if (order.deliveryMethod !== 'COURIER') {
+      const error = new Error(`${newStatus} is only allowed for COURIER orders`);
+      error.status = 400;
+      error.code = 'INVALID_STATUS_TRANSITION';
+      throw error;
+    }
+  }
+  if (newStatus === 'READY_FOR_PICKUP' && order.deliveryMethod !== 'PICKUP') {
+    const error = new Error('READY_FOR_PICKUP is only allowed for PICKUP orders');
+    error.status = 400;
+    error.code = 'INVALID_STATUS_TRANSITION';
+    throw error;
+  }
+}
+
+
 /**
  * Fetch orders for a pharmacy with filters and pagination
  */
@@ -210,60 +260,62 @@ async function fetchOrderById(pharmacyId, orderId) {
 /**
  * Update order status
  */
-async function updateOrderStatus(orderId, status, pharmacyId) {
+/**
+ * Update order status
+ *
+ * G7: accepts cancelReason and restocks unpaid cancels (mirrors bulk behavior).
+ * G10: enforces the transition graph before touching the order.
+ * Idempotent: same-status updates are a no-op (prevents duplicate refunds).
+ */
+async function updateOrderStatus(orderId, status, pharmacyId, cancelReason) {
   const refundService = require('../../../services/refundService');
   const { sendOrderRejectionNotification } = require('../../../utils/notifications');
   const { createAuditLog, ENTITY_TYPES } = require('../../../utils/audit-logger');
-  
-  // Find the order that belongs to the given pharmacy
-  const order = await repository.findOrderForUpdate(orderId, pharmacyId);
 
+  const order = await repository.findOrderForUpdate(orderId, pharmacyId);
   if (!order) {
-    throw new Error('Order not found for pharmacy');
+    const error = new Error('Order not found for pharmacy');
+    error.status = 404;
+    error.code = 'ORDER_NOT_FOUND';
+    throw error;
   }
 
-  // Check if this is a rejection of a paid order
+  // Idempotent: same-status change is a no-op (bulk already has this check).
+  if (order.status === status) {
+    const error = new Error(`Order is already in ${status} status`);
+    error.status = 409;
+    error.code = 'STATUS_UNCHANGED';
+    throw error;
+  }
+
+  // G10: reject impossible transitions before doing any work.
+  assertValidTransition(order, status);
+
   const isRejection = status === 'CANCELLED';
   const isPaidOrder = order.paymentStatus === 'PAID';
   const needsAutoRefund = isRejection && isPaidOrder;
+  const reason = cancelReason || (needsAutoRefund ? 'Pharmacy rejected order' : 'Pharmacy cancelled order');
 
   if (needsAutoRefund) {
     console.log(`⚠️  Pharmacy ${pharmacyId} rejecting PAID order ${orderId} - initiating auto-refund...`);
-    
-    // Use transaction to ensure atomicity
-    return await prisma.$transaction(async (tx) => {
-      // 1. Update order status
-      const updateData = { 
-        status,
-        cancelledAt: new Date(),
-        cancelReason: `Pharmacy rejected order`
-      };
 
+    return await prisma.$transaction(async (tx) => {
+      const updateData = { status, cancelledAt: new Date(), cancelReason: reason };
       const updatedOrder = await repository.updateOrderStatusWithTransaction(orderId, pharmacyId, updateData, tx);
 
-      // 2. Restore stock for all order items
-      console.log(`📦 Restoring stock for ${order.OrderItem.length} items...`);
-      
       for (const item of order.OrderItem) {
         await repository.restoreStock(item.medicationId, item.pharmacyId, item.quantity, tx);
-        console.log(`  ✅ Restored ${item.quantity}x ${item.MedicationAvailability.Medication.brandName}`);
       }
 
-      // 3. Create automatic refund
-      console.log('💰 Creating automatic refund...');
-      
       const refund = await repository.createRefund({
         amount: order.totalPrice,
-        reason: `Pharmacy rejected order`,
+        reason,
         refundType: 'AUTOMATIC',
         status: 'PENDING',
         initiatedBy: pharmacyId,
-        orderId: orderId
+        orderId
       }, tx);
 
-      console.log(`✅ Refund created: ID ${refund.id}, Amount: ${order.totalPrice}`);
-
-      // 4. Create audit log
       await createAuditLog({
         action: 'PHARMACY_ORDER_REJECTED',
         entityType: ENTITY_TYPES.ORDER,
@@ -280,48 +332,58 @@ async function updateOrderStatus(orderId, status, pharmacyId) {
         tx
       }).catch(err => console.warn('Failed to create audit log:', err));
 
-      // 5. Send notifications (async, don't block transaction)
       setImmediate(async () => {
-        try {
-          await sendOrderRejectionNotification(order, refund);
-        } catch (error) {
-          console.error('Failed to send rejection notification:', error);
-        }
+        try { await sendOrderRejectionNotification(order, refund); }
+        catch (err) { console.error('Failed to send rejection notification:', err); }
       });
 
-      // 6. Auto-process refund (async, don't block transaction)
       setImmediate(async () => {
-        try {
-          console.log('🤖 Auto-processing refund...');
-          await refundService.processRefund(refund.id);
-        } catch (error) {
-          console.error('Failed to auto-process refund:', error);
-        }
+        try { await refundService.processRefund(refund.id); }
+        catch (err) { console.error('Failed to auto-process refund:', err); }
       });
 
-      console.log(`✅ Order ${orderId} rejected with auto-refund and stock restoration`);
-      
       return updatedOrder;
     });
   }
 
-  // Normal status update (no refund needed)
-  const updateData = { status };
+  // Unpaid cancel: restock, no refund (mirrors bulk behavior).
+  if (status === 'CANCELLED') {
+    return await prisma.$transaction(async (tx) => {
+      const updatedOrder = await repository.updateOrderStatusWithTransaction(orderId, pharmacyId, {
+        status,
+        cancelledAt: new Date(),
+        cancelReason: reason
+      }, tx);
 
-  // Set filledAt timestamp for completed statuses
+      for (const item of order.OrderItem) {
+        await repository.restoreStock(item.medicationId, item.pharmacyId, item.quantity, tx);
+      }
+
+      await createAuditLog({
+        action: 'PHARMACY_ORDER_CANCELLED',
+        entityType: ENTITY_TYPES.ORDER,
+        entityId: orderId,
+        userId: null,
+        details: { pharmacyId, pharmacyName: order.Pharmacy?.name, reason, stockRestored: true },
+        tx
+      }).catch(err => console.warn('Failed to create audit log:', err));
+
+      return updatedOrder;
+    });
+  }
+
+  // Regular status update (PROCESSING / SHIPPED / DELIVERED / READY_FOR_PICKUP / COMPLETED).
+  const updateData = { status };
   if (status === 'DELIVERED' || status === 'READY_FOR_PICKUP') {
     updateData.filledAt = new Date();
   }
+  if (status === 'COMPLETED') {
+    updateData.filledAt = order.filledAt ?? new Date();
+  }
 
-  // Update order record
   const updatedOrder = await repository.updateOrderStatus(orderId, updateData);
 
-  console.log('Order status updated:', { 
-    orderId, 
-    status: updatedOrder.status, 
-    filledAt: updatedOrder.filledAt,
-    pharmacyId 
-  });
+  console.log('Order status updated:', { orderId, status: updatedOrder.status, filledAt: updatedOrder.filledAt, pharmacyId });
 
   return updatedOrder;
 }
@@ -360,6 +422,9 @@ async function bulkUpdateOrderStatus(orderIds, status, pharmacyId, cancelReason)
         });
         continue;
       }
+
+      // G10: reject impossible transitions before doing any work.
+      assertValidTransition(order, status);
 
       // Check if this is a rejection of a paid order
       const isRejection = status === 'CANCELLED';

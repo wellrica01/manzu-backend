@@ -485,23 +485,37 @@ router.get('/orders/:orderId', authenticatePharmacy, async (req, res) => {
 });
 
 
-
-// PATCH /pharmacy/orders/:orderId - Update order status (new schema)
+// PATCH /pharmacy/orders/:orderId - Update order status
 router.patch('/orders/:orderId', authenticatePharmacy, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { status } = req.body;
+    const { status, cancelReason } = req.body;
 
-    // Validate input
-    const { error } = validateUpdateOrder({ orderId, status });
+    const { error } = validateUpdateOrder({ orderId, status, cancelReason });
     if (error) {
-      console.error('Validation error:', error.message);
-      return res.status(400).json({ message: error.message });
+      return res.status(400).json({
+        message: error.message,
+        errors: error.details.map(d => d.message),
+      });
     }
 
-    const updatedOrder = await pharmacyOrdersService.updateOrderStatus(Number(orderId), status, req.user.pharmacyId);
+    const updatedOrder = await pharmacyOrdersService.updateOrderStatus(
+      Number(orderId),
+      status,
+      req.user.pharmacyId,
+      cancelReason
+    );
     res.status(200).json({ message: 'Order status updated', order: updatedOrder });
   } catch (error) {
+    if (error.code === 'INVALID_STATUS_TRANSITION') {
+      return res.status(400).json({ message: error.message, error: 'INVALID_STATUS_TRANSITION' });
+    }
+    if (error.code === 'STATUS_UNCHANGED') {
+      return res.status(409).json({ message: error.message, error: 'STATUS_UNCHANGED' });
+    }
+    if (error.code === 'ORDER_NOT_FOUND') {
+      return res.status(404).json({ message: error.message, error: 'ORDER_NOT_FOUND' });
+    }
     console.error('Order update error:', { message: error.message, stack: error.stack });
     res.status(500).json({ message: 'Server error', error: error.message });
   }
