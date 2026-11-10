@@ -43,6 +43,23 @@ const AUTH_RATE_LIMIT = {
 };
 
 /**
+ * Session endpoints (refresh / logout) used by the mobile app.
+ * Separate from AUTH_RATE_LIMIT on purpose: a stale token must not eat the login attempt budget,
+ * and every request is counted (not only failures).
+ */
+const SESSION_RATE_LIMIT = {
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 300,
+  message: {
+    error: 'RATE_LIMIT_EXCEEDED',
+    message: 'Too many session requests. Please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+};
+
+/**
  * TIER 3: Payment/Checkout Rate Limit (Restricted)
  * Prevents payment fraud and checkout abuse
  */
@@ -61,5 +78,6 @@ const CHECKOUT_RATE_LIMIT = {
 module.exports = {
   API_RATE_LIMIT,
   AUTH_RATE_LIMIT,
+  SESSION_RATE_LIMIT,
   CHECKOUT_RATE_LIMIT,
 };

@@ -6,7 +6,7 @@
  */
 
 const rateLimit = require('express-rate-limit');
-const { API_RATE_LIMIT, AUTH_RATE_LIMIT, CHECKOUT_RATE_LIMIT } = require('../config/rate-limits');
+const { API_RATE_LIMIT, AUTH_RATE_LIMIT, SESSION_RATE_LIMIT, CHECKOUT_RATE_LIMIT } = require('../config/rate-limits');
 
 // ==================== TIER 1: General API Rate Limit ====================
 const apiLimiter = rateLimit({
@@ -29,6 +29,14 @@ const authLimiter = rateLimit({
   },
 });
 
+const sessionLimiter = rateLimit({
+  ...SESSION_RATE_LIMIT,
+  handler: (req, res) => {
+    console.log(`Session rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json(SESSION_RATE_LIMIT.message);
+  },
+});
+
 // ==================== TIER 3: Checkout Rate Limit ====================
 const checkoutLimiter = rateLimit({
   ...CHECKOUT_RATE_LIMIT,
@@ -47,5 +55,6 @@ console.log(`  - Checkout: ${CHECKOUT_RATE_LIMIT.max} attempts / ${CHECKOUT_RATE
 module.exports = {
   apiLimiter,
   authLimiter,
+  sessionLimiter,
   checkoutLimiter,
 };

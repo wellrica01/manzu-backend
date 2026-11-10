@@ -336,8 +336,25 @@ model PharmacyUser {
   Pharmacy            Pharmacy              @relation(fields: [pharmacyId], references: [id])
   PharmacyUserConsent PharmacyUserConsent[]
   PushToken           PushToken[]
+  PharmacyRefreshToken PharmacyRefreshToken[]
 
   @@index([email])
+}
+
+model PharmacyRefreshToken {
+  id           Int          @id @default(autoincrement())
+  userId       Int
+  familyId     String       @db.VarChar(36)
+  tokenHash    String       @unique @db.VarChar(64)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  rotatedAt    DateTime?
+  deviceInfo   String?      @db.VarChar(200)
+  createdAt    DateTime     @default(now())
+  PharmacyUser PharmacyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
 }
 
 model PushToken {
