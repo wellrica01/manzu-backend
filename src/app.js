@@ -62,6 +62,7 @@ const medConfirmationRoutes = require('./routes/confirmation');
 const medTrackRoutes = require('./routes/track');
 const pharmacyRoutes = require('./routes/pharmacy');
 const authRoutes = require('./routes/auth');
+const sessionRoutes = require('./routes/session');
 const adminRoutes = require('./routes/admin');
 const consentRoutes = require('./routes/consent');
 const refundRoutes = require('./routes/refunds');
@@ -292,6 +293,9 @@ app.use('/api/med-confirmation', medConfirmationRoutes);
 app.use('/api/med-track', medTrackRoutes);
 app.use('/api/pharmacy', pharmacyRoutes);
 // Apply strict rate limiting to auth routes
+// Session routes (refresh / logout / me) are mounted first with their own limiter, so they never
+// count against the strict login limiter below. Anything else under /api/auth falls through.
+app.use('/api/auth', sessionRoutes);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/consent', consentRoutes);

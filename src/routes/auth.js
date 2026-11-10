@@ -2,6 +2,7 @@ const z = require('zod');
 
 const express = require('express');
 const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.service');
+const { deviceInfoFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
 const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminRegisterSchema, adminLoginSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
@@ -13,10 +14,11 @@ console.log('✅ Auth routes loaded - using domain services with repository patt
 router.post('/register', async (req, res) => {
   try {
     const { pharmacy, user } = registerSchema.parse(req.body);
-    const { token, user: newUser, pharmacy: newPharmacy } = await pharmacyAuthService.registerPharmacyAndUser({ pharmacy, user });
+    const { token, refreshToken, user: newUser, pharmacy: newPharmacy } = await pharmacyAuthService.registerPharmacyAndUser({ pharmacy, user, deviceInfo: deviceInfoFromRequest(req) });
     res.status(201).json({
       message: 'Registration successful',
       token,
+      refreshToken,
       user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role && newUser.role.toUpperCase() },
       pharmacy: { id: newPharmacy.id, name: newPharmacy.name },
     });
@@ -33,12 +35,14 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, pin } = loginSchema.parse(req.body);
-    const { token, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin });
+    const { token, refreshToken, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin, deviceInfo: deviceInfoFromRequest(req) });
     res.status(200).json({
       message: 'Login successful',
       token,
+      refreshToken,
       user: { id: user.id, email: user.email, name: user.name, role: user.role && user.role.toUpperCase() },
-      pharmacy: { id: pharmacy.id, name: pharmacy.name },
+      // G11: status and isActive are returned (not blocked), so the app can show a banner (PLAN D4).
+      pharmacy: { id: pharmacy.id, name: pharmacy.name, status: pharmacy.status, isActive: pharmacy.isActive },
     });
   } catch (error) {
     console.error('Login error:', { message: error.message, stack: error.stack });

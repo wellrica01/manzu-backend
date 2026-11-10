@@ -5,15 +5,15 @@
  */
 
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
 const { validateLocation } = require('../../../utils/location');
 const pharmacyAuthRepository = require('./pharmacy-auth.repository');
+const sessionService = require('./pharmacy-session.service');
 const { HTTP_STATUS, ERROR_CODES } = require('../../../config/constants');
 
 /**
  * Register pharmacy and initial user
  */
-async function registerPharmacyAndUser({ pharmacy, user }) {
+async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
   // Validate location (state, lga, and GPS bounds)
   validateLocation(pharmacy.state, pharmacy.lga, pharmacy.latitude, pharmacy.longitude);
 
@@ -61,20 +61,16 @@ async function registerPharmacyAndUser({ pharmacy, user }) {
     accuracy: result.pharmacy.locationAccuracy,
   });
 
-  // Generate JWT token
-  const token = jwt.sign(
-    { userId: result.user.id, pharmacyId: result.pharmacy.id, role: result.user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: '1d' }
-  );
+  // Access token + refresh token (same session setup as login)
+  const { token, refreshToken } = await sessionService.startSession(result.user, deviceInfo);
 
-  return { token, user: result.user, pharmacy: result.pharmacy };
+  return { token, refreshToken, user: result.user, pharmacy: result.pharmacy };
 }
 
 /**
  * Login pharmacy user
  */
-async function loginUser({ email, pin }) {
+async function loginUser({ email, pin, deviceInfo }) {
   const user = await pharmacyAuthRepository.findPharmacyUserByEmail(email);
   
   if (!user) {
@@ -94,13 +90,9 @@ async function loginUser({ email, pin }) {
 
   console.log('User authenticated with PIN:', { userId: user.id, pharmacyId: user.pharmacyId });
 
-  const token = jwt.sign(
-    { userId: user.id, pharmacyId: user.pharmacyId, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: '1d' }
-  );
+  const { token, refreshToken } = await sessionService.startSession(user, deviceInfo);
 
-  return { token, user, pharmacy: user.Pharmacy };
+  return { token, refreshToken, user, pharmacy: user.Pharmacy };
 }
 
 /**
@@ -173,6 +165,9 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
 
   const updatedUser = await pharmacyAuthRepository.updatePharmacyUser(userId, updateData);
 
+  // A new PIN signs the user out everywhere: their refresh tokens stop working.
+  if (pin) await sessionService.revokeAllForUser(userId);
+
   console.log('User updated:', { userId: updatedUser.id, pharmacyId });
 
   return updatedUser;
@@ -222,6 +217,7 @@ async function changePharmacyUserPin(userId, currentPin, newPin) {
   const hashedPin = await bcrypt.hash(newPin, salt);
 
   await pharmacyAuthRepository.updatePharmacyUser(userId, { password: hashedPin });
+  await sessionService.revokeAllForUser(userId);
 
   return { success: true };
 }
