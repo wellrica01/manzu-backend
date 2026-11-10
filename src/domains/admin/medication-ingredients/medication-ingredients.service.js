@@ -10,12 +10,18 @@ const { HTTP_STATUS, ERROR_CODES } = require('../../../config/constants');
 /**
  * Get medication ingredients with pagination and filtering
  */
-async function getMedicationIngredients({ page = 1, limit = 20, substanceId }) {
+async function getMedicationIngredients({ page = 1, limit = 20, substanceId, medicationId }) {
   const take = Number(limit);
   const skip = (Number(page) - 1) * take;
   const where = {};
   
   if (substanceId) where.substanceId = Number(substanceId);
+
+  if (medicationId) {
+    where.Medication_MedicationIngredient = {
+      some: { medicationId: Number(medicationId) },
+    };
+  }
 
   const [medicationIngredients, total] = await medicationIngredientsRepository.findMedicationIngredients({
     skip,

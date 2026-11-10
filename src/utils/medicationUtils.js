@@ -268,42 +268,49 @@ async function linkIngredients(tx, medicationId, ingredients, removeOrphans = fa
  
    const newIngredientIds = [];
  
-   // 3️⃣ Find or create ingredients (these are shared, not owned by a medication)
-   for (const ingredient of ingredients) {
-        let medIngredient;
-   if (ingredient.id) {
-     medIngredient = await tx.medicationIngredient.findUnique({
+  // 3️⃣ Find or create ingredients (these are shared, not owned by a medication)
+  for (const ingredient of ingredients) {
+    let medIngredient;
+
+    if (ingredient.id) {
+      medIngredient = await tx.medicationIngredient.findUnique({
         where: { id: ingredient.id },
       });
       if (!medIngredient) {
         throw new Error(`Ingredient ${ingredient.id} not found`);
       }
     } else {
-       let medIngredient = await tx.medicationIngredient.findFirst({
-         where: {
-           substanceId: ingredient.activeSubstanceId,
-           strengthValue: ingredient.strengthValue || null,
-           strengthUnit: ingredient.strengthUnit || null,
-           perUnitValue: ingredient.perUnitValue || null,
-           perUnitType: ingredient.perUnitType || null,
-         },
-       });
- 
-       if (!medIngredient) {
-         medIngredient = await tx.medicationIngredient.create({
-           data: {
-             substanceId: ingredient.activeSubstanceId,
-             strengthValue: ingredient.strengthValue || null,
-             strengthUnit: ingredient.strengthUnit || null,
-             perUnitValue: ingredient.perUnitValue || null,
-             perUnitType: ingredient.perUnitType || null,
-           },
-         });
-       }
+      if (!ingredient.activeSubstanceId) {
+        throw new Error(
+          `Ingredient missing activeSubstanceId: ${JSON.stringify(ingredient)}`
+        );
+      }
+
+      medIngredient = await tx.medicationIngredient.findFirst({
+        where: {
+          substanceId: ingredient.activeSubstanceId,
+          strengthValue: ingredient.strengthValue || null,
+          strengthUnit: ingredient.strengthUnit || null,
+          perUnitValue: ingredient.perUnitValue || null,
+          perUnitType: ingredient.perUnitType || null,
+        },
+      });
+
+      if (!medIngredient) {
+        medIngredient = await tx.medicationIngredient.create({
+          data: {
+            substanceId: ingredient.activeSubstanceId,
+            strengthValue: ingredient.strengthValue || null,
+            strengthUnit: ingredient.strengthUnit || null,
+            perUnitValue: ingredient.perUnitValue || null,
+            perUnitType: ingredient.perUnitType || null,
+          },
+        });
+      }
     }
- 
-     newIngredientIds.push(medIngredient.id);
-   }
+
+    newIngredientIds.push(medIngredient.id);
+  }
  
    // 4️⃣ Re-link all new ingredients to this medication
    await tx.medication_MedicationIngredient.createMany({
