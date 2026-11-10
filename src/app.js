@@ -70,6 +70,11 @@ const prisma = require('./core/database/prisma');
 require('./jobs/cron');
 
 const app = express();
+// Render sits behind Cloudflare + its own proxy; trust the first hop so req.ip is the client IP.
+// Without this, express-rate-limit sees one shared IP for all users (5 failed PINs lock everyone out).
+app.set('trust proxy', 1);
+
+
 const cors = require('cors');
 
 // ✅ Sentry request handler MUST be first middleware
