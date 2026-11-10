@@ -138,6 +138,10 @@ async function confirmOrder({ reference, session, userId }) {
     }
 
     if (transactionRef) {
+      if (transactionRef.checkoutSessionId !== session) {
+        throw new Error('Transaction reference does not match checkout session');
+      }
+
       console.log('📝 Transaction ref details:', {
         transactionReference: transactionRef.transactionReference,
         orderReferences: transactionRef.orderReferences,
@@ -148,7 +152,7 @@ async function confirmOrder({ reference, session, userId }) {
     // ✅ Fetch orders linked to reference/session
     const orderWhere = transactionRef
       ? {
-          userIdentifier: userId,
+          checkoutSessionId: session,
           paymentReference: { in: transactionRef.orderReferences },
         }
       : {
