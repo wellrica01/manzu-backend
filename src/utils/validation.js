@@ -345,6 +345,12 @@ function validateUpdateOrder(data) {
   const schema = Joi.object({
     orderId: Joi.string().pattern(/^[0-9]+$/).required(),
     status: Joi.string().valid('PROCESSING', 'SHIPPED', 'DELIVERED', 'READY_FOR_PICKUP', 'CANCELLED', 'COMPLETED').required(),
+    cancelReason: Joi.string()
+      .when('status', {
+        is: 'CANCELLED',
+        then: Joi.string().trim().min(1).max(500).required(),
+        otherwise: Joi.string().trim().max(500).optional().allow(null, '')
+      })
   });
   return schema.validate(data, { abortEarly: false });
 }
