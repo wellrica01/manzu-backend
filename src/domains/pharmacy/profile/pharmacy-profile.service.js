@@ -42,7 +42,6 @@ async function editProfile({ user, pharmacy }, userId, pharmacyId) {
     validateLocation(
       pharmacy.state, 
       pharmacy.lga, 
-      pharmacy.ward, 
       pharmacy.latitude, 
       pharmacy.longitude
     );

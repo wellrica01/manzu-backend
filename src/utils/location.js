@@ -18,17 +18,23 @@ function validateLocation(state, lga, latitude, longitude) {
 
   // Validate coordinates are within Nigeria's bounds
   // Nigeria approximate bounds: lat 4-14°N, lng 3-15°E
-  if (latitude < 4 || latitude > 14) {
+  // editProfileSchema allows latitude/longitude as number OR string (mobile sends strings
+  // from the profile response), so coerce here before comparing.
+  const lat = typeof latitude === 'string' ? parseFloat(latitude) : latitude;
+  const lng = typeof longitude === 'string' ? parseFloat(longitude) : longitude;
+
+  if (!Number.isFinite(lat) || lat < 4 || lat > 14) {
     const error = new Error('Latitude must be within Nigeria (4°N to 14°N)');
     error.status = 400;
     throw error;
   }
 
-  if (longitude < 3 || longitude > 15) {
+  if (!Number.isFinite(lng) || lng < 3 || lng > 15) {
     const error = new Error('Longitude must be within Nigeria (3°E to 15°E)');
     error.status = 400;
     throw error;
   }
+  
 
   // Optional: Add more specific state-based validation
   // You could check if coordinates roughly match the state's known bounds
