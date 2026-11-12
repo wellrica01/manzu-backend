@@ -49,7 +49,7 @@ console.log('Loaded pharmacy.js version: 2025-06-19-v3 (deep linking support)');
 // ======================
 
 // GET /pharmacy/banking/banks - Get list of Nigerian banks
-router.get('/banking/banks', authenticatePharmacy, async (req, res) => {
+router.get('/banking/banks', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const banks = await pharmacyBankingService.getNigerianBanks();
     res.status(200).json({ banks });
@@ -60,7 +60,7 @@ router.get('/banking/banks', authenticatePharmacy, async (req, res) => {
 });
 
 // GET /pharmacy/banking/status - Check banking setup status
-router.get('/banking/status', authenticatePharmacy, async (req, res) => {
+router.get('/banking/status', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const status = await pharmacyBankingService.getBankingStatus(req.user.pharmacyId);
     res.status(200).json(status);
@@ -168,7 +168,7 @@ router.post('/banking/verify', authenticatePharmacy, authorizeRoles('MANAGER'), 
 // ======================
 
 // GET /pharmacy/payouts/summary - Get payout summary
-router.get('/payouts/summary', authenticatePharmacy, async (req, res) => {
+router.get('/payouts/summary', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const summary = await pharmacyPayoutsService.getPayoutSummary(req.user.pharmacyId);
     res.status(200).json({
@@ -185,7 +185,7 @@ router.get('/payouts/summary', authenticatePharmacy, async (req, res) => {
 });
 
 // GET /pharmacy/payouts/history - Get payout history
-router.get('/payouts/history', authenticatePharmacy, async (req, res) => {
+router.get('/payouts/history', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
 
@@ -208,7 +208,7 @@ router.get('/payouts/history', authenticatePharmacy, async (req, res) => {
 });
 
 // GET /pharmacy/orders/pending-payout - Get orders awaiting payout
-router.get('/orders/pending-payout', authenticatePharmacy, async (req, res) => {
+router.get('/orders/pending-payout', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const orders = await pharmacyPayoutsService.getOrdersPendingPayout(req.user.pharmacyId);
     
@@ -234,7 +234,7 @@ router.get('/orders/pending-payout', authenticatePharmacy, async (req, res) => {
 });
 
 // GET /pharmacy/earnings/analytics - Get earnings analytics
-router.get('/earnings/analytics', authenticatePharmacy, async (req, res) => {
+router.get('/earnings/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { period = 'week' } = req.query; // week, month, year
 
@@ -581,7 +581,7 @@ router.get('/medications', authenticatePharmacy, async (req, res) => {
 });
 
 // POST /pharmacy/medications - Simplified (now upserts)
-router.post('/medications', authenticatePharmacy, async (req, res) => {
+router.post('/medications', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { medicationId, stock, price, receivedDate, expiryDate, batchNumber } = req.body;
 
@@ -617,7 +617,7 @@ router.post('/medications', authenticatePharmacy, async (req, res) => {
 });
 
 // PATCH /pharmacy/medications/:medicationId - Now also uses upsert
-router.patch('/medications/:medicationId', authenticatePharmacy, async (req, res) => {
+router.patch('/medications/:medicationId', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { medicationId } = req.params;
     const { stock, price, receivedDate, expiryDate, batchNumber } = req.body;
@@ -653,7 +653,7 @@ router.patch('/medications/:medicationId', authenticatePharmacy, async (req, res
 });
 
 // DELETE remains the same
-router.delete('/medications/:medicationId', authenticatePharmacy, async (req, res) => {
+router.delete('/medications/:medicationId', authenticatePharmacy, authorizeRoles('MANAGER', 'PHARMACIST'), async (req, res) => {
   try {
     const { medicationId } = req.params;
 
@@ -863,7 +863,7 @@ router.post('/operating-hours', authenticatePharmacy, authorizeRoles('MANAGER'),
 
 
 // GET /pharmacy/analytics - Aggregated analytics for the mobile Analytics screen (G8)
-router.get('/analytics', authenticatePharmacy, async (req, res) => {
+router.get('/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { from, to } = req.query;
     const data = await pharmacyAnalyticsService.getAnalytics(req.user.pharmacyId, { from, to });
@@ -877,10 +877,26 @@ router.get('/analytics', authenticatePharmacy, async (req, res) => {
   }
 });
 
-// GET /pharmacy/dashboard - Dashboard summary for pharmacy 
+// GET /pharmacy/dashboard - Dashboard summary for pharmacy
 router.get('/dashboard', authenticatePharmacy, async (req, res) => {
   try {
     const data = await pharmacyDashboardService.getDashboardData(req.user.pharmacyId);
+
+    if (req.user.role !== 'MANAGER') {
+      delete data.revenueToday;
+      delete data.revenueTrend;
+      delete data.posRevenueToday;
+      delete data.posRevenueTrend;
+
+      if (Array.isArray(data.topSellingMeds)) {
+        data.topSellingMeds = data.topSellingMeds.map(({ revenue, ...med }) => med);
+      }
+
+      if (Array.isArray(data.recentActivity)) {
+        data.recentActivity = data.recentActivity.map(({ amount, ...activity }) => activity);
+      }
+    }
+
     res.status(200).json({ message: 'Dashboard data fetched', ...data });
   } catch (error) {
     console.error('Dashboard error:', { message: error.message, stack: error.stack });
@@ -889,7 +905,7 @@ router.get('/dashboard', authenticatePharmacy, async (req, res) => {
 });
 
 // GET /pharmacy/analytics/weekly - Weekly analytics
-router.get('/analytics/weekly', authenticatePharmacy, async (req, res) => {
+router.get('/analytics/weekly', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const data = await pharmacyDashboardService.getWeeklyAnalytics(req.user.pharmacyId);
     res.status(200).json({ message: 'Weekly analytics fetched', ...data });
@@ -955,6 +971,8 @@ router.get('/sales', authenticatePharmacy, async (req, res) => {
     }
     
     const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const isManager = req.user.role === 'MANAGER';
     
     const [sales, total, allSales] = await Promise.all([
       prisma.sale.findMany({
@@ -964,11 +982,18 @@ router.get('/sales', authenticatePharmacy, async (req, res) => {
         take: parseInt(limit),
       }),
       prisma.sale.count({ where }),
-      prisma.sale.findMany({ where, select: { total: true, paymentMethod: true } })
+      prisma.sale.findMany({
+        where,
+        select: isManager
+          ? { total: true, paymentMethod: true }
+          : { paymentMethod: true },
+      })
     ]);
-    
+
     const stats = {
-      totalRevenue: allSales.reduce((sum, s) => sum + s.total, 0),
+      ...(isManager
+        ? { totalRevenue: allSales.reduce((sum, s) => sum + s.total, 0) }
+        : {}),
       cashSales: allSales.filter(s => s.paymentMethod === 'CASH').length,
       cardSales: allSales.filter(s => s.paymentMethod === 'CARD').length,
     };
@@ -993,7 +1018,7 @@ router.get('/sales', authenticatePharmacy, async (req, res) => {
 
 
 // New export endpoint
-router.get('/sales/export', authenticatePharmacy, async (req, res) => {
+router.get('/sales/export', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { date, startDate, endDate, paymentMethod } = req.query;
     
