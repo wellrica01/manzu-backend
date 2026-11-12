@@ -4,7 +4,7 @@ const express = require('express');
 const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.service');
 const { deviceInfoFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
-const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminRegisterSchema, adminLoginSchema } = require('../utils/adminValidation');
+const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
 
@@ -53,25 +53,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-
-// POST /auth/admin/register - Register admin
-router.post('/admin/register', async (req, res) => {
-  try {
-    const { name, email, password } = adminRegisterSchema.parse(req.body);
-    const { token, admin } = await adminAuthService.registerAdmin({ name, email, password });
-    res.status(201).json({
-      message: 'Admin registration successful',
-      token,
-      admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role && admin.role.toUpperCase() },
-    });
-  } catch (error) {
-    console.error('Admin registration error:', { message: error.message, stack: error.stack });
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
-    }
-    res.status(error.status === 400 ? 400 : 500).json({ message: error.message || 'Server error', error: error.message });
-  }
-});
 
 // POST /auth/admin/login - Login admin
 router.post('/admin/login', async (req, res) => {

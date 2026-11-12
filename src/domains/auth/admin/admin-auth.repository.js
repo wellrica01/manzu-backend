@@ -1,6 +1,6 @@
 /**
  * ADMIN AUTH REPOSITORY
- * 
+ *
  * Database access layer for admin authentication
  */
 
@@ -15,21 +15,6 @@ async function findAdminByEmail(email) {
   });
 }
 
-/**
- * Create admin user
- */
-async function createAdmin(adminData) {
-  return await prisma.adminUser.create({
-    data: {
-      name: adminData.name,
-      email: adminData.email,
-      password: adminData.hashedPassword,
-      role: adminData.role || 'ADMIN',
-    },
-  });
-}
-
 module.exports = {
   findAdminByEmail,
-  createAdmin,
 };
