@@ -10,14 +10,16 @@ checkGitignore();
 // ✅ Initialize Sentry FIRST (before any other imports)
 const Sentry = require('@sentry/node');
 const { nodeProfilingIntegration } = require('@sentry/profiling-node');
+const { sanitizeData } = require('./utils/error-reporter');
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
+  sendDefaultPii: false,
   
   // Performance monitoring
-  tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '1.0'),
-  profilesSampleRate: parseFloat(process.env.SENTRY_PROFILES_SAMPLE_RATE || '1.0'),
+  tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '0.1'),
+  profilesSampleRate: parseFloat(process.env.SENTRY_PROFILES_SAMPLE_RATE || '0.1'),
   
   // Integrations
   integrations: [
@@ -31,18 +33,34 @@ Sentry.init({
   release: process.env.npm_package_version,
   
   // Before send hook to filter sensitive data
-  beforeSend(event, hint) {
+  beforeSend(event) {
     // Don't send events in test environment
     if (process.env.NODE_ENV === 'test') {
       return null;
     }
-    
+
     // Filter out health check errors
     if (event.request?.url?.includes('/health')) {
       return null;
     }
-    
-    return event;
+
+    // Remove potentially sensitive request data
+    if (event.request) {
+      if (event.request.url) {
+        event.request.url = event.request.url.split('?')[0];
+      }
+
+      if (event.request.query_string) {
+        event.request.query_string = '[REDACTED]';
+      }
+
+      if (typeof event.request.data === 'string') {
+        event.request.data = '[REDACTED]';
+      }
+    }
+
+    // Scrub sensitive fields throughout the complete event
+    return sanitizeData(event);
   },
 });
 
