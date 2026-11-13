@@ -113,7 +113,7 @@ async function main() {
       name,
       email,
       password: hashedPassword,
-      role: 'ADMIN'
+      role: 'SUPER_ADMIN'
     },
     select: {
       id: true,
