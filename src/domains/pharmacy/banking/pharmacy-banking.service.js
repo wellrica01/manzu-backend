@@ -129,7 +129,7 @@ async function setupBankAccount(pharmacyId, { accountNumber, bankCode, bankName 
       entityType: ENTITY_TYPES.PHARMACY,
       entityId: pharmacyId,
       details: {
-        accountNumber,
+        accountNumberLast4: accountNumber.slice(-4),
         bankCode,
         error: verification.error,
       },
@@ -151,7 +151,7 @@ async function setupBankAccount(pharmacyId, { accountNumber, bankCode, bankName 
       entityType: ENTITY_TYPES.PHARMACY,
       entityId: pharmacyId,
       details: {
-        accountNumber,
+        accountNumberLast4: accountNumber.slice(-4),
         bankCode,
         accountName: verification.accountName,
         error: recipient.error,
@@ -180,7 +180,7 @@ async function setupBankAccount(pharmacyId, { accountNumber, bankCode, bankName 
       entityType: ENTITY_TYPES.PHARMACY,
       entityId: pharmacyId,
       details: {
-        accountNumber,
+        accountNumberLast4: accountNumber.slice(-4),
         bankCode,
         bankName,
         accountName: verification.accountName,
@@ -243,7 +243,7 @@ async function updateBankAccount(pharmacyId, { accountNumber, bankCode, bankName
       entityType: ENTITY_TYPES.PHARMACY,
       entityId: pharmacyId,
       details: {
-        accountNumber,
+        accountNumberLast4: accountNumber.slice(-4),
         bankCode,
         bankName,
         accountName: verification.accountName,
