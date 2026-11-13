@@ -42,42 +42,70 @@ function sanitizeData(data) {
     return data;
   }
 
+  // Preserve arrays while recursively sanitizing their contents
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeData(item));
+  }
+
   const sanitized = { ...data };
+
   const sensitivePatterns = [
     'password',
     'token',
     'secret',
-    'key', // Catches apiKey, api_key, secretKey, etc.
+    'key',
     'authorization',
-    'card', // Catches cardNumber, card_number, creditCard, etc.
+    'cookie',
+    'card',
     'cvv',
     'pin',
-    'ssn'
+    'ssn',
+    'accountnumber',
+    'bankaccount',
+    'routingnumber',
+    'iban',
+    'phone',
+    'ip'
   ];
 
-  for (const key in sanitized) {
-    const lowerKey = key.toLowerCase();
-    
-    // Check if key contains any sensitive pattern
-    const isSensitive = sensitivePatterns.some(pattern => 
-      lowerKey.includes(pattern.toLowerCase())
-    );
-    
-    // Remove sensitive fields
-    if (isSensitive && key !== 'email') {
+  for (const key of Object.keys(sanitized)) {
+    const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const isSensitive = sensitivePatterns.some(pattern => {
+      if (pattern === 'key') {
+        return /^(api|secret|private|public|encryption|signing|client|access|refresh)?key$/.test(lowerKey);
+      }
+
+      if (pattern === 'phone') {
+        return /^(phone|phonenumber|mobile|mobilenumber)$/.test(lowerKey);
+      }
+
+      if (pattern === 'pin') {
+        return /^(pin|pincode|cardpin|securitypin|transactionpin|withdrawalpin|paymentpin|userpin)$/.test(lowerKey);
+      }
+
+      if (pattern === 'ip') {
+        return /^(ip|ipaddress|clientip|remoteip)$/.test(lowerKey);
+      }
+
+      return lowerKey.includes(pattern);
+    });
+
+    if (isSensitive) {
       sanitized[key] = '[REDACTED]';
       continue;
     }
-    
-    // Hash user identifiers for privacy
-    if (key === 'email' && typeof sanitized[key] === 'string') {
-      const email = sanitized[key];
-      const [local, domain] = email.split('@');
-      sanitized[key] = `${local.substring(0, 2)}***@${domain}`;
+
+    // Partially mask email addresses
+    if (lowerKey === 'email' && typeof sanitized[key] === 'string') {
+      const [local, domain] = sanitized[key].split('@');
+
+      sanitized[key] = domain
+        ? `${local.substring(0, 2)}***@${domain}`
+        : '[REDACTED]';
+
       continue;
     }
-    
-    // Recursively sanitize nested objects
+
     if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
       sanitized[key] = sanitizeData(sanitized[key]);
     }
@@ -120,11 +148,10 @@ function reportError(error, {
       if (request) {
         scope.setContext('request', {
           method: request.method,
-          url: request.url,
+          url: request.url ? request.url.split('?')[0] : undefined,
           headers: sanitizeData(request.headers),
           query: sanitizeData(request.query),
-          body: sanitizeData(request.body),
-          ip: request.ip
+          body: sanitizeData(request.body)
         });
       }
       
