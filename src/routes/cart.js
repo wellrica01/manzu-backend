@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const upload = require('../utils/upload')
@@ -62,7 +62,7 @@ router.post('/add', async (req, res) => {
           }),
           prisma.medication.findUnique({
             where: { id: error.medicationId || medicationId },
-            select: { brandName: true, packSizeExpression: true } // ✅ corrected fields
+            select: { brandName: true, packSizeExpression: true } // âœ… corrected fields
           })
         ]);
 
@@ -74,7 +74,7 @@ router.post('/add', async (req, res) => {
         const available = error.availableStock || 0;
         const requested = error.requestedQuantity || req.body.quantity;
 
-        // ✅ clearer user-friendly message
+        // âœ… clearer user-friendly message
         return res.status(409).json({
           message: `${pharmacyName} currently has only ${available} unit${available !== 1 ? 's' : ''} of ${medName} in stock. You requested ${requested}. Please adjust your quantity or choose another pharmacy with available stock.`,
           error: 'INSUFFICIENT_STOCK',
@@ -87,7 +87,7 @@ router.post('/add', async (req, res) => {
         });
 
       } catch (fetchError) {
-        console.error('⚠️ Prisma fetch error:', fetchError);
+        console.error('âš ï¸ Prisma fetch error:', fetchError);
 
         // fallback if fetching names fails
         return res.status(409).json({
@@ -102,7 +102,7 @@ router.post('/add', async (req, res) => {
     }
 
 
-    // 🧩 Medication not found
+    // ðŸ§© Medication not found
     if (error.message.includes('Medication not found')) {
       return res.status(404).json({
         message: 'Medication not found',
@@ -110,7 +110,7 @@ router.post('/add', async (req, res) => {
       });
     }
 
-    // 🧩 Pharmacy not found
+    // ðŸ§© Pharmacy not found
     if (error.message.includes('Pharmacy not found')) {
       return res.status(404).json({
         message: 'Pharmacy not found',
@@ -118,11 +118,11 @@ router.post('/add', async (req, res) => {
       });
     }
 
-    // 🧩 Fallback for all other errors
-    return res.status(500).json({
-      message: 'Server error',
-      error: error.message
-    });
+    // ðŸ§© Fallback for all other errors
+  return res.status(500).json({
+    message: 'Internal server error',
+    requestId: req.requestId,
+  });
   }
 });
 
@@ -148,7 +148,10 @@ router.post('/add-bulk', async (req, res) => {
     res.status(201).json({ message: 'Added to cart', orderItems, userId, addedItems });
   } catch (error) {
     console.error('Bulk add to cart error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -165,7 +168,10 @@ router.get('/', async (req, res) => {
     res.status(200).json(cartData);
   } catch (error) {
     console.error('Cart get error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -187,7 +193,7 @@ router.put('/update', async (req, res) => {
   } catch (error) {
     console.error('Cart update error:', error);
     
-    // ✅ Handle insufficient stock error
+    // âœ… Handle insufficient stock error
     if (error.message.includes('Insufficient stock')) {
       try {
         // Fetch current stock information with pharmacy details
@@ -197,7 +203,7 @@ router.put('/update', async (req, res) => {
             MedicationAvailability: {
               include: { 
                 Medication: true,
-                Pharmacy: true  // ✅ Include pharmacy info
+                Pharmacy: true  // âœ… Include pharmacy info
               }
             }
           }
@@ -215,7 +221,7 @@ router.put('/update', async (req, res) => {
             requested: req.body.quantity,
             available: availableStock,
             medicationName,
-            pharmacyName  // ✅ Include pharmacy name
+            pharmacyName  // âœ… Include pharmacy name
           }
         });
       } catch (fetchError) {
@@ -247,10 +253,10 @@ router.put('/update', async (req, res) => {
         error: 'CART_NOT_FOUND'
       });
     }
-    
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message 
+
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -272,7 +278,10 @@ router.delete('/remove/:id', async (req, res) => {
     res.status(200).json({ message: 'Item removed' });
   } catch (error) {
     console.error('Cart remove error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -298,7 +307,10 @@ router.delete('/remove-bulk', async (req, res) => {
     });
   } catch (error) {
     console.error('Bulk cart remove error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -374,9 +386,9 @@ router.post(
       }
       
       if (error.message.includes('File upload failed')) {
-        return res.status(500).json({ 
-          message: 'Upload failed due to a server issue. Please check your internet connection and try again.',
-          error: 'UPLOAD_FAILED'
+        return res.status(500).json({
+          message: 'Upload failed due to a server issue. Please try again.',
+          requestId: req.requestId,
         });
       }
 
@@ -426,7 +438,10 @@ router.get('/prescription/status', requireConsent, async (req, res) => {
     res.status(200).json(statuses);
   } catch (error) {
     console.error('Cart prescription status error:', error); // <-- log full error
-    res.status(500).json({ message: 'Server error', error: error.message, stack: error.stack });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -445,9 +460,9 @@ router.get('/validate-stock', async (req, res) => {
     res.status(200).json(validation);
   } catch (error) {
     console.error('Stock validation error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -466,9 +481,9 @@ router.post('/auto-adjust-stock', async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Auto-adjust error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });

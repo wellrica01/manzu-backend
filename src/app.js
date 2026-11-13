@@ -74,6 +74,15 @@ const app = express();
 // Without this, express-rate-limit sees one shared IP for all users (5 failed PINs lock everyone out).
 app.set('trust proxy', 1);
 
+// Assign a unique ID to every incoming request
+const { v4: uuidv4 } = require('uuid');
+
+app.use((req, res, next) => {
+  req.requestId = uuidv4();
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+});
+
 
 const cors = require('cors');
 
@@ -277,11 +286,17 @@ app.get('/health', async (req, res) => {
       latencyMs: latency,
     });
   } catch (error) {
+    console.error('Health check failed:', {
+      requestId: req.requestId,
+      message: error.message,
+    });
+
     res.status(503).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
       db: 'disconnected',
-      error: error.message,
+      message: 'Database unavailable',
+      requestId: req.requestId,
     });
   }
 });

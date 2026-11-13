@@ -192,7 +192,10 @@ router.get('/prescriptions/:id/validity', async (req, res) => {
       createdAt: prescription.createdAt
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -214,7 +217,10 @@ router.post('/:id/medications', authenticate, authorizeRoles('ADMIN', 'SUPER_ADM
     res.status(201).json({ message: 'Medications added', prescriptionMedications: result.prescriptionMedications });
   } catch (error) {
     console.error('Add medications error:', { message: error.message });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -245,7 +251,10 @@ router.delete('/remove/:id/medications/:prescriptionMedicationId',
     } catch (error) {
       console.error('Delete medication error:', error);
       const status = error.statusCode || 500;
-      res.status(status).json({ message: error.message });
+      res.status(status).json({
+        message: status >= 500 ? 'Internal server error' : error.message,
+        ...(status >= 500 && { requestId: req.requestId }),
+      });
     }
   }
 );
@@ -280,7 +289,10 @@ router.delete('/remove/:id/medications',
     } catch (error) {
       console.error('Bulk delete error:', error);
       const status = error.statusCode || 500;
-      res.status(status).json({ message: error.message });
+      res.status(status).json({
+        message: status >= 500 ? 'Internal server error' : error.message,
+        ...(status >= 500 && { requestId: req.requestId }),
+      });
     }
   }
 );
@@ -308,7 +320,10 @@ router.patch('/:id/verify', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN')
     res.status(200).json({ message: 'Prescription updated', prescription });
   } catch (error) {
     console.error('Verification error:', { message: error.message });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -335,7 +350,10 @@ router.post('/retrieve', requireConsent, async (req, res) => {
       message: error.message,
       stack: error.stack,
     });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -364,9 +382,13 @@ router.get('/:userIdentifier', requireConsent, async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Prescription order retrieval error:', { message: error.message });
-    const statusCode = error.message.includes('Prescription not found') || 
+    const statusCode = error.message.includes('Prescription not found') ||
                       error.message.includes('Invalid latitude or longitude') ? 400 : 500;
-    res.status(statusCode).json({ message: error.message });
+
+    res.status(statusCode).json({
+      message: statusCode >= 500 ? 'Internal server error' : error.message,
+      ...(statusCode >= 500 && { requestId: req.requestId }),
+    });
   }
 });
 
@@ -395,7 +417,10 @@ router.get('/status', requireConsent, async (req, res) => {
     res.status(200).json(statuses);
   } catch (error) {
     console.error('Prescription status error:', { message: error.message });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 

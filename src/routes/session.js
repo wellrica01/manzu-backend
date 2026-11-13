@@ -16,7 +16,11 @@ function sendError(res, error, logLabel) {
   if (error.status === 401) {
     return res.status(401).json({ error: error.code || 'UNAUTHORIZED', message: error.message });
   }
-  return res.status(500).json({ error: 'SERVER_ERROR', message: 'Server error' });
+  return res.status(500).json({
+    error: 'SERVER_ERROR',
+    message: 'Internal server error',
+    requestId: req.requestId,
+  });
 }
 
 // POST /auth/refresh - Trade a refresh token for a new access token + new refresh token (rotating)

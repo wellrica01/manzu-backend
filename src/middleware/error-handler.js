@@ -104,25 +104,29 @@ function getErrorLevel(error) {
 /**
  * Format error response for client
  */
-function formatErrorResponse(error, includeStack = false) {
+function formatErrorResponse(error, requestId = null) {
+  const statusCode = error.statusCode || 500;
+  const isServerError = statusCode >= 500;
+
   const response = {
-    message: error.message || 'An error occurred',
-    statusCode: error.statusCode || 500
+    message: isServerError
+      ? 'Internal server error'
+      : error.message || 'An error occurred',
+    statusCode
   };
 
-  // Add field for validation errors
-  if (error.field) {
+  // Include request ID so internal errors can be traced
+  if (requestId) {
+    response.requestId = requestId;
+  }
+
+  // Only expose validation details for client errors
+  if (!isServerError && error.field) {
     response.field = error.field;
   }
 
-  // Add error code for categorization
-  if (error.category) {
+  if (!isServerError && error.category) {
     response.code = error.category.toUpperCase();
-  }
-
-  // Include stack trace only in development
-  if (includeStack && process.env.NODE_ENV !== 'production') {
-    response.stack = error.stack;
   }
 
   return response;
@@ -168,8 +172,7 @@ function errorHandler(err, req, res, next) {
 
   // Format response
   const statusCode = err.statusCode || 500;
-  const includeStack = process.env.NODE_ENV !== 'production';
-  const response = formatErrorResponse(err, includeStack);
+  const response = formatErrorResponse(err, req.requestId);
 
   // Send response
   res.status(statusCode).json(response);

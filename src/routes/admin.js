@@ -84,10 +84,11 @@ const parseId = (req, res) => {
   return id;
 };
 
-const standardResponse = (res, status, message, data = null, pagination = null) => {
+const standardResponse = (res, status, message, data = null, pagination = null, requestId = null) => {
   const response = { success: status < 400, message };
   if (data) response.data = data;
   if (pagination) response.pagination = pagination;
+  if (requestId) response.requestId = requestId;
   return res.status(status).json(response);
 };
 
@@ -98,7 +99,7 @@ router.get('/dashboard', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), a
     standardResponse(res, 200, 'Dashboard data fetched successfully', { summary });
   } catch (error) {
     console.error('Fetch dashboard error:', { message: error.message });
-    standardResponse(res, 500, 'Server error', null);
+    standardResponse(res, 500, 'Server error', null, null, req.requestId)
   }
 });
 
@@ -124,7 +125,7 @@ router.get('/pharmacies/simple', authenticate, authorizeRoles('ADMIN', 'SUPER_AD
     standardResponse(res, 200, 'Pharmacies fetched successfully', { simplePharmacies });
   } catch (error) {
     console.error('Fetch pharmacies error:', { message: error.message });
-    standardResponse(res, 500, 'Server error');
+    standardResponse(res, 500, 'Server error', null, null, req.requestId)
   }
 });
 
@@ -1083,7 +1084,8 @@ router.post(
       res.status(500).json({
         success: false,
         message: 'Reconciliation failed',
-        error: error.message
+        error: 'INTERNAL_SERVER_ERROR',
+        requestId: req.requestId
       });
     }
   }
@@ -1119,7 +1121,8 @@ router.get(
       res.status(500).json({
         success: false,
         message: 'Failed to fetch report',
-        error: error.message
+        error: 'INTERNAL_SERVER_ERROR',
+        requestId: req.requestId
       });
     }
   }
@@ -1149,7 +1152,8 @@ router.get(
       res.status(500).json({
         success: false,
         message: 'Failed to fetch reports',
-        error: error.message
+        error: 'INTERNAL_SERVER_ERROR',
+        requestId: req.requestId
       });
     }
   }

@@ -57,7 +57,10 @@ router.post('/', requireConsent, async (req, res) => {
     
   } catch (error) {
     console.error('Checkout error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
