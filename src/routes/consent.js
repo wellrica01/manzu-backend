@@ -19,7 +19,10 @@ router.post('/', async (req, res) => {
     res.status(201).json({ message: 'Consent recorded', consent });
   } catch (error) {
     console.error('Consent error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 

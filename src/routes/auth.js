@@ -27,7 +27,11 @@ router.post('/register', async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
-    res.status(error.status === 400 ? 400 : 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status === 400 ? 400 : 500;
+      res.status(statusCode).json({
+        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
+        ...(statusCode >= 500 && { requestId: req.requestId }),
+      });
   }
 });
 
@@ -49,7 +53,11 @@ router.post('/login', async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
-    res.status(error.status === 401 ? 401 : 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status === 401 ? 401 : 500;
+      res.status(statusCode).json({
+        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
+        ...(statusCode >= 500 && { requestId: req.requestId }),
+      });
   }
 });
 
@@ -69,7 +77,11 @@ router.post('/admin/login', async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
-    res.status(error.status === 401 ? 401 : 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status === 401 ? 401 : 500;
+      res.status(statusCode).json({
+        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
+        ...(statusCode >= 500 && { requestId: req.requestId }),
+      });
   }
 });
 
@@ -88,7 +100,11 @@ router.post('/add-user', authenticatePharmacy, authorizeRoles('MANAGER'), async 
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
-    res.status(error.status === 400 ? 400 : 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status === 400 ? 400 : 500;
+      res.status(statusCode).json({
+        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
+        ...(statusCode >= 500 && { requestId: req.requestId }),
+      });
   }
 });
 
@@ -112,7 +128,11 @@ router.patch('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), 
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
-    res.status(error.status || 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status || 500;
+    res.status(statusCode).json({
+      message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
+      ...(statusCode >= 500 && { requestId: req.requestId }),
+    });
   }
 });
 
@@ -130,7 +150,11 @@ router.delete('/users/:userId', authenticatePharmacy, authorizeRoles( 'MANAGER')
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
     console.error('Delete user error:', { message: error.message, stack: error.stack });
-    res.status(error.status || 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status || 500;
+    res.status(statusCode).json({
+      message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
+      ...(statusCode >= 500 && { requestId: req.requestId }),
+    });
   }
 });
 
@@ -159,7 +183,10 @@ router.patch('/change-password', authenticatePharmacy, async (req, res) => {
     res.status(200).json({ message: 'PIN changed successfully' });
   } catch (error) {
     console.error('Change PIN error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: error.message || 'Server error' });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 

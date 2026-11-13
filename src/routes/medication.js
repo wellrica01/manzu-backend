@@ -53,7 +53,10 @@ router.get('/search', async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Error searching medications:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 

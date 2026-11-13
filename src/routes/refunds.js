@@ -117,8 +117,9 @@ router.post('/', authenticate, async (req, res) => {
     });
 
     res.status(500).json({
-      message: error.message || 'Failed to create refund request',
-      error: 'REFUND_CREATION_FAILED'
+      message: 'Internal server error',
+      error: 'REFUND_CREATION_FAILED',
+      requestId: req.requestId,
     });
   }
 });
@@ -266,8 +267,9 @@ router.post('/admin/:id/approve', authenticate, authorizeRoles('ADMIN', 'SUPER_A
     });
 
     res.status(500).json({
-      message: error.message || 'Failed to approve refund',
-      error: 'REFUND_APPROVAL_FAILED'
+      message: 'Internal server error',
+      error: 'REFUND_APPROVAL_FAILED',
+      requestId: req.requestId,
     });
   }
 });
@@ -293,8 +295,9 @@ router.post('/admin/:id/retry', authenticate, authorizeRoles('ADMIN', 'SUPER_ADM
     console.error('Error retrying refund:', error);
     
     res.status(500).json({
-      message: error.message || 'Failed to retry refund',
-      error: 'REFUND_RETRY_FAILED'
+      message: 'Internal server error',
+      error: 'REFUND_RETRY_FAILED',
+      requestId: req.requestId,
     });
   }
 });

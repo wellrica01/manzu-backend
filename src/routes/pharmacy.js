@@ -55,7 +55,10 @@ router.get('/banking/banks', authenticatePharmacy, authorizeRoles('MANAGER'), as
     res.status(200).json({ banks });
   } catch (error) {
     console.error('Fetch banks error:', error);
-    res.status(500).json({ message: 'Failed to fetch banks', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -66,7 +69,10 @@ router.get('/banking/status', authenticatePharmacy, authorizeRoles('MANAGER'), a
     res.status(200).json(status);
   } catch (error) {
     console.error('Banking status error:', error);
-    res.status(500).json({ message: 'Failed to fetch banking status', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -94,9 +100,9 @@ router.post('/banking/setup', authenticatePharmacy, authorizeRoles('MANAGER'), a
       return res.status(400).json({ message: error.message });
     }
     
-    res.status(500).json({ 
-      message: 'Failed to setup banking', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -120,9 +126,9 @@ router.put('/banking/update', authenticatePharmacy, authorizeRoles('MANAGER'), a
     res.status(200).json(result);
   } catch (error) {
     console.error('Banking update error:', error);
-    res.status(500).json({ 
-      message: 'Failed to update banking', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -156,9 +162,9 @@ router.post('/banking/verify', authenticatePharmacy, authorizeRoles('MANAGER'), 
     }
   } catch (error) {
     console.error('Bank verification error:', error);
-    res.status(500).json({ 
-      message: 'Failed to verify account', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -177,9 +183,9 @@ router.get('/payouts/summary', authenticatePharmacy, authorizeRoles('MANAGER'), 
     });
   } catch (error) {
     console.error('Payout summary error:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch payout summary', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -200,9 +206,9 @@ router.get('/payouts/history', authenticatePharmacy, authorizeRoles('MANAGER'), 
     });
   } catch (error) {
     console.error('Payout history error:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch payout history', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -226,9 +232,9 @@ router.get('/orders/pending-payout', authenticatePharmacy, authorizeRoles('MANAG
     });
   } catch (error) {
     console.error('Pending payout orders error:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch pending payout orders', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -302,9 +308,9 @@ router.get('/earnings/analytics', authenticatePharmacy, authorizeRoles('MANAGER'
     });
   } catch (error) {
     console.error('Earnings analytics error:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch earnings analytics', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -374,9 +380,9 @@ router.post('/profile/logo',
 
     } catch (error) {
       console.error('Logo upload error:', error);
-      res.status(500).json({ 
-        message: 'Failed to upload logo', 
-        error: error.message 
+      res.status(500).json({
+        message: 'Internal server error',
+        requestId: req.requestId,
       });
     }
   }
@@ -407,7 +413,10 @@ router.get('/orders', authenticatePharmacy, async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Pharmacy orders error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -441,7 +450,10 @@ router.patch('/orders/bulk', authenticatePharmacy, async (req, res) => {
     });
   } catch (error) {
     console.error('Bulk order update error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -478,9 +490,9 @@ router.get('/orders/:orderId', authenticatePharmacy, async (req, res) => {
       });
     }
     
-    res.status(500).json({ 
-      message: 'Failed to fetch order', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
     });
   }
 });
@@ -518,7 +530,10 @@ router.patch('/orders/:orderId', authenticatePharmacy, async (req, res) => {
       return res.status(404).json({ message: error.message, error: 'ORDER_NOT_FOUND' });
     }
     console.error('Order update error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -546,7 +561,10 @@ router.get('/medications/catalog', authenticatePharmacy, async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Pharmacy medication catalog error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -576,7 +594,10 @@ router.get('/medications', authenticatePharmacy, async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Pharmacy medications error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -612,7 +633,10 @@ router.post('/medications', authenticatePharmacy, authorizeRoles('MANAGER'), asy
       return res.status(403).json({ message: error.message });
     }
     
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -648,7 +672,10 @@ router.patch('/medications/:medicationId', authenticatePharmacy, authorizeRoles(
       return res.status(403).json({ message: error.message });
     }
     
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -666,7 +693,10 @@ router.delete('/medications/:medicationId', authenticatePharmacy, authorizeRoles
     res.status(200).json({ message: 'Medication removed from inventory' });
   } catch (error) {
     console.error('Delete medication error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -685,7 +715,10 @@ router.get('/users', authenticatePharmacy, authorizeRoles('MANAGER'), async (req
     res.status(200).json({ message: 'Users fetched', users });
   } catch (error) {
     console.error('Fetch users error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -705,7 +738,10 @@ router.post('/notifications/register', authenticatePharmacy, async (req, res) =>
     res.status(200).json({ message: 'Device registered for notifications' });
   } catch (error) {
     console.error('Device registration error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -722,7 +758,11 @@ router.post('/push-tokens', authenticatePharmacy, async (req, res) => {
   } catch (error) {
     // Never log the token itself.
     console.error('Push token register error:', { message: error.message });
-    res.status(error.status === 400 ? 400 : 500).json({ message: error.status === 400 ? error.message : 'Server error' });
+    const statusCode = error.status === 400 ? 400 : 500;
+    res.status(statusCode).json({
+      message: statusCode === 500 ? 'Internal server error' : error.message,
+      ...(statusCode === 500 && { requestId: req.requestId }),
+    });
   }
 });
 
@@ -738,7 +778,10 @@ router.delete('/push-tokens/:token', authenticatePharmacy, async (req, res) => {
     res.status(200).json({ message: 'Push token removed' });
   } catch (error) {
     console.error('Push token delete error:', { message: error.message });
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -754,7 +797,11 @@ router.get('/profile', authenticatePharmacy, async (req, res) => {
     });
   } catch (error) {
     console.error('Fetch profile error:', { message: error.message, stack: error.stack });
-    res.status(error.status === 404 ? 404 : 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status === 404 ? 404 : 500;
+    res.status(statusCode).json({
+      message: statusCode === 500 ? 'Internal server error' : error.message || 'Not found',
+      ...(statusCode === 500 && { requestId: req.requestId }),
+    });
   }
 });
 
@@ -784,7 +831,11 @@ router.patch('/profile', authenticatePharmacy, authorizeRoles('MANAGER'), async 
     if (error instanceof require('zod').ZodError) {
       return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
-    res.status(error.status === 400 ? 400 : 500).json({ message: error.message || 'Server error', error: error.message });
+    const statusCode = error.status === 400 ? 400 : 500;
+    res.status(statusCode).json({
+      message: statusCode === 500 ? 'Internal server error' : error.message || 'Request failed',
+      ...(statusCode === 500 && { requestId: req.requestId }),
+    });
   }
 });
 
@@ -811,7 +862,10 @@ router.get('/operating-hours', authenticatePharmacy, async (req, res) => {
     res.status(200).json({ operatingHours: formatted });
   } catch (error) {
     console.error('Fetch operating hours error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -857,7 +911,10 @@ router.post('/operating-hours', authenticatePharmacy, authorizeRoles('MANAGER'),
     });
   } catch (error) {
     console.error('Update operating hours error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -873,7 +930,11 @@ router.get('/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), async 
       return res.status(400).json({ error: error.code || 'BAD_REQUEST', message: error.message });
     }
     console.error('Analytics error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ error: 'SERVER_ERROR', message: 'Server error' });
+    res.status(500).json({
+      error: 'SERVER_ERROR',
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -900,7 +961,10 @@ router.get('/dashboard', authenticatePharmacy, async (req, res) => {
     res.status(200).json({ message: 'Dashboard data fetched', ...data });
   } catch (error) {
     console.error('Dashboard error:', { message: error.message, stack: error.stack });
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -911,7 +975,10 @@ router.get('/analytics/weekly', authenticatePharmacy, authorizeRoles('MANAGER'),
     res.status(200).json({ message: 'Weekly analytics fetched', ...data });
   } catch (error) {
     console.error('Analytics error:', error.message);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -931,7 +998,10 @@ router.post('/sales', authenticatePharmacy, async (req, res) => {
     res.status(201).json({ message: 'Sale recorded', sale });
   } catch (error) {
     console.error('Record sale error:', error.message);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -1011,7 +1081,10 @@ router.get('/sales', authenticatePharmacy, async (req, res) => {
     });
   } catch (error) {
     console.error('Fetch sales error:', error.message);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
@@ -1066,7 +1139,10 @@ router.get('/sales/export', authenticatePharmacy, authorizeRoles('MANAGER'), asy
     res.status(200).send(csvContent);
   } catch (error) {
     console.error('Export sales error:', error.message);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({
+      message: 'Internal server error',
+      requestId: req.requestId,
+    });
   }
 });
 
