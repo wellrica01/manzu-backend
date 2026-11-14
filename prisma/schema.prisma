@@ -325,17 +325,17 @@ model Pharmacy {
 }
 
 model PharmacyUser {
-  id                  Int                   @id @default(autoincrement())
-  email               String                @unique
-  password            String
-  name                String
-  role                PharmacyUserRole      @default(MANAGER)
-  pharmacyId          Int
-  lastLogin           DateTime?
-  createdAt           DateTime              @default(now())
-  Pharmacy            Pharmacy              @relation(fields: [pharmacyId], references: [id])
-  PharmacyUserConsent PharmacyUserConsent[]
-  PushToken           PushToken[]
+  id                   Int                    @id @default(autoincrement())
+  email                String                 @unique
+  password             String
+  name                 String
+  role                 PharmacyUserRole       @default(MANAGER)
+  pharmacyId           Int
+  lastLogin            DateTime?
+  createdAt            DateTime               @default(now())
+  Pharmacy             Pharmacy               @relation(fields: [pharmacyId], references: [id])
+  PharmacyUserConsent  PharmacyUserConsent[]
+  PushToken            PushToken[]
   PharmacyRefreshToken PharmacyRefreshToken[]
 
   @@index([email])
@@ -579,6 +579,93 @@ model MedicationRoute {
 
   @@unique([medication_id, route], map: "uq_medication_route")
   @@index([medication_id], map: "idx_medicationroute_medication_id")
+}
+
+/// Audit and security events (append-only). Mirrors prisma/sql/sec-02-audit-shared.sql.
+/// Change BOTH files together; Prisma must not drift from the database.
+/// Note: id is BIGSERIAL, so Prisma returns BigInt. res.json() cannot serialise BigInt -
+/// convert to string before sending (Doc 1 section 5.2).
+model AuditEvent {
+  id         BigInt    @id @default(autoincrement())
+  occurredAt DateTime  @default(now()) @map("occurredAt") @db.Timestamp(3)
+  clientAt   DateTime? @map("clientAt") @db.Timestamp(3)
+  kind       String    @default("audit") @db.VarChar(10)
+  action     String    @db.VarChar(80)
+  outcome    String    @default("success") @db.VarChar(10)
+  severity   String    @default("info") @db.VarChar(10)
+  actorType  String    @map("actorType") @db.VarChar(16)
+  actorId    String?   @map("actorId") @db.VarChar(64)
+  actorRole  String?   @map("actorRole") @db.VarChar(24)
+  actorLabel String?   @map("actorLabel") @db.VarChar(120)
+  pharmacyId Int?      @map("pharmacyId")
+  entityType String?   @map("entityType") @db.VarChar(40)
+  entityId   String?   @map("entityId") @db.VarChar(64)
+  before     Json?
+  after      Json?
+  sessionId  String?   @map("sessionId") @db.VarChar(36)
+  deviceId   String?   @map("deviceId") @db.VarChar(64)
+  ip         String?   @db.VarChar(45)
+  userAgent  String?   @map("userAgent") @db.VarChar(300)
+  requestId  String?   @map("requestId") @db.VarChar(40)
+  visibility String    @default("both") @db.VarChar(10)
+
+  @@index([pharmacyId, occurredAt(sort: Desc)], map: "AuditEvent_pharm_idx")
+  @@index([actorType, actorId, occurredAt(sort: Desc)], map: "AuditEvent_actor_idx")
+  @@index([entityType, entityId], map: "AuditEvent_entity_idx")
+  @@index([kind, severity, occurredAt(sort: Desc)], map: "AuditEvent_sec_idx")
+  @@map("AuditEvent")
+}
+
+/// Rate-limit counters that survive a restart (FND-07). Mirrors sec-02-audit-shared.sql.
+model AuthThrottle {
+  key         String    @id @db.VarChar(160)
+  count       Int       @default(0)
+  windowStart DateTime  @default(now()) @map("windowStart") @db.Timestamp(3)
+  lockedUntil DateTime? @map("lockedUntil") @db.Timestamp(3)
+  level       Int       @default(0) @db.SmallInt
+  updatedAt   DateTime  @default(now()) @map("updatedAt") @db.Timestamp(3)
+
+  @@index([updatedAt], map: "AuthThrottle_updated_idx")
+  @@map("AuthThrottle")
+}
+
+/// Replay-safe writes (FND-10, Doc 1 section 5.1 step 10). Mirrors sec-02-audit-shared.sql.
+model IdempotencyKey {
+  key            String   @db.VarChar(64)
+  actorType      String   @map("actorType") @db.VarChar(16)
+  actorId        String   @map("actorId") @db.VarChar(64)
+  route          String   @db.VarChar(120)
+  requestHash    String   @map("requestHash") @db.VarChar(64)
+  state          String   @default("IN_PROGRESS") @db.VarChar(12)
+  responseStatus Int?     @map("responseStatus") @db.SmallInt
+  responseBody   Json?    @map("responseBody")
+  createdAt      DateTime @default(now()) @map("createdAt") @db.Timestamp(3)
+  expiresAt      DateTime @default(dbgenerated("(CURRENT_TIMESTAMP + '24:00:00'::interval)")) @map("expiresAt") @db.Timestamp(3)
+
+  @@id([actorType, actorId, key])
+  @@index([expiresAt], map: "IdempotencyKey_expires_idx")
+  @@map("IdempotencyKey")
+}
+
+/// Maker-checker approvals (Doc 2/3 build on this). Mirrors sec-02-audit-shared.sql.
+model ApprovalRequest {
+  id          BigInt    @id @default(autoincrement())
+  scope       String    @default("platform") @db.VarChar(10)
+  pharmacyId  Int?      @map("pharmacyId")
+  action      String    @db.VarChar(80)
+  payload     Json
+  payloadHash String    @map("payloadHash") @db.VarChar(64)
+  makerType   String    @map("makerType") @db.VarChar(16)
+  makerId     String    @map("makerId") @db.VarChar(64)
+  status      String    @default("PENDING") @db.VarChar(10)
+  checkerType String?   @map("checkerType") @db.VarChar(16)
+  checkerId   String?   @map("checkerId") @db.VarChar(64)
+  decidedAt   DateTime? @map("decidedAt") @db.Timestamp(3)
+  expiresAt   DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP + '24:00:00'::interval)")) @map("expiresAt") @db.Timestamp(3)
+  createdAt   DateTime  @default(now()) @map("createdAt") @db.Timestamp(3)
+
+  @@index([status, expiresAt], map: "ApprovalRequest_status_idx")
+  @@map("ApprovalRequest")
 }
 
 enum AdminRole {
