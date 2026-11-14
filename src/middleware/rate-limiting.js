@@ -42,6 +42,22 @@ async function applyLimit(req, res, next, config, keyFn) {
       after: { class: config.class, retryAfterSeconds: retrySeconds, level: result.level },
     }).catch(() => {});
 
+    // Third lockout cycle for this key is worth an alert to the team.
+    if (result.level >= 3) {
+      try {
+        security.notify({
+          action: 'security.rate_limited',
+          severity: 'critical',
+          entityType: 'Auth',
+          entityId: config.class,
+          category: 'RATE_LIMIT',
+          after: { class: config.class, level: result.level, retryAfterSeconds: retrySeconds },
+        });
+      } catch (_) {
+        // never block the 429 on the alert path
+      }
+    }
+
     return sendError(res, 429, 'RATE_LIMITED', 'Too many requests. Please try again shortly.', {
       retryAfterSeconds: retrySeconds,
     });

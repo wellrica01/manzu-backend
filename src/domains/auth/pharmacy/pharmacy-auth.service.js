@@ -137,6 +137,19 @@ async function loginUser({ email, pin, deviceInfo }) {
       } catch (writeErr) {
         console.error('Failed to record failed login:', { message: writeErr.message });
       }
+      if (lockout.shouldAlert) {
+        try {
+          require('../../../core/audit/security-event').notify({
+            action: 'auth.account.locked',
+            severity: 'critical',
+            entityType: 'PharmacyUser',
+            entityId: user.id,
+            after: { failedAttempts: nextFailures, minutes: lockout.minutes },
+          });
+        } catch (_) {
+          // never break the login rejection on the alert path
+        }
+      }
     }
     const error = new Error('Invalid email or PIN');
     error.status = HTTP_STATUS.UNAUTHORIZED;

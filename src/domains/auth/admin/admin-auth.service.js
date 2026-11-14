@@ -70,6 +70,19 @@ async function loginAdmin({ email, password }) {
       } catch (writeErr) {
         console.error('Failed to record failed admin login:', { message: writeErr.message });
       }
+      if (lockout.shouldAlert) {
+        try {
+          require('../../../core/audit/security-event').notify({
+            action: 'admin.account.locked',
+            severity: 'critical',
+            entityType: 'AdminUser',
+            entityId: admin.id,
+            after: { failedAttempts: nextFailures, minutes: lockout.minutes },
+          });
+        } catch (_) {
+          // never break the login rejection on the alert path
+        }
+      }
     }
     const error = new Error('Invalid email or password');
     error.status = HTTP_STATUS.UNAUTHORIZED;
