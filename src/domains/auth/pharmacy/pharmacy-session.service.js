@@ -1,45 +1,48 @@
 /**
  * PHARMACY SESSION SERVICE (G1, G2, G11)
  *
- * - Access token: the same short-lived JWT as before ({ userId, pharmacyId, role }).
- *   Lifetime defaults to 1 day (JWT_ACCESS_EXPIRES_IN), so the web portal is unaffected.
- * - Refresh token: random 256-bit opaque string. Only its SHA-256 hash is stored.
- *   Every refresh rotates it. Presenting an already-rotated token revokes the
- *   whole family (that login chain), because it means two parties hold the same token.
- * - Role and pharmacy status are re-read from the database on every refresh and on /me.
+ * FND-06: thin wrapper over the shared factory in ../session/session-service.factory.
+ * The factory owns the refresh-token rotation and reuse detection logic; this
+ * file supplies the pharmacy repository and the pharmacy signing function.
+ *
+ * Behaviour is unchanged from FND-05b2. All exports keep the same names and
+ * shapes: startSession, refreshSession, logout, revokeAllForUser, getMe,
+ * deviceInfoFromRequest, signAccessToken, hashToken, userDto, pharmacyDto.
+ *
+ * Doc 3 will create its own instance with the admin repository and admin
+ * signing function. The two instances never share a row.
  */
 
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const repository = require('./pharmacy-session.repository');
+const { getSecretFor } = require('../../../utils/env-validator');
+const { createSessionService, defaultHashToken } = require('../session/session-service.factory');
 
-const ACCESS_TTL = process.env.JWT_ACCESS_EXPIRES_IN || '1d';
+const ACCESS_TTL = '15m';
 const REFRESH_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS) > 0 ? Number(process.env.REFRESH_TOKEN_TTL_DAYS) : 30;
+const ISSUER = 'manzu';
+const AUDIENCE = 'pharmacy';
 
-function sessionError(status, code, message) {
-  const error = new Error(message);
-  error.status = status;
-  error.code = code;
-  return error;
-}
-
-function hashToken(rawToken) {
-  return crypto.createHash('sha256').update(rawToken).digest('hex');
-}
-
-function generateRefreshToken() {
-  return crypto.randomBytes(32).toString('base64url');
-}
-
-function refreshExpiry() {
-  return new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
-}
-
-function signAccessToken(user) {
+function signAccessToken(user, familyId, opts = {}) {
+  const now = Math.floor(Date.now() / 1000);
   return jwt.sign(
-    { userId: user.id, pharmacyId: user.pharmacyId, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: ACCESS_TTL }
+    {
+      userId: user.id,
+      pharmacyId: user.pharmacyId,
+      role: user.role,
+      sid: familyId,
+      tv: user.tokenVersion ?? 0,
+      jti: crypto.randomUUID(),
+      client: opts.client || 'mobile',
+    },
+    getSecretFor('pharmacy'),
+    {
+      expiresIn: ACCESS_TTL,
+      algorithm: 'HS256',
+      issuer: ISSUER,
+      audience: AUDIENCE,
+    }
   );
 }
 
@@ -51,91 +54,65 @@ function pharmacyDto(pharmacy) {
   return { id: pharmacy.id, name: pharmacy.name, status: pharmacy.status, isActive: pharmacy.isActive, logoUrl: pharmacy.logoUrl || null };
 }
 
-/** What to show in a future "your devices" list: the app's own label, else the User-Agent. */
 function deviceInfoFromRequest(req) {
   const own = req.body && typeof req.body.deviceInfo === 'string' ? req.body.deviceInfo : '';
   const label = (own || req.get('user-agent') || '').trim().slice(0, 200);
   return label || null;
 }
 
-/** New login chain: access token + first refresh token. */
-async function startSession(user, deviceInfo) {
-  const refreshToken = generateRefreshToken();
-  await repository.createRefreshToken({
-    userId: user.id,
-    familyId: crypto.randomUUID(),
-    tokenHash: hashToken(refreshToken),
-    expiresAt: refreshExpiry(),
-    deviceInfo,
-  });
-
-  // Housekeeping must never break a login.
-  repository.deleteStaleForUser(user.id).catch((err) => {
-    console.error('Refresh token cleanup failed:', { message: err.message });
-  });
-
-  return { token: signAccessToken(user), refreshToken };
+/**
+ * FND-09: the stable device identity. The mobile app generates a UUID once and
+ * keeps it in SecureStore; it sends the UUID in X-Device-Id and (optionally)
+ * req.body.deviceId. Released builds today do not send either, so this returns
+ * null and the device registry is skipped. When it returns a UUID, the factory
+ * upserts UserDevice on login and refresh.
+ */
+function deviceIdFromRequest(req) {
+  const fromBody = req.body && typeof req.body.deviceId === 'string' ? req.body.deviceId.trim() : '';
+  const fromHeader = typeof req.get === 'function' ? (req.get('x-device-id') || '').trim() : '';
+  const raw = fromBody || fromHeader || null;
+  if (!raw) return null;
+  return raw.slice(0, 64);
 }
 
-/** Trades a valid refresh token for a new access token and a new refresh token. */
-async function refreshSession(rawRefreshToken, deviceInfo) {
-  const row = await repository.findRefreshTokenByHash(hashToken(rawRefreshToken));
-  if (!row) throw sessionError(401, 'INVALID_REFRESH_TOKEN', 'Invalid refresh token');
-
-  if (row.rotatedAt) {
-    await repository.revokeFamily(row.familyId);
-    throw sessionError(401, 'REFRESH_TOKEN_REUSED', 'Refresh token was already used. Please sign in again.');
-  }
-  if (row.revokedAt) throw sessionError(401, 'INVALID_REFRESH_TOKEN', 'Invalid refresh token');
-  if (row.expiresAt <= new Date()) throw sessionError(401, 'REFRESH_TOKEN_EXPIRED', 'Refresh token expired. Please sign in again.');
-
-  const user = row.PharmacyUser;
-  const newRefreshToken = generateRefreshToken();
-  const rotated = await repository.rotateRefreshToken(row, {
-    tokenHash: hashToken(newRefreshToken),
-    expiresAt: refreshExpiry(),
-    deviceInfo,
-  });
-  if (!rotated) {
-    await repository.revokeFamily(row.familyId);
-    throw sessionError(401, 'REFRESH_TOKEN_REUSED', 'Refresh token was already used. Please sign in again.');
-  }
-
-  return {
-    token: signAccessToken(user),
-    refreshToken: newRefreshToken,
-    user: userDto(user),
-    pharmacy: pharmacyDto(user.Pharmacy),
-  };
+function ipFromRequest(req) {
+  const forwarded = req.headers && req.headers['x-forwarded-for'];
+  if (forwarded && typeof forwarded === 'string') return forwarded.split(',')[0].trim().slice(0, 45);
+  return (req.ip || (req.connection && req.connection.remoteAddress) || null);
 }
 
-/** Revokes the login chain the token belongs to. Idempotent: unknown tokens are ignored. */
-async function logout(rawRefreshToken) {
-  const row = await repository.findRefreshTokenByHash(hashToken(rawRefreshToken));
-  if (row) await repository.revokeFamily(row.familyId);
+// Instantiate the factory for pharmacy. All options are wired so the exported
+// functions behave exactly as they did before FND-06.
+const service = createSessionService({
+  repository,
+  signAccess: signAccessToken,
+  hashToken: defaultHashToken,
+  refreshTtlDays: REFRESH_TTL_DAYS,
+  audience: 'pharmacy',
+});
+
+// Preserve the pre-FND-06 return shape: refreshSession returns user/pharmacy DTOs.
+async function refreshSession(rawRefreshToken, deviceInfo, opts = {}, meta = {}) {
+  return service.refreshSession(rawRefreshToken, deviceInfo, {
+    ...opts,
+    userDto,
+    pharmacyDto,
+  }, meta);
 }
 
-/** Signs out every device of a user (PIN changed, etc.). */
-async function revokeAllForUser(userId) {
-  await repository.revokeAllForUser(userId);
-}
-
-/** G1: who am I, straight from the database. A deleted user gets a 401 so the app signs out. */
 async function getMe(userId) {
-  const user = await repository.findUserWithPharmacy(userId);
-  if (!user) throw sessionError(401, 'USER_NOT_FOUND', 'Account no longer exists');
-  return { user: userDto(user), pharmacy: pharmacyDto(user.Pharmacy) };
+  return service.getMe(userId, { userDto, pharmacyDto });
 }
 
 module.exports = {
-  startSession,
+  startSession: service.startSession,
   refreshSession,
-  logout,
-  revokeAllForUser,
+  logout: service.logout,
+  revokeAllForUser: service.revokeAllForUser,
   getMe,
   deviceInfoFromRequest,
-  // exported for tests
-  hashToken,
+  signAccessToken,
+  hashToken: defaultHashToken,
   userDto,
   pharmacyDto,
 };

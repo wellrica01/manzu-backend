@@ -1,20 +1,59 @@
-const z = require('zod');
+// src/routes/auth.js
+// FND-07b3: authLimiter is mounted on the login routes (not the whole router,
+// so a successful login does not consume the register budget); registerLimiter
+// is mounted on /register. Both come from middleware/rate-limiting.js.
+//
+// The catch blocks now go through sendAuthError(), which honours error.status
+// (401 / 403 / 429 from the login service and the throttle), sets the
+// Retry-After header when retryAfterMs is present, and emits the FND-02 error
+// code when one is available.
 
+const z = require('zod');
 const express = require('express');
 const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.service');
-const { deviceInfoFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
+const stepupService = require('../domains/auth/pharmacy/stepup.service');
+const { deviceInfoFromRequest, deviceIdFromRequest, ipFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
 const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
+const { authLimiter, registerLimiter } = require('../middleware/rate-limiting');
 const router = express.Router();
 
-console.log('✅ Auth routes loaded - using domain services with repository pattern');
+/**
+ * Emit an error using the FND-02 contract plus the Retry-After header when
+ * the error carries a retryAfterMs. Status is error.status (fallback to
+ * defaultStatus). Body includes error (code), message, requestId (only on 5xx,
+ * so we do not leak ids for 4xx), and retryAfterSeconds for 429/403 lockout.
+ */
+function sendAuthError(res, error, requestId, defaultStatus) {
+  const statusCode = Number.isInteger(error && error.status) ? error.status : defaultStatus;
+  const isServerError = statusCode >= 500;
+
+  if (error && typeof error.retryAfterMs === 'number' && error.retryAfterMs > 0) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(error.retryAfterMs / 1000));
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+  }
+
+  const body = {
+    error: (error && error.code) || (isServerError ? 'SERVER_ERROR' : 'REQUEST_ERROR'),
+    message: isServerError
+      ? 'Internal server error'
+      : (error && error.message) || 'Request failed',
+  };
+  if (isServerError && requestId) body.requestId = requestId;
+  if (error && typeof error.retryAfterMs === 'number' && error.retryAfterMs > 0) {
+    body.retryAfterSeconds = Math.max(1, Math.ceil(error.retryAfterMs / 1000));
+  }
+  return res.status(statusCode).json(body);
+}
+
+console.log('Auth routes loaded - using domain services with repository pattern');
 
 // POST /auth/register - Register pharmacy and user
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { pharmacy, user } = registerSchema.parse(req.body);
-    const { token, refreshToken, user: newUser, pharmacy: newPharmacy } = await pharmacyAuthService.registerPharmacyAndUser({ pharmacy, user, deviceInfo: deviceInfoFromRequest(req) });
+    const { token, refreshToken, user: newUser, pharmacy: newPharmacy } = await pharmacyAuthService.registerPharmacyAndUser({ pharmacy, user, deviceInfo: deviceInfoFromRequest(req), meta: { deviceId: deviceIdFromRequest(req), ip: ipFromRequest(req) } });
     res.status(201).json({
       message: 'Registration successful',
       token,
@@ -23,23 +62,19 @@ router.post('/register', async (req, res) => {
       pharmacy: { id: newPharmacy.id, name: newPharmacy.name },
     });
   } catch (error) {
-    console.error('Registration error:', { message: error.message, stack: error.stack });
+    console.error('Registration error:', { message: error.message });
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Validation error', errors: error.errors });
     }
-    const statusCode = error.status === 400 ? 400 : 500;
-      res.status(statusCode).json({
-        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
-        ...(statusCode >= 500 && { requestId: req.requestId }),
-      });
+    return sendAuthError(res, error, req.requestId, 500);
   }
 });
 
 // POST /auth/login - Login pharmacy user
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, pin } = loginSchema.parse(req.body);
-    const { token, refreshToken, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin, deviceInfo: deviceInfoFromRequest(req) });
+    const { token, refreshToken, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin, deviceInfo: deviceInfoFromRequest(req), meta: { deviceId: deviceIdFromRequest(req), ip: ipFromRequest(req) } });
     res.status(200).json({
       message: 'Login successful',
       token,
@@ -49,21 +84,16 @@ router.post('/login', async (req, res) => {
       pharmacy: { id: pharmacy.id, name: pharmacy.name, status: pharmacy.status, isActive: pharmacy.isActive },
     });
   } catch (error) {
-    console.error('Login error:', { message: error.message, stack: error.stack });
+    console.error('Login error:', { message: error.message });
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Validation error', errors: error.errors });
     }
-    const statusCode = error.status === 401 ? 401 : 500;
-      res.status(statusCode).json({
-        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
-        ...(statusCode >= 500 && { requestId: req.requestId }),
-      });
+    return sendAuthError(res, error, req.requestId, 500);
   }
 });
 
-
 // POST /auth/admin/login - Login admin
-router.post('/admin/login', async (req, res) => {
+router.post('/admin/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = adminLoginSchema.parse(req.body);
     const { token, admin } = await adminAuthService.loginAdmin({ email, password });
@@ -73,15 +103,11 @@ router.post('/admin/login', async (req, res) => {
       admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role && admin.role.toUpperCase() },
     });
   } catch (error) {
-    console.error('Admin login error:', { message: error.message, stack: error.stack });
+    console.error('Admin login error:', { message: error.message });
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Validation error', errors: error.errors });
     }
-    const statusCode = error.status === 401 ? 401 : 500;
-      res.status(statusCode).json({
-        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
-        ...(statusCode >= 500 && { requestId: req.requestId }),
-      });
+    return sendAuthError(res, error, req.requestId, 500);
   }
 });
 
@@ -96,15 +122,11 @@ router.post('/add-user', authenticatePharmacy, authorizeRoles('MANAGER'), async 
       user: { id: user.id, name: user.name, email: user.email, role: user.role && user.role.toUpperCase() },
     });
   } catch (error) {
-    console.error('Add user error:', { message: error.message, stack: error.stack });
+    console.error('Add user error:', { message: error.message });
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Validation error', errors: error.errors });
     }
-    const statusCode = error.status === 400 ? 400 : 500;
-      res.status(statusCode).json({
-        message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
-        ...(statusCode >= 500 && { requestId: req.requestId }),
-      });
+    return sendAuthError(res, error, req.requestId, 500);
   }
 });
 
@@ -113,7 +135,7 @@ router.patch('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), 
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
-      return res.status(400).json({ message: 'Invalid user ID' });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid user ID' });
     }
     const { name, email, pin, role } = editUserSchema.parse(req.body);
     const managerId = req.user.userId;
@@ -124,40 +146,30 @@ router.patch('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), 
       user: { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, role: updatedUser.role && updatedUser.role.toUpperCase() },
     });
   } catch (error) {
-    console.error('Edit user error:', { message: error.message, stack: error.stack });
+    console.error('Edit user error:', { message: error.message });
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: 'Validation error', errors: error.errors });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Validation error', errors: error.errors });
     }
-    const statusCode = error.status || 500;
-    res.status(statusCode).json({
-      message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
-      ...(statusCode >= 500 && { requestId: req.requestId }),
-    });
+    return sendAuthError(res, error, req.requestId, 500);
   }
 });
 
-
 // DELETE /auth/users/:userId - Delete pharmacy user (manager only)
-router.delete('/users/:userId', authenticatePharmacy, authorizeRoles( 'MANAGER'), async (req, res) => {
+router.delete('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
-      return res.status(400).json({ message: 'Invalid user ID' });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid user ID' });
     }
     const managerId = req.user.userId;
     const pharmacyId = req.user.pharmacyId;
     await pharmacyAuthService.deletePharmacyUser(Number(userId), managerId, pharmacyId);
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
-    console.error('Delete user error:', { message: error.message, stack: error.stack });
-    const statusCode = error.status || 500;
-    res.status(statusCode).json({
-      message: statusCode >= 500 ? 'Internal server error' : error.message || 'Request failed',
-      ...(statusCode >= 500 && { requestId: req.requestId }),
-    });
+    console.error('Delete user error:', { message: error.message });
+    return sendAuthError(res, error, req.requestId, 500);
   }
 });
-
 
 // PATCH /auth/change-password - Change pharmacy user PIN
 router.patch('/change-password', authenticatePharmacy, async (req, res) => {
@@ -165,30 +177,72 @@ router.patch('/change-password', authenticatePharmacy, async (req, res) => {
     const { currentPin, newPin } = req.body;
 
     if (!currentPin || !newPin) {
-      return res.status(400).json({ message: 'Current and new PIN are required' });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Current and new PIN are required' });
     }
 
-    // Validate new PIN format: exactly 6 digits
     if (!/^\d{6}$/.test(newPin)) {
-      return res.status(400).json({ message: 'New PIN must be exactly 6 digits' });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'New PIN must be exactly 6 digits' });
     }
 
     const { userId } = req.user;
     const result = await pharmacyAuthService.changePharmacyUserPin(userId, currentPin, newPin);
 
     if (!result.success) {
-      return res.status(400).json({ message: result.message });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: result.message });
     }
 
     res.status(200).json({ message: 'PIN changed successfully' });
   } catch (error) {
-    console.error('Change PIN error:', { message: error.message, stack: error.stack });
-    res.status(500).json({
-      message: 'Internal server error',
-      requestId: req.requestId,
-    });
+    console.error('Change PIN error:', { message: error.message });
+    return sendAuthError(res, error, req.requestId, 500);
   }
 });
 
+// POST /auth/step-up - Issue a step-up token (FND-08a)
+//
+// Verifies the PIN (same bcrypt cost as login and change-pin), throttles
+// attempts, and returns a 5-minute step-up token bound to the current session.
+// The token is used by requireStepUp(scope) on the routes that need it (Doc 2
+// for banking, Doc 3 for admin actions). Nothing requires step-up yet.
+//
+// T3 scopes return APPROVAL_REQUIRED; FND-08 does not issue T3.
+router.post('/step-up', authenticatePharmacy, async (req, res) => {
+  try {
+    const { pin, scope } = req.body || {};
+    if (!pin || typeof pin !== 'string') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'PIN is required.' });
+    }
+    if (!scope || typeof scope !== 'string') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Scope is required.' });
+    }
+    const result = await stepupService.issueStepUp({
+      userId: req.user.userId,
+      sessionId: req.user.sid,
+      pin,
+      scope,
+    });
+    if (!result.ok) {
+      const status =
+        result.code === 'RATE_LIMITED' || result.code === 'ACCOUNT_LOCKED' ? 429 :
+        result.code === 'APPROVAL_REQUIRED' ? 409 :
+        403;
+      const err = new Error(result.message);
+      err.status = status;
+      err.code = result.code;
+      if (result.retryAfterMs) err.retryAfterMs = result.retryAfterMs;
+      return sendAuthError(res, err, req.requestId, status);
+    }
+    return res.status(200).json({
+      message: 'Step-up granted',
+      token: result.token,
+      scope: result.scope,
+      tier: result.tier,
+      expiresAt: result.expiresAt,
+    });
+  } catch (error) {
+    console.error('Step-up error:', { message: error.message });
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
 
 module.exports = router;

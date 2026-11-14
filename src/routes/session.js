@@ -30,7 +30,7 @@ router.post('/refresh', sessionLimiter, async (req, res) => {
     return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'refreshToken is required' });
   }
   try {
-    const result = await sessionService.refreshSession(parsed.data.refreshToken, sessionService.deviceInfoFromRequest(req));
+    const result = await sessionService.refreshSession(parsed.data.refreshToken, sessionService.deviceInfoFromRequest(req), {}, { deviceId: sessionService.deviceIdFromRequest(req), ip: sessionService.ipFromRequest(req) });
     res.status(200).json({ message: 'Session refreshed', ...result });
   } catch (error) {
     sendError(res, error, 'Refresh error:');

@@ -11,8 +11,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 const refundService = require('../services/refundService');
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const { reportError, ErrorCategory } = require('../utils/error-reporter');

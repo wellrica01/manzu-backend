@@ -1,5 +1,4 @@
 // cleanupOrders.js
-const { PrismaClient } = require('@prisma/client');
 const cron = require('node-cron');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
@@ -11,7 +10,7 @@ const { reconcilePreviousDay } = require('../services/reconciliationService');
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 // Placeholder logger; replace with structured logger in production
 const logger = {

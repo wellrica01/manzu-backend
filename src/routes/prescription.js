@@ -1,7 +1,6 @@
 const express = require('express');
 const supabase = require('../utils/supabaseClient')
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 const { 
   upload, 
   validateUploadedFile, 

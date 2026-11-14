@@ -1,7 +1,6 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt'); // ADD THIS
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 const pharmacyOrdersService = require('../domains/pharmacy/orders/pharmacy-orders.service');
 const pharmacyMedicationsService = require('../domains/pharmacy/medications/pharmacy-medications.service');
 const pharmacyUsersService = require('../domains/pharmacy/users/pharmacy-users.service');
@@ -17,6 +16,7 @@ const { validateFetchOrders, validateUpdateOrder,
   validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
+const { shape } = require('../core/authz/shapers/dashboard');
 const router = express.Router();
 const supabase = require('../utils/supabaseClient')
 
@@ -254,8 +254,6 @@ router.get('/earnings/analytics', authenticatePharmacy, authorizeRoles('MANAGER'
       startDate.setFullYear(startDate.getFullYear() - 1);
     }
 
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
 
     // Get completed orders in period
     const completedOrders = await prisma.order.findMany({
@@ -467,10 +465,8 @@ router.get('/orders/:orderId', authenticatePharmacy, async (req, res) => {
     const { error } = validateOrderId({ orderId: Number(orderId) });
     if (error) {
       console.error('Validation error:', error.message);
-      return res.status(400).json({ 
-        message: 'Invalid order ID', 
-        error: error.message 
-      });
+      const { sendError } = require('../core/errors/send-error');
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Invalid order ID', { details: error.message });
     }
     
     // Fetch order using service
@@ -943,22 +939,7 @@ router.get('/dashboard', authenticatePharmacy, async (req, res) => {
   try {
     const data = await pharmacyDashboardService.getDashboardData(req.user.pharmacyId);
 
-    if (req.user.role !== 'MANAGER') {
-      delete data.revenueToday;
-      delete data.revenueTrend;
-      delete data.posRevenueToday;
-      delete data.posRevenueTrend;
-
-      if (Array.isArray(data.topSellingMeds)) {
-        data.topSellingMeds = data.topSellingMeds.map(({ revenue, ...med }) => med);
-      }
-
-      if (Array.isArray(data.recentActivity)) {
-        data.recentActivity = data.recentActivity.map(({ amount, ...activity }) => activity);
-      }
-    }
-
-    res.status(200).json({ message: 'Dashboard data fetched', ...data });
+    res.status(200).json({ message: 'Dashboard data fetched', ...shape(req, 'dashboard', data) });
   } catch (error) {
     console.error('Dashboard error:', { message: error.message, stack: error.stack });
     res.status(500).json({

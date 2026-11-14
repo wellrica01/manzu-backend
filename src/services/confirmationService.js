@@ -1,4 +1,3 @@
-const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { isValidOrderReference } = require('../utils/validation');
 const { generateTrackingCode } = require('../utils/tracking');
@@ -12,7 +11,7 @@ const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-
 const { alertPaymentVerificationFailed, alertPaymentGatewayDown } = require('../utils/error-reporter');
 const { notifyNewPaidOrders } = require('../domains/pharmacy/push/push.service');
 
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 // Helper function to format order response
 function formatOrderResponse(orders, session) {

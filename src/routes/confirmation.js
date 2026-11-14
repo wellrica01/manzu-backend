@@ -4,9 +4,8 @@ const confirmationService = require('../services/confirmationService');
 const payoutsService = require('../domains/pharmacy/payouts/pharmacy-payouts.service');
 const { notifyPaidOrdersByReferences } = require('../domains/pharmacy/push/push.service');
 const { validateOrderConfirmation } = require('../utils/validation');
-const { PrismaClient } = require('@prisma/client');
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 console.log('Loaded confirmation.js version: 2025-06-18-v1');
 

@@ -8,6 +8,7 @@
  */
 
 const cron = require('node-cron');
+const prisma = require('../core/database/prisma');
 const payoutsService = require('../domains/pharmacy/payouts/pharmacy-payouts.service');
 const payoutsRepository = require('../domains/pharmacy/payouts/pharmacy-payouts.repository');
 const { reportError, ErrorCategory } = require('../utils/error-reporter');
@@ -161,8 +162,6 @@ async function generatePayoutReport() {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     // Get all payouts for today
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
 
     const payouts = await prisma.payout.findMany({
       where: {

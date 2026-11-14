@@ -69,6 +69,34 @@ async function findUserWithPharmacy(userId) {
   });
 }
 
+/**
+ * FND-09: upsert a device row for this (actorType, actorId, deviceId).
+ * Best-effort: a failure must never break the login or refresh it is called
+ * from - the caller wraps this in try/catch.
+ *
+ * On first sight: insert with firstSeenAt=now, lastSeenAt=now.
+ * On repeat: update label, lastSeenAt, lastIp. The row is a stable identity.
+ */
+async function upsertDevice({ actorType, actorId, deviceId, label, lastIp }) {
+  return prisma.userDevice.upsert({
+    where: { UserDevice_actor_device_key: { actorType, actorId, deviceId } },
+    create: {
+      actorType,
+      actorId,
+      deviceId,
+      label: label || null,
+      lastIp: lastIp || null,
+      firstSeenAt: new Date(),
+      lastSeenAt: new Date(),
+    },
+    update: {
+      label: label || null,
+      lastIp: lastIp || null,
+      lastSeenAt: new Date(),
+    },
+  });
+}
+
 module.exports = {
   createRefreshToken,
   findRefreshTokenByHash,
@@ -77,4 +105,5 @@ module.exports = {
   revokeAllForUser,
   deleteStaleForUser,
   findUserWithPharmacy,
+  upsertDevice,
 };

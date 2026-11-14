@@ -1,60 +1,104 @@
-/**
- * RATE LIMITING MIDDLEWARE
- * 
- * Extracted from app.js for better organization
- * Three-tier rate limiting strategy
- */
+// src/middleware/rate-limiting.js
+//
+// FND-07b1: the four limiter middlewares now go through the throttle interface
+// (src/core/throttle) instead of express-rate-limit. Same names, same mounts in
+// app.js. On denial: 429, Retry-After header, RATE_LIMITED code (FND-02), and a
+// security.rate_limited event (FND-03).
+//
+// The key for each limiter is either the client IP (for API, session, checkout)
+// or the user (for auth, once authenticated - but auth is pre-auth so it uses IP).
 
-const rateLimit = require('express-rate-limit');
-const { API_RATE_LIMIT, AUTH_RATE_LIMIT, SESSION_RATE_LIMIT, CHECKOUT_RATE_LIMIT } = require('../config/rate-limits');
+const { RATE_LIMITS } = require('../config/rate-limits');
+const throttle = require('../core/throttle');
+const { sendError } = require('../core/errors/send-error');
+const security = require('../core/audit/security-event');
+const prisma = require('../core/database/prisma');
 
-// ==================== TIER 1: General API Rate Limit ====================
-const apiLimiter = rateLimit({
-  ...API_RATE_LIMIT,
-  handler: (req, res) => {
-    console.log(`Rate limit exceeded for IP: ${req.ip} on ${req.originalUrl}`);
-    res.status(429).json(API_RATE_LIMIT.message);
-  },
-});
+function clientKey(req) {
+  return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+}
 
-// ==================== TIER 2: Authentication Rate Limit ====================
-const authLimiter = rateLimit({
-  ...AUTH_RATE_LIMIT,
-  handler: (req, res) => {
-    console.log(`Auth rate limit exceeded for IP: ${req.ip}`);
-    res.status(429).json({
-      ...AUTH_RATE_LIMIT.message,
-      lockoutDuration: '15 minutes'
+async function applyLimit(req, res, next, config, keyFn) {
+  try {
+    const result = await throttle.hit({
+      class: config.class,
+      key: keyFn(req),
+      windowMs: config.windowMs,
+      max: config.max,
+      lockoutMinutes: config.lockoutMinutes,
     });
-  },
-});
 
-const sessionLimiter = rateLimit({
-  ...SESSION_RATE_LIMIT,
-  handler: (req, res) => {
-    console.log(`Session rate limit exceeded for IP: ${req.ip}`);
-    res.status(429).json(SESSION_RATE_LIMIT.message);
-  },
-});
+    if (result.allowed) return next();
 
-// ==================== TIER 3: Checkout Rate Limit ====================
-const checkoutLimiter = rateLimit({
-  ...CHECKOUT_RATE_LIMIT,
-  handler: (req, res) => {
-    console.log(`Checkout rate limit exceeded for IP: ${req.ip}`);
-    res.status(429).json(CHECKOUT_RATE_LIMIT.message);
-  },
-});
+    const retrySeconds = Math.max(1, Math.ceil(result.retryAfterMs / 1000));
+    res.setHeader('Retry-After', String(retrySeconds));
 
-// Log configuration on startup
-console.log('✅ Rate limiting configured:');
-console.log(`  - General API: ${API_RATE_LIMIT.max} requests / ${API_RATE_LIMIT.windowMs / 60000} min`);
-console.log(`  - Authentication: ${AUTH_RATE_LIMIT.max} attempts / ${AUTH_RATE_LIMIT.windowMs / 60000} min`);
-console.log(`  - Checkout: ${CHECKOUT_RATE_LIMIT.max} attempts / ${CHECKOUT_RATE_LIMIT.windowMs / 60000 / 60} hour`);
+    // Fire-and-forget security event; never block the 429 on it.
+    security.record(prisma, {
+      action: 'security.rate_limited',
+      entityType: 'Auth',
+      entityId: config.class,
+      severity: 'warning',
+      after: { class: config.class, retryAfterSeconds: retrySeconds, level: result.level },
+    }).catch(() => {});
+
+    // Third lockout cycle for this key is worth an alert to the team.
+    if (result.level >= 3) {
+      try {
+        security.notify({
+          action: 'security.rate_limited',
+          severity: 'critical',
+          entityType: 'Auth',
+          entityId: config.class,
+          category: 'RATE_LIMIT',
+          after: { class: config.class, level: result.level, retryAfterSeconds: retrySeconds },
+        });
+      } catch (_) {
+        // never block the 429 on the alert path
+      }
+    }
+
+    return sendError(res, 429, 'RATE_LIMITED', 'Too many requests. Please try again shortly.', {
+      retryAfterSeconds: retrySeconds,
+    });
+  } catch (err) {
+    // Throttle store failed (e.g. Postgres down). Never let that take the
+    // whole API down - fail open on the throttle, but log.
+    console.error('throttle error, failing open:', { message: err.message, class: config.class });
+    return next();
+  }
+}
+
+function apiLimiter(req, res, next) {
+  return applyLimit(req, res, next, RATE_LIMITS.api, clientKey);
+}
+
+function authLimiter(req, res, next) {
+  return applyLimit(req, res, next, RATE_LIMITS.auth, clientKey);
+}
+
+function sessionLimiter(req, res, next) {
+  return applyLimit(req, res, next, RATE_LIMITS.session, clientKey);
+}
+
+function checkoutLimiter(req, res, next) {
+  return applyLimit(req, res, next, RATE_LIMITS.checkout, clientKey);
+}
+
+console.log('Rate limiting configured:');
+console.log(`  - General API: ${RATE_LIMITS.api.max} requests / ${RATE_LIMITS.api.windowMs / 60000} min`);
+console.log(`  - Authentication: ${RATE_LIMITS.auth.max} attempts / ${RATE_LIMITS.auth.windowMs / 60000} min`);
+console.log(`  - Session: ${RATE_LIMITS.session.max} requests / ${RATE_LIMITS.session.windowMs / 60000} min`);
+console.log(`  - Checkout: ${RATE_LIMITS.checkout.max} attempts / ${RATE_LIMITS.checkout.windowMs / 60000 / 60} hour`);
+
+function registerLimiter(req, res, next) {
+  return applyLimit(req, res, next, RATE_LIMITS.register, clientKey);
+}
 
 module.exports = {
   apiLimiter,
   authLimiter,
   sessionLimiter,
   checkoutLimiter,
+  registerLimiter,
 };

@@ -1,23 +1,35 @@
 /**
  * PHARMACY AUTH SERVICE
- * 
- * Business logic for pharmacy authentication and user management
+ *
+ * Business logic for pharmacy authentication and user management.
+ * FND-07b2 adds equal-time login (SEC-04) and per-account lockout using
+ * PharmacyUser.failedAttempts / lockedUntil.
  */
 
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const { validateLocation } = require('../../../utils/location');
 const pharmacyAuthRepository = require('./pharmacy-auth.repository');
 const sessionService = require('./pharmacy-session.service');
 const { HTTP_STATUS, ERROR_CODES } = require('../../../config/constants');
+const throttle = require('../../../core/throttle');
+const { computeLockout, isLocked } = require('../../../core/auth/lockout');
+
+// A real bcrypt hash with the same cost factor as production PINs.
+// The dummy compare makes an unknown email take the same time as a known
+// email with the wrong PIN, closing the SEC-04 timing oracle.
+const DUMMY_HASH = bcrypt.hashSync('dummy-pin-never-used', 10);
+
+function accountKey(email) {
+  return crypto.createHash('sha256').update(String(email || '').toLowerCase()).digest('hex');
+}
 
 /**
  * Register pharmacy and initial user
  */
-async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
-  // Validate location (state, lga, and GPS bounds)
+async function registerPharmacyAndUser({ pharmacy, user, deviceInfo, meta }) {
   validateLocation(pharmacy.state, pharmacy.lga, pharmacy.latitude, pharmacy.longitude);
 
-  // Check if pharmacy license exists
   const existingPharmacy = await pharmacyAuthRepository.findPharmacyByLicense(pharmacy.licenseNumber);
   if (existingPharmacy) {
     const error = new Error('Pharmacy license number already exists');
@@ -26,7 +38,6 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
     throw error;
   }
 
-  // Check if user email exists
   const existingUser = await pharmacyAuthRepository.findPharmacyUserByEmail(user.email);
   if (existingUser) {
     const error = new Error('Email already registered');
@@ -35,14 +46,12 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
     throw error;
   }
 
-  // Hash PIN
   const salt = await bcrypt.genSalt(10);
   const hashedPin = await bcrypt.hash(user.pin, salt);
 
-  // Create pharmacy and user in transaction
   const result = await pharmacyAuthRepository.executeTransaction(async (tx) => {
     const newPharmacy = await pharmacyAuthRepository.createPharmacyWithGPS(pharmacy, tx);
-    
+
     const newUser = await pharmacyAuthRepository.createPharmacyUser({
       email: user.email,
       hashedPassword: hashedPin,
@@ -61,36 +70,109 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
     accuracy: result.pharmacy.locationAccuracy,
   });
 
-  // Access token + refresh token (same session setup as login)
-  const { token, refreshToken } = await sessionService.startSession(result.user, deviceInfo);
+  const { token, refreshToken } = await sessionService.startSession(result.user, deviceInfo, {}, meta || {});
 
   return { token, refreshToken, user: result.user, pharmacy: result.pharmacy };
 }
 
 /**
- * Login pharmacy user
+ * Login pharmacy user (FND-07b2).
+ *
+ * Flow:
+ *   1. throttle.hit('login', key=sha256(email)). If rate-limited, throw 429
+ *      before any database or bcrypt work.
+ *   2. Look up the user. If the account is currently locked out (lockedUntil
+ *      in the future), throw 403 ACCOUNT_LOCKED with retryAfterMs.
+ *   3. bcrypt.compare(pin, user.password). If the user does not exist, run the
+ *      same compare against DUMMY_HASH so the two paths take the same time.
+ *   4. On failure: increment failedAttempts, apply the lockout schedule, write
+ *      both with updatePharmacyUser. Throw 401.
+ *   5. On success: reset failedAttempts and lockedUntil, reset the throttle,
+ *      start the session.
  */
-async function loginUser({ email, pin, deviceInfo }) {
+async function loginUser({ email, pin, deviceInfo, meta }) {
+  const key = accountKey(email);
+
+  // Step 1: throttle before any work.
+  const gate = await throttle.hit({
+    class: 'login',
+    key,
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    lockoutMinutes: 15,
+  });
+  if (!gate.allowed) {
+    const error = new Error('Too many login attempts. Please try again later.');
+    error.status = 429;
+    error.code = 'RATE_LIMITED';
+    error.retryAfterMs = gate.retryAfterMs;
+    throw error;
+  }
+
+  // Step 2: look up.
   const user = await pharmacyAuthRepository.findPharmacyUserByEmail(email);
-  
-  if (!user) {
+
+  if (user && isLocked(user.lockedUntil)) {
+    const error = new Error('Account is locked. Please try again later.');
+    error.status = 403;
+    error.code = 'ACCOUNT_LOCKED';
+    error.retryAfterMs = new Date(user.lockedUntil).getTime() - Date.now();
+    throw error;
+  }
+
+  // Step 3: equal-time compare.
+  const hash = user ? user.password : DUMMY_HASH;
+  const isPinValid = await bcrypt.compare(pin, hash);
+
+  if (!user || !isPinValid) {
+    // Step 4: failure.
+    if (user) {
+      const nextFailures = Number(user.failedAttempts || 0) + 1;
+      const lockout = computeLockout(nextFailures);
+      try {
+        await pharmacyAuthRepository.updatePharmacyUser(user.id, {
+          failedAttempts: nextFailures,
+          lockedUntil: lockout.lockedUntil,
+        });
+      } catch (writeErr) {
+        console.error('Failed to record failed login:', { message: writeErr.message });
+      }
+      if (lockout.shouldAlert) {
+        try {
+          require('../../../core/audit/security-event').notify({
+            action: 'auth.account.locked',
+            severity: 'critical',
+            entityType: 'PharmacyUser',
+            entityId: user.id,
+            after: { failedAttempts: nextFailures, minutes: lockout.minutes },
+          });
+        } catch (_) {
+          // never break the login rejection on the alert path
+        }
+      }
+    }
     const error = new Error('Invalid email or PIN');
     error.status = HTTP_STATUS.UNAUTHORIZED;
     error.code = ERROR_CODES.INVALID_CREDENTIALS;
     throw error;
   }
 
-  const isPinValid = await bcrypt.compare(pin, user.password);
-  if (!isPinValid) {
-    const error = new Error('Invalid email or PIN');
-    error.status = HTTP_STATUS.UNAUTHORIZED;
-    error.code = ERROR_CODES.INVALID_CREDENTIALS;
-    throw error;
+  // Step 5: success.
+  if (user.failedAttempts > 0 || user.lockedUntil) {
+    try {
+      await pharmacyAuthRepository.updatePharmacyUser(user.id, {
+        failedAttempts: 0,
+        lockedUntil: null,
+      });
+    } catch (writeErr) {
+      console.error('Failed to reset lockout state:', { message: writeErr.message });
+    }
   }
+  await throttle.reset({ class: 'login', key }).catch(() => {});
 
   console.log('User authenticated with PIN:', { userId: user.id, pharmacyId: user.pharmacyId });
 
-  const { token, refreshToken } = await sessionService.startSession(user, deviceInfo);
+  const { token, refreshToken } = await sessionService.startSession(user, deviceInfo, {}, meta || {});
 
   return { token, refreshToken, user, pharmacy: user.Pharmacy };
 }
@@ -100,7 +182,6 @@ async function loginUser({ email, pin, deviceInfo }) {
  */
 async function addPharmacyUser({ name, email, pin, role, pharmacyId }) {
   const existingUser = await pharmacyAuthRepository.findPharmacyUserByEmail(email);
-  
   if (existingUser) {
     const error = new Error('Email already registered');
     error.status = HTTP_STATUS.BAD_REQUEST;
@@ -120,7 +201,6 @@ async function addPharmacyUser({ name, email, pin, role, pharmacyId }) {
   });
 
   console.log('User added with PIN:', { userId: newUser.id, pharmacyId });
-
   return newUser;
 }
 
@@ -136,7 +216,6 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
   }
 
   const user = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
-  
   if (!user) {
     const error = new Error('User not found');
     error.status = HTTP_STATUS.NOT_FOUND;
@@ -165,11 +244,10 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
 
   const updatedUser = await pharmacyAuthRepository.updatePharmacyUser(userId, updateData);
 
-  // A new PIN signs the user out everywhere: their refresh tokens stop working.
+  // A new PIN signs the user out everywhere.
   if (pin) await sessionService.revokeAllForUser(userId);
 
   console.log('User updated:', { userId: updatedUser.id, pharmacyId });
-
   return updatedUser;
 }
 
@@ -185,7 +263,6 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
   }
 
   const user = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
-  
   if (!user) {
     const error = new Error('User not found');
     error.status = HTTP_STATUS.NOT_FOUND;
@@ -194,7 +271,6 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
   }
 
   await pharmacyAuthRepository.deletePharmacyUser(userId);
-
   console.log('User deleted:', { userId, pharmacyId });
 }
 
@@ -203,7 +279,6 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
  */
 async function changePharmacyUserPin(userId, currentPin, newPin) {
   const user = await pharmacyAuthRepository.findPharmacyUserById(userId);
-  
   if (!user) {
     return { success: false, message: 'User not found' };
   }

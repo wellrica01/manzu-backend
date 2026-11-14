@@ -1,5 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 async function recordConsent({ userIdentifier, userId, consentType, granted }) {
   if (userIdentifier) {

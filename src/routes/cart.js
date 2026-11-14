@@ -1,6 +1,6 @@
-﻿const express = require('express');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const express = require('express');
+const { idempotency } = require('../middleware/idempotency');
+const prisma = require('../core/database/prisma');
 const upload = require('../utils/upload')
 const { validateFile, generateSecureFilename } = upload;
 const supabase = require('../utils/supabaseClient')
@@ -13,7 +13,7 @@ const router = express.Router();
 
 
 // Add item to cart
-router.post('/add', async (req, res) => {
+router.post('/add', idempotency(), async (req, res) => {
   const { medicationId, pharmacyId, quantity } = req.body;
   const userId = req.headers['x-guest-id'];
 
@@ -128,7 +128,7 @@ router.post('/add', async (req, res) => {
 
 
 // Bulk add items to cart
-router.post('/add-bulk', async (req, res) => {
+router.post('/add-bulk', idempotency(), async (req, res) => {
   try {
     const { userIdentifier, guestId, items, prescriptionId } = req.body;
 
@@ -468,7 +468,7 @@ router.get('/validate-stock', async (req, res) => {
 });
 
 
-router.post('/auto-adjust-stock', async (req, res) => {
+router.post('/auto-adjust-stock', idempotency(), async (req, res) => {
   try {
     const userId = req.headers['x-guest-id'];
     
