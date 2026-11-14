@@ -11,6 +11,7 @@
 const z = require('zod');
 const express = require('express');
 const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.service');
+const stepupService = require('../domains/auth/pharmacy/stepup.service');
 const { deviceInfoFromRequest, deviceIdFromRequest, ipFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
 const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSchema } = require('../utils/adminValidation');
@@ -193,6 +194,53 @@ router.patch('/change-password', authenticatePharmacy, async (req, res) => {
     res.status(200).json({ message: 'PIN changed successfully' });
   } catch (error) {
     console.error('Change PIN error:', { message: error.message });
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
+
+// POST /auth/step-up - Issue a step-up token (FND-08a)
+//
+// Verifies the PIN (same bcrypt cost as login and change-pin), throttles
+// attempts, and returns a 5-minute step-up token bound to the current session.
+// The token is used by requireStepUp(scope) on the routes that need it (Doc 2
+// for banking, Doc 3 for admin actions). Nothing requires step-up yet.
+//
+// T3 scopes return APPROVAL_REQUIRED; FND-08 does not issue T3.
+router.post('/step-up', authenticatePharmacy, async (req, res) => {
+  try {
+    const { pin, scope } = req.body || {};
+    if (!pin || typeof pin !== 'string') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'PIN is required.' });
+    }
+    if (!scope || typeof scope !== 'string') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Scope is required.' });
+    }
+    const result = await stepupService.issueStepUp({
+      userId: req.user.userId,
+      sessionId: req.user.sid,
+      pin,
+      scope,
+    });
+    if (!result.ok) {
+      const status =
+        result.code === 'RATE_LIMITED' || result.code === 'ACCOUNT_LOCKED' ? 429 :
+        result.code === 'APPROVAL_REQUIRED' ? 409 :
+        403;
+      const err = new Error(result.message);
+      err.status = status;
+      err.code = result.code;
+      if (result.retryAfterMs) err.retryAfterMs = result.retryAfterMs;
+      return sendAuthError(res, err, req.requestId, status);
+    }
+    return res.status(200).json({
+      message: 'Step-up granted',
+      token: result.token,
+      scope: result.scope,
+      tier: result.tier,
+      expiresAt: result.expiresAt,
+    });
+  } catch (error) {
+    console.error('Step-up error:', { message: error.message });
     return sendAuthError(res, error, req.requestId, 500);
   }
 });

@@ -134,6 +134,7 @@
   "POST /api/auth/logout",
   "POST /api/auth/refresh",
   "POST /api/auth/register",
+  "POST /api/auth/step-up",
   "POST /api/cart/add",
   "POST /api/cart/add-bulk",
   "POST /api/cart/auto-adjust-stock",
