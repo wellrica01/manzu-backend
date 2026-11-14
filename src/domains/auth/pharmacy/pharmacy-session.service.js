@@ -111,6 +111,8 @@ module.exports = {
   revokeAllForUser: service.revokeAllForUser,
   getMe,
   deviceInfoFromRequest,
+  deviceIdFromRequest,
+  ipFromRequest,
   signAccessToken,
   hashToken: defaultHashToken,
   userDto,
