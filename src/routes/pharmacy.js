@@ -1,7 +1,6 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt'); // ADD THIS
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 const pharmacyOrdersService = require('../domains/pharmacy/orders/pharmacy-orders.service');
 const pharmacyMedicationsService = require('../domains/pharmacy/medications/pharmacy-medications.service');
 const pharmacyUsersService = require('../domains/pharmacy/users/pharmacy-users.service');
@@ -255,8 +254,6 @@ router.get('/earnings/analytics', authenticatePharmacy, authorizeRoles('MANAGER'
       startDate.setFullYear(startDate.getFullYear() - 1);
     }
 
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
 
     // Get completed orders in period
     const completedOrders = await prisma.order.findMany({
