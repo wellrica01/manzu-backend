@@ -18,6 +18,7 @@ jest.mock('../src/domains/auth/pharmacy/pharmacy-session.repository', () => mock
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const service = require('../src/domains/auth/pharmacy/pharmacy-session.service');
+const { getSecretFor } = require('../src/utils/env-validator');
 
 const sha256 = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
@@ -58,7 +59,7 @@ describe('startSession', () => {
     expect(stored.familyId).toMatch(/^[0-9a-f-]{36}$/);
     expect(stored.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * 86400000);
 
-    const decoded = jwt.verify(token, 'test-secret', { algorithms: ['HS256'] });
+    const decoded = jwt.verify(token, getSecretFor('pharmacy'), { algorithms: ['HS256'], issuer: 'manzu', audience: 'pharmacy' });
     expect(decoded).toMatchObject({ userId: 6, pharmacyId: 7, role: 'MANAGER' });
   });
 
@@ -82,7 +83,7 @@ describe('refreshSession', () => {
     const args = mockRepo.rotateRefreshToken.mock.calls[0];
     expect(args[1].tokenHash).toBe(sha256(result.refreshToken));
     expect(result.refreshToken).not.toBe(old);
-    expect(jwt.verify(result.token, 'test-secret').role).toBe('PHARMACIST');
+    expect(jwt.verify(result.token, getSecretFor('pharmacy'), { issuer: 'manzu', audience: 'pharmacy' }).role).toBe('PHARMACIST');
     expect(result.pharmacy).toMatchObject({ status: 'SUSPENDED', isActive: true });
     expect(result.user).toEqual({ id: 6, name: 'Aisha', email: 'a@x.com', role: 'PHARMACIST' });
   });
