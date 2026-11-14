@@ -17,6 +17,7 @@ const { validateFetchOrders, validateUpdateOrder,
   validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
+const { shape } = require('../core/authz/shapers/dashboard');
 const router = express.Router();
 const supabase = require('../utils/supabaseClient')
 
@@ -941,22 +942,7 @@ router.get('/dashboard', authenticatePharmacy, async (req, res) => {
   try {
     const data = await pharmacyDashboardService.getDashboardData(req.user.pharmacyId);
 
-    if (req.user.role !== 'MANAGER') {
-      delete data.revenueToday;
-      delete data.revenueTrend;
-      delete data.posRevenueToday;
-      delete data.posRevenueTrend;
-
-      if (Array.isArray(data.topSellingMeds)) {
-        data.topSellingMeds = data.topSellingMeds.map(({ revenue, ...med }) => med);
-      }
-
-      if (Array.isArray(data.recentActivity)) {
-        data.recentActivity = data.recentActivity.map(({ amount, ...activity }) => activity);
-      }
-    }
-
-    res.status(200).json({ message: 'Dashboard data fetched', ...data });
+    res.status(200).json({ message: 'Dashboard data fetched', ...shape(req, 'dashboard', data) });
   } catch (error) {
     console.error('Dashboard error:', { message: error.message, stack: error.stack });
     res.status(500).json({
