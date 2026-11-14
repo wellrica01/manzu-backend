@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon src/app.js",
-    "start": "node src/app.js",
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
     "postinstall": "prisma generate",
     "migrate": "prisma migrate dev",
     "seed": "node src/seed.js",
@@ -74,6 +74,8 @@
       "**/?(*.)+(spec|test).js"
     ],
     "testTimeout": 30000,
+    "clearMocks": true,
+    "restoreMocks": true,
     "setupFilesAfterEnv": [
       "<rootDir>/tests/setup.js"
     ]

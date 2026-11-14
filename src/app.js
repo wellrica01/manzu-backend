@@ -1,76 +1,15 @@
-// ✅ Load environment variables FIRST (environment-specific)
-const { loadEnvironment } = require('./utils/load-env');
-loadEnvironment();
-
-// ✅ Validate environment variables (CRITICAL: Check JWT_SECRET strength)
-const { validateEnvironment, checkGitignore } = require('./utils/env-validator');
-validateEnvironment();
-checkGitignore();
-
-// ✅ Initialize Sentry FIRST (before any other imports)
-const Sentry = require('@sentry/node');
-const { nodeProfilingIntegration } = require('@sentry/profiling-node');
-const { sanitizeData } = require('./utils/error-reporter');
-
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
-  sendDefaultPii: false,
-  
-  // Performance monitoring
-  tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '0.1'),
-  profilesSampleRate: parseFloat(process.env.SENTRY_PROFILES_SAMPLE_RATE || '0.1'),
-  
-  // Integrations
-  integrations: [
-    nodeProfilingIntegration(),
-  ],
-  
-  // Debug mode (only in development)
-  debug: process.env.SENTRY_DEBUG === 'true',
-  
-  // Release tracking
-  release: process.env.npm_package_version,
-  
-  // Before send hook to filter sensitive data
-  beforeSend(event) {
-    // Don't send events in test environment
-    if (process.env.NODE_ENV === 'test') {
-      return null;
-    }
-
-    // Filter out health check errors
-    if (event.request?.url?.includes('/health')) {
-      return null;
-    }
-
-    // Remove potentially sensitive request data
-    if (event.request) {
-      if (event.request.url) {
-        event.request.url = event.request.url.split('?')[0];
-      }
-
-      if (event.request.query_string) {
-        event.request.query_string = '[REDACTED]';
-      }
-
-      if (typeof event.request.data === 'string') {
-        event.request.data = '[REDACTED]';
-      }
-    }
-
-    // Scrub sensitive fields throughout the complete event
-    return sanitizeData(event);
-  },
-});
-
-console.log('✅ Sentry initialized:', {
-  environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV,
-  dsn: process.env.SENTRY_DSN ? 'Configured' : 'Not configured'
-});
+// src/app.js
+// Exports createApp() only. No env load, no Sentry init, no cron, no listen.
+// Those live in src/server.js. Tests can now `require('./src/app')` safely.
 
 const express = require('express');
 const helmet = require('helmet');
+const cors = require('cors');
+
+const { requestId } = require('./middleware/request-id');
+const { sanitizeInputs } = require('./middleware/sanitization');
+const { apiLimiter, authLimiter, checkoutLimiter } = require('./middleware/rate-limiting');
+const { errorHandler, notFoundHandler } = require('./middleware/error-handler');
 
 const medicationRoutes = require('./routes/medication');
 const prescriptionRoutes = require('./routes/prescription');
@@ -84,278 +23,197 @@ const sessionRoutes = require('./routes/session');
 const adminRoutes = require('./routes/admin');
 const consentRoutes = require('./routes/consent');
 const refundRoutes = require('./routes/refunds');
+
 const prisma = require('./core/database/prisma');
-require('./jobs/cron');
 
-const app = express();
-// Render sits behind Cloudflare + its own proxy; trust the first hop so req.ip is the client IP.
-// Without this, express-rate-limit sees one shared IP for all users (5 failed PINs lock everyone out).
-app.set('trust proxy', 1);
-
-// Assign a unique ID to every incoming request
-const { v4: uuidv4 } = require('uuid');
-
-app.use((req, res, next) => {
-  req.requestId = uuidv4();
-  res.setHeader('X-Request-Id', req.requestId);
-  next();
-});
-
-
-const cors = require('cors');
-
-// ✅ Sentry request handler MUST be first middleware
-// Note: Newer Sentry versions handle this automatically with setupExpressErrorHandler
-
-// ====== SECURE CORS CONFIG ======
-// ✅ SECURITY: No wildcards, environment-specific whitelist
-const getAllowedOrigins = () => {
-  // Get from environment variable (comma-separated)
+function getAllowedOrigins() {
   if (process.env.ALLOWED_ORIGINS) {
-    return process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim());
+    return process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim());
   }
-
-  // Fallback for development (if ALLOWED_ORIGINS not set)
   if (process.env.NODE_ENV === 'development') {
-    console.warn('⚠️  ALLOWED_ORIGINS not set, using development defaults');
+    console.warn('ALLOWED_ORIGINS not set, using development defaults');
     return [
       'http://localhost:3000',
       'http://localhost:5173',
       'http://192.168.69.67:3000',
       'exp://192.168.69.67:8081',
-      'http://127.0.0.1:5173'
+      'http://127.0.0.1:5173',
     ];
   }
-
-  // Production MUST have ALLOWED_ORIGINS set
-  console.error('🚨 CRITICAL: ALLOWED_ORIGINS not set in production!');
+  console.error('CRITICAL: ALLOWED_ORIGINS not set in production!');
   return [];
-};
+}
 
-const allowedOrigins = getAllowedOrigins();
+function createApp() {
+  const app = express();
+  app.set('trust proxy', 1);
 
-console.log('✅ CORS Configuration:');
-console.log('   Environment:', process.env.NODE_ENV || 'development');
-console.log('   Allowed Origins:', allowedOrigins);
+  // 1. Request id and actor context (must be first)
+  app.use(requestId);
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, curl)
-    if (!origin) {
-      // In production, you might want to block this
-      if (process.env.NODE_ENV === 'production') {
-        console.warn('⚠️  Request with no origin in production');
-      }
-      return callback(null, true);
-    }
-
-    // Normalize origin (remove trailing slash, lowercase)
-    const normalizedOrigin = origin.trim().replace(/\/$/, '').toLowerCase();
-
-    // Check if origin is in whitelist
-    const isAllowed = allowedOrigins.some(allowed => 
-      allowed.toLowerCase() === normalizedOrigin
-    );
-
-    if (isAllowed) {
-      console.log(`✅ CORS allowed: ${origin}`);
-      return callback(null, true);
-    }
-
-    // Log rejected origin for security monitoring
-    console.warn(`🚨 CORS BLOCKED: ${origin}`);
-    console.warn(`   Allowed origins: ${allowedOrigins.join(', ')}`);
-    
-    // Report to Sentry
-    if (global.Sentry) {
-      global.Sentry.captureMessage('CORS request blocked', {
-        level: 'warning',
-        tags: { type: 'cors_violation' },
-        extra: { 
-          blockedOrigin: origin,
-          allowedOrigins: allowedOrigins
+  // 2. CORS
+  const allowedOrigins = getAllowedOrigins();
+  const corsOptions = {
+    origin: (origin, callback) => {
+      if (!origin) {
+        if (process.env.NODE_ENV === 'production') {
+          console.warn('Request with no origin in production');
         }
-      });
-    }
-
-    return callback(new Error(`CORS policy: Origin ${origin} is not allowed`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-id'],
-  exposedHeaders: ['Content-Length', 'X-Request-Id'],
-  maxAge: 86400, // 24 hours
-  optionsSuccessStatus: 200
-};
-
-// Special log for preflight OPTIONS requests
-app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') {
-    const reqHeaders = req.headers['access-control-request-headers'];
-    if (reqHeaders) {
-      console.log(`🚨 Preflight requesting headers: ${reqHeaders}`);
-    }
-  }
-  next();
-});
-
-// ====== SECURITY HEADERS (HELMET) ======
-// Apply helmet for security headers
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
+        return callback(null, true);
+      }
+      const normalizedOrigin = origin.trim().replace(/\/$/, '').toLowerCase();
+      const isAllowed = allowedOrigins.some(
+        (allowed) => allowed.toLowerCase() === normalizedOrigin,
+      );
+      if (isAllowed) {
+        return callback(null, true);
+      }
+      console.warn(`CORS BLOCKED: ${origin}`);
+      if (global.Sentry) {
+        global.Sentry.captureMessage('CORS request blocked', {
+          level: 'warning',
+          tags: { type: 'cors_violation' },
+          extra: { blockedOrigin: origin, allowedOrigins },
+        });
+      }
+      return callback(new Error(`CORS policy: Origin ${origin} is not allowed`));
     },
-  },
-  hsts: {
-    maxAge: 31536000, // 1 year
-    includeSubDomains: true,
-    preload: true
-  },
-  noSniff: true,
-  xssFilter: true,
-  hidePoweredBy: true,
-}));
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-id'],
+    exposedHeaders: ['Content-Length', 'X-Request-Id'],
+    maxAge: 86400,
+    optionsSuccessStatus: 200,
+  };
 
-// ====== HTTPS ENFORCEMENT (PRODUCTION ONLY) ======
-if (process.env.NODE_ENV === 'production') {
+  // Preflight logging
   app.use((req, res, next) => {
-    // Check if request is using HTTPS
-    if (req.header('x-forwarded-proto') !== 'https') {
-      console.log(`Redirecting HTTP to HTTPS: ${req.url}`);
-      return res.redirect(`https://${req.header('host')}${req.url}`);
+    if (req.method === 'OPTIONS') {
+      const reqHeaders = req.headers['access-control-request-headers'];
+      if (reqHeaders) {
+        console.log(`Preflight requesting headers: ${reqHeaders}`);
+      }
     }
     next();
   });
-}
 
-// ====== ENABLE CORS ======
-app.use(cors(corsOptions));
+  // 3. Helmet
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"],
+      },
+    },
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    noSniff: true,
+    xssFilter: true,
+    hidePoweredBy: true,
+  }));
 
-// Handle all preflight routes
-app.options(/.*/, (req, res, next) => {
-  console.log(`\n[Preflight Request] Method: ${req.method}, Path: ${req.originalUrl}, Origin: ${req.headers.origin || 'N/A'}`);
-  next();
-}, cors(corsOptions));
-
-app.use(express.json());
-
-// ====== XSS & SQL INJECTION PROTECTION ======
-// ✅ SECURITY: Consolidated sanitization middleware
-const { sanitizeInputs } = require('./middleware/sanitization');
-app.use(sanitizeInputs);
-
-console.log('✅ Security: Input sanitization enabled (XSS + SQL injection protection)');
-
-// ====== CONTENT SECURITY POLICY ======
-// ✅ SECURITY: Prevent XSS via CSP headers
-app.use((req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self'; " +
-    "script-src 'self'; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: https:; " +
-    "font-src 'self' data:; " +
-    "connect-src 'self'; " +
-    "frame-ancestors 'none'; " +
-    "base-uri 'self'; " +
-    "form-action 'self';"
-  );
-  
-  // Additional security headers
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  
-  next();
-});
-
-console.log('✅ CSP Headers: Content Security Policy enabled');
-
-// ====== RATE LIMITING ======
-const { apiLimiter, authLimiter, checkoutLimiter } = require('./middleware/rate-limiting');
-
-// ====== HEALTH CHECK ======
-app.get('/', (req, res) => {
-  res.send('Manzu backend is live 🚀');
-});
-
-app.get('/health', async (req, res) => {
-  const start = Date.now();
-  try {
-    // Ping database
-    await prisma.$queryRaw`SELECT 1`;
-    const latency = Date.now() - start;
-    res.status(200).json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      db: 'connected',
-      latencyMs: latency,
-    });
-  } catch (error) {
-    console.error('Health check failed:', {
-      requestId: req.requestId,
-      message: error.message,
-    });
-
-    res.status(503).json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      db: 'disconnected',
-      message: 'Database unavailable',
-      requestId: req.requestId,
+  // 4. HTTPS redirect in production
+  if (process.env.NODE_ENV === 'production') {
+    app.use((req, res, next) => {
+      if (req.header('x-forwarded-proto') !== 'https') {
+        console.log(`Redirecting HTTP to HTTPS: ${req.url}`);
+        return res.redirect(`https://${req.header('host')}${req.url}`);
+      }
+      next();
     });
   }
-});
 
-// ====== API ROUTES ======
-// Apply general rate limiting to all API routes
-app.use('/api', apiLimiter);
-app.use('/api', medicationRoutes);
-app.use('/api/prescription', prescriptionRoutes);
-app.use('/api/cart', cartRoutes);
-// Apply checkout rate limiting
-app.use('/api/med-checkout', checkoutLimiter, medCheckoutRoutes);
-app.use('/api/med-confirmation', medConfirmationRoutes);
-app.use('/api/med-track', medTrackRoutes);
-app.use('/api/pharmacy', pharmacyRoutes);
-// Apply strict rate limiting to auth routes
-// Session routes (refresh / logout / me) are mounted first with their own limiter, so they never
-// count against the strict login limiter below. Anything else under /api/auth falls through.
-app.use('/api/auth', sessionRoutes);
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/consent', consentRoutes);
-app.use('/api/refunds', refundRoutes);
+  // 5. CORS + preflight
+  app.use(cors(corsOptions));
+  app.options(/.*/, (req, res, next) => {
+    console.log(`[Preflight] ${req.method} ${req.originalUrl} origin=${req.headers.origin || 'N/A'}`);
+    next();
+  }, cors(corsOptions));
 
-// ✅ Sentry error handler (captures errors before custom handlers)
-Sentry.setupExpressErrorHandler(app);
+  // 6. Body + sanitizer
+  app.use(express.json());
+  app.use(sanitizeInputs);
 
-// ✅ Custom error handlers (MUST be LAST)
-const { errorHandler, notFoundHandler, initializeErrorHandlers } = require('./middleware/error-handler');
+  // 7. Second CSP block kept for behavioural parity (Doc 1 §5.5 removes it later)
+  app.use((req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; " +
+      "script-src 'self'; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: https:; " +
+      "font-src 'self' data:; " +
+      "connect-src 'self'; " +
+      "frame-ancestors 'none'; " +
+      "base-uri 'self'; " +
+      "form-action 'self';",
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
 
-// Initialize global error handlers (unhandled rejections, uncaught exceptions)
-initializeErrorHandlers();
+  // 8. Health
+  app.get('/', (req, res) => {
+    res.send('Manzu backend is live');
+  });
 
-// 404 handler for unknown routes
-app.use(notFoundHandler);
+  app.get('/health', async (req, res) => {
+    const start = Date.now();
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.status(200).json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        db: 'connected',
+        latencyMs: Date.now() - start,
+      });
+    } catch (error) {
+      console.error('Health check failed:', {
+        requestId: req.requestId,
+        message: error.message,
+      });
+      res.status(503).json({
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        db: 'disconnected',
+        message: 'Database unavailable',
+        requestId: req.requestId,
+      });
+    }
+  });
 
-// Main error handler
-app.use(errorHandler);
+  // 9. API routes
+  app.use('/api', apiLimiter);
+  app.use('/api', medicationRoutes);
+  app.use('/api/prescription', prescriptionRoutes);
+  app.use('/api/cart', cartRoutes);
+  app.use('/api/med-checkout', checkoutLimiter, medCheckoutRoutes);
+  app.use('/api/med-confirmation', medConfirmationRoutes);
+  app.use('/api/med-track', medTrackRoutes);
+  app.use('/api/pharmacy', pharmacyRoutes);
+  app.use('/api/auth', sessionRoutes);
+  app.use('/api/auth', authLimiter, authRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/consent', consentRoutes);
+  app.use('/api/refunds', refundRoutes);
 
-// ====== START SERVER ======
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+  // 10. Errors
+  const Sentry = require('@sentry/node');
+  Sentry.setupExpressErrorHandler(app);
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+
+  return app;
+}
+
+module.exports = { createApp };
