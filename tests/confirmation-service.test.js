@@ -11,6 +11,7 @@ const mockPrisma = {
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn(() => mockPrisma),
 }), { virtual: true });
+jest.mock('../src/core/database/prisma', () => mockPrisma);
 jest.mock('axios', () => ({}), { virtual: true });
 jest.mock('../src/utils/validation', () => ({
   isValidOrderReference: jest.fn(() => true),

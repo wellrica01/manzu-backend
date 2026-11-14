@@ -1,4 +1,5 @@
 const express = require('express');
+const { idempotency } = require('../middleware/idempotency');
 const requireConsent = require('../middleware/requireConsent');
 const checkoutService = require('../services/checkoutService');
 const { validateCheckout } = require('../utils/validation');
@@ -7,7 +8,7 @@ const router = express.Router();
 console.log('Loaded checkout.js version: 2025-06-18-v3');
 
 // POST /checkout - Initiate checkout
-router.post('/', requireConsent, async (req, res) => {
+router.post('/', idempotency(), requireConsent, async (req, res) => {
   try {
     const { name, email, phone, address, deliveryMethod } = req.body;
     const userId = req.headers['x-guest-id'];
