@@ -22,12 +22,22 @@ model ActiveSubstance {
 }
 
 model AdminUser {
-  id        Int       @id @default(autoincrement())
-  email     String    @unique
-  password  String
-  name      String
-  role      AdminRole @default(ADMIN)
-  createdAt DateTime  @default(now())
+  id                 Int                 @id @default(autoincrement())
+  email              String              @unique
+  password           String
+  name               String
+  role               AdminRole           @default(ADMIN)
+  createdAt          DateTime            @default(now())
+  AdminRefreshTokens AdminRefreshToken[]
+  AdminRoleGrants    AdminRoleGrant[]    @relation("AdminRoleGrants")
+  lastLoginAt        DateTime?
+  disabledAt         DateTime?
+  failedAttempts     Int                 @default(0)
+  lockedUntil        DateTime?
+  tokenVersion       Int                 @default(0)
+  emailVerifiedAt    DateTime?
+  mfaSecretEnc       String?
+  mfaEnrolledAt      DateTime?
 
   @@index([email])
 }
@@ -337,6 +347,18 @@ model PharmacyUser {
   PharmacyUserConsent  PharmacyUserConsent[]
   PushToken            PushToken[]
   PharmacyRefreshToken PharmacyRefreshToken[]
+  status               String                 @default("ACTIVE") @db.VarChar(12)
+  tokenVersion         Int                    @default(0)
+  failedAttempts       Int                    @default(0)
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  lastLoginIp          String?                @db.VarChar(45)
+  pinChangedAt         DateTime?
+  mustChangePin        Boolean                @default(false)
+  pinHashVersion       Int                    @default(1) @db.SmallInt
+  phone                String?                @db.VarChar(20)
+  invitedAt            DateTime?
+  disabledAt           DateTime?
 
   @@index([email])
 }
@@ -350,6 +372,9 @@ model PharmacyRefreshToken {
   revokedAt    DateTime?
   rotatedAt    DateTime?
   deviceInfo   String?      @db.VarChar(200)
+  deviceId     String?      @db.VarChar(64)
+  lastUsedAt   DateTime?
+  lastIp       String?      @db.VarChar(45)
   createdAt    DateTime     @default(now())
   PharmacyUser PharmacyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -666,6 +691,58 @@ model ApprovalRequest {
 
   @@index([status, expiresAt], map: "ApprovalRequest_status_idx")
   @@map("ApprovalRequest")
+}
+
+/// Device registry (FND-09, Doc 2). Mirrors sec-01-identity-session.sql.
+model UserDevice {
+  id          BigInt    @id @default(autoincrement())
+  actorType   String    @db.VarChar(16)
+  actorId     Int
+  deviceId    String    @db.VarChar(64)
+  label       String?   @db.VarChar(120)
+  publicKey   String?
+  trusted     Boolean   @default(false)
+  firstSeenAt DateTime  @default(now()) @db.Timestamp(3)
+  lastSeenAt  DateTime  @default(now()) @db.Timestamp(3)
+  lastIp      String?   @db.VarChar(45)
+  revokedAt   DateTime? @db.Timestamp(3)
+
+  @@unique([actorType, actorId, deviceId], map: "UserDevice_actor_device_key")
+  @@map("UserDevice")
+}
+
+/// Admin rotating refresh tokens (Doc 3). Mirrors sec-01-identity-session.sql.
+model AdminRefreshToken {
+  id         Int       @id @default(autoincrement())
+  adminId    Int
+  familyId   String    @db.VarChar(36)
+  tokenHash  String    @unique @db.VarChar(64)
+  expiresAt  DateTime  @db.Timestamp(3)
+  revokedAt  DateTime? @db.Timestamp(3)
+  rotatedAt  DateTime? @db.Timestamp(3)
+  deviceId   String?   @db.VarChar(64)
+  deviceInfo String?   @db.VarChar(200)
+  lastIp     String?   @db.VarChar(45)
+  createdAt  DateTime  @default(now()) @db.Timestamp(3)
+  AdminUser  AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId], map: "AdminRefreshToken_admin_idx")
+  @@index([familyId], map: "AdminRefreshToken_family_idx")
+  @@map("AdminRefreshToken")
+}
+
+/// Admin role grants (Doc 3). Mirrors sec-01-identity-session.sql.
+model AdminRoleGrant {
+  id        Int       @id @default(autoincrement())
+  adminId   Int
+  role      String    @db.VarChar(24)
+  grantedBy Int?
+  grantedAt DateTime  @default(now()) @db.Timestamp(3)
+  revokedAt DateTime? @db.Timestamp(3)
+  AdminUser AdminUser @relation("AdminRoleGrants", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@unique([adminId, role], map: "AdminRoleGrant_active_key")
+  @@map("AdminRoleGrant")
 }
 
 enum AdminRole {
