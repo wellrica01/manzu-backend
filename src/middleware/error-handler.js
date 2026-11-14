@@ -105,37 +105,40 @@ function getErrorLevel(error) {
  * Format error response for client
  */
 function formatErrorResponse(error, requestId = null) {
+  const { CATEGORY_TO_CODE, codeInfo } = require('../core/errors/codes');
   const statusCode = error.statusCode || 500;
   const isServerError = statusCode >= 500;
 
+  const categoryKey = error.category && String(error.category).toUpperCase();
+  const mapped = categoryKey && CATEGORY_TO_CODE[categoryKey];
+  const resolvedCode = mapped || (isServerError ? 'SERVER_ERROR' : 'VALIDATION_ERROR');
+  const info = codeInfo(resolvedCode);
+
   const response = {
+    // New shape (Doc 1 Ã‚Â§5.4). Every error body carries `error` and `message`.
+    error: resolvedCode,
     message: isServerError
-      ? 'Internal server error'
-      : error.message || 'An error occurred',
+      ? 'Something went wrong'
+      : error.message || info.message,
     statusCode
   };
 
-  // Include request ID so internal errors can be traced
+  // Legacy field kept for one release (mobile normalizeErrorBody reads `code`).
+  if (!isServerError && error.category) {
+    response.code = String(error.category).toUpperCase();
+  }
+
   if (requestId) {
     response.requestId = requestId;
   }
 
-  // Only expose validation details for client errors
   if (!isServerError && error.field) {
     response.field = error.field;
-  }
-
-  if (!isServerError && error.category) {
-    response.code = error.category.toUpperCase();
   }
 
   return response;
 }
 
-/**
- * Main error handler middleware
- * Must be registered LAST in middleware chain
- */
 function errorHandler(err, req, res, next) {
   // Log error details
   console.error('Error caught by handler:', {
@@ -251,7 +254,7 @@ function initializeErrorHandlers() {
   handleUnhandledRejection();
   handleUncaughtException();
   
-  console.log('✅ Error handlers initialized');
+  console.log('ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Error handlers initialized');
 }
 
 module.exports = {

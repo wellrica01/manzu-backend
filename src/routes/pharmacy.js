@@ -467,10 +467,8 @@ router.get('/orders/:orderId', authenticatePharmacy, async (req, res) => {
     const { error } = validateOrderId({ orderId: Number(orderId) });
     if (error) {
       console.error('Validation error:', error.message);
-      return res.status(400).json({ 
-        message: 'Invalid order ID', 
-        error: error.message 
-      });
+      const { sendError } = require('../core/errors/send-error');
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Invalid order ID', { details: error.message });
     }
     
     // Fetch order using service

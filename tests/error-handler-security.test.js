@@ -39,7 +39,8 @@ describe('Error handler security - Phase 0.5', () => {
 
     const response = res.json.mock.calls[0][0];
 
-    expect(response.message).toBe('Internal server error');
+    // FND-02: 500 message aligned to Doc 1 §5.4 (was 'Internal server error').
+    expect(response.message).toBe('Something went wrong');
     expect(response.requestId).toBe('test-request-123');
     expect(JSON.stringify(response)).not.toContain('Database password exposed');
     expect(response.stack).toBeUndefined();
@@ -70,7 +71,8 @@ describe('Error handler security - Phase 0.5', () => {
 
     const response = res.json.mock.calls[0][0];
 
-    expect(response.message).toBe('Internal server error');
+    // FND-02: 500 message aligned to Doc 1 §5.4 (was 'Internal server error').
+    expect(response.message).toBe('Something went wrong');
     expect(response.requestId).toBe('test-request-123');
     expect(response.stack).toBeUndefined();
   });
