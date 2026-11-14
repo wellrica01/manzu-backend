@@ -18,7 +18,7 @@ const ACTOR_TYPE_VALUES = new Set(['pharmacy_user', 'admin', 'customer', 'bot', 
 const OUTCOME_VALUES = new Set(['success', 'failure', 'denied']);
 const SEVERITY_VALUES = new Set(['info', 'warning', 'error', 'critical']);
 
-function buildRow(event) {
+function buildRow(event, actorOverride) {
   const {
     action,
     entityType,
@@ -45,7 +45,12 @@ function buildRow(event) {
     throw new TypeError(`audit.record: invalid severity ${severity}`);
   }
 
-  const actor = currentActor();
+  // Actor precedence (Doc 1 S3.1 + FND-03c fallback):
+  //   1. actorOverride - explicit, used by the legacy createAuditLog shim
+  //      when the caller passes userId but no request context exists yet.
+  //   2. currentActor() from the request context (FND-05 will populate it).
+  //   3. 'system' (background jobs).
+  const actor = actorOverride || currentActor();
   const actorType = actor && ACTOR_TYPE_VALUES.has(actor.type) ? actor.type : 'system';
 
   const redacted = redactFor(action, before, after);
@@ -77,12 +82,13 @@ function buildRow(event) {
 // Transactional writer. Callers inside a $transaction pass tx.
 // If the action is fail-closed, this throws on write error and the caller's
 // transaction rolls back (Doc 1 S5.2).
-async function record(tx, event) {
+async function record(tx, event, options) {
   if (!tx || !tx.auditEvent || typeof tx.auditEvent.create !== 'function') {
     throw new TypeError('audit.record: tx must be a Prisma client or transaction client');
   }
 
-  const row = buildRow(event);
+  const actor = options && options.actor ? options.actor : undefined;
+  const row = buildRow(event, actor);
 
   if (isFailClosed(row.action)) {
     // Fail-closed: throw, caller's transaction rolls back.

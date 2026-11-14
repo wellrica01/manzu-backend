@@ -99,6 +99,27 @@ describe('audit.record', () => {
     expect(tx.calls[0].action).toBe('ORDER_CREATED');
     expect(tx.calls[0].kind).toBe('audit');
   });
+
+  it('record() accepts an explicit actor override', async () => {
+    const tx = fakeTx('ok');
+    const override = { type: 'pharmacy_user', id: 99, role: 'MANAGER', pharmacyId: 7 };
+    await record(
+      tx,
+      { action: 'ORDER_CREATED', entityType: 'Order', entityId: 42 },
+      { actor: override }
+    );
+    expect(tx.calls[0].actorType).toBe('pharmacy_user');
+    expect(tx.calls[0].actorId).toBe('99');
+    expect(tx.calls[0].actorRole).toBe('MANAGER');
+    expect(tx.calls[0].pharmacyId).toBe(7);
+  });
+
+  it('record() with no override and no context writes system', async () => {
+    const tx = fakeTx('ok');
+    await record(tx, { action: 'ORDER_CREATED', entityType: 'Order', entityId: 42 });
+    expect(tx.calls[0].actorType).toBe('system');
+    expect(tx.calls[0].actorId).toBeNull();
+  });
 });
 
 describe('security.record', () => {
