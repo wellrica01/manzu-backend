@@ -80,8 +80,32 @@ function createApp() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-id'],
-    exposedHeaders: ['Content-Length', 'X-Request-Id'],
+    // FND-10: the four client headers the mobile app and web portals send.
+    // x-device-id identifies the device (FND-09); x-app-version is the client
+    // release (FND-10); x-step-up carries a step-up token (FND-08);
+    // idempotency-key is for retry-safe writes (FND-10). Without these in
+    // the allow-list, browsers block the preflight and the request never
+    // goes out.
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-guest-id',
+      'x-device-id',
+      'x-app-version',
+      'x-step-up',
+      'idempotency-key',
+    ],
+    // FND-10: headers the browser is allowed to read from the response.
+    // X-Min-App-Version tells the app when it must update; Retry-After is
+    // the throttle/step-up hint (FND-02); Idempotent-Replay tells the app
+    // that a retried write returned the cached response.
+    exposedHeaders: [
+      'Content-Length',
+      'X-Request-Id',
+      'X-Min-App-Version',
+      'Retry-After',
+      'Idempotent-Replay',
+    ],
     maxAge: 86400,
     optionsSuccessStatus: 200,
   };
