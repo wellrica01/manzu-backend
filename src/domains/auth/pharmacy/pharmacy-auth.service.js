@@ -27,7 +27,7 @@ function accountKey(email) {
 /**
  * Register pharmacy and initial user
  */
-async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
+async function registerPharmacyAndUser({ pharmacy, user, deviceInfo, meta }) {
   validateLocation(pharmacy.state, pharmacy.lga, pharmacy.latitude, pharmacy.longitude);
 
   const existingPharmacy = await pharmacyAuthRepository.findPharmacyByLicense(pharmacy.licenseNumber);
@@ -70,7 +70,7 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
     accuracy: result.pharmacy.locationAccuracy,
   });
 
-  const { token, refreshToken } = await sessionService.startSession(result.user, deviceInfo);
+  const { token, refreshToken } = await sessionService.startSession(result.user, deviceInfo, {}, meta || {});
 
   return { token, refreshToken, user: result.user, pharmacy: result.pharmacy };
 }
@@ -90,7 +90,7 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo }) {
  *   5. On success: reset failedAttempts and lockedUntil, reset the throttle,
  *      start the session.
  */
-async function loginUser({ email, pin, deviceInfo }) {
+async function loginUser({ email, pin, deviceInfo, meta }) {
   const key = accountKey(email);
 
   // Step 1: throttle before any work.
@@ -172,7 +172,7 @@ async function loginUser({ email, pin, deviceInfo }) {
 
   console.log('User authenticated with PIN:', { userId: user.id, pharmacyId: user.pharmacyId });
 
-  const { token, refreshToken } = await sessionService.startSession(user, deviceInfo);
+  const { token, refreshToken } = await sessionService.startSession(user, deviceInfo, {}, meta || {});
 
   return { token, refreshToken, user, pharmacy: user.Pharmacy };
 }

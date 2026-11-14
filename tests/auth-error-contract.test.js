@@ -27,6 +27,8 @@ jest.mock('../src/domains/auth/admin/admin-auth.service', () => ({
 }));
 jest.mock('../src/domains/auth/pharmacy/pharmacy-session.service', () => ({
   deviceInfoFromRequest: () => 'test-device',
+  deviceIdFromRequest: () => null,
+  ipFromRequest: () => null,
   startSession: jest.fn(),
   revokeAllForUser: jest.fn(),
   getMe: jest.fn(),

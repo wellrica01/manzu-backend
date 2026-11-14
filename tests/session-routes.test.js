@@ -1,5 +1,9 @@
 // HTTP-level tests for /api/auth/refresh, /logout and /me using the real router.
 // The session service is mocked; no database, no network.
+//
+// FND-09: the refresh route now passes deviceId and ip as the fourth argument
+// of refreshSession. The mock provides deviceIdFromRequest and ipFromRequest,
+// and beforeEach restores all three mock implementations after clearAllMocks.
 
 process.env.JWT_SECRET = 'test-secret';
 
@@ -8,6 +12,8 @@ const mockService = {
   logout: jest.fn(),
   getMe: jest.fn(),
   deviceInfoFromRequest: jest.fn(() => 'test-device'),
+  deviceIdFromRequest: jest.fn(() => null),
+  ipFromRequest: jest.fn(() => null),
 };
 jest.mock('../src/domains/auth/pharmacy/pharmacy-session.service', () => mockService);
 
@@ -32,6 +38,11 @@ function authError(code) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks clears jest.fn() implementations. Restore the three that
+  // the route reads unconditionally on the refresh path.
+  mockService.deviceInfoFromRequest.mockImplementation(() => 'test-device');
+  mockService.deviceIdFromRequest.mockImplementation(() => null);
+  mockService.ipFromRequest.mockImplementation(() => null);
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -49,7 +60,15 @@ describe('POST /api/auth/refresh', () => {
     const res = await request(app).post('/api/auth/refresh').send({ refreshToken: REFRESH });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ token: 'jwt', refreshToken: 'new' });
-    expect(mockService.refreshSession).toHaveBeenCalledWith(REFRESH, 'test-device');
+    // FND-09: refreshSession is now called with 4 args. The 3rd and 4th are
+    // opts and meta (deviceId/ip). Assert the leading args and the shape of
+    // meta rather than pinning a literal.
+    expect(mockService.refreshSession).toHaveBeenCalledWith(
+      REFRESH,
+      'test-device',
+      {},
+      expect.objectContaining({ deviceId: null, ip: null })
+    );
   });
 
   test('401 with the error code the app can act on', async () => {

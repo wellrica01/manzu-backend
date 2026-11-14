@@ -60,6 +60,27 @@ function deviceInfoFromRequest(req) {
   return label || null;
 }
 
+/**
+ * FND-09: the stable device identity. The mobile app generates a UUID once and
+ * keeps it in SecureStore; it sends the UUID in X-Device-Id and (optionally)
+ * req.body.deviceId. Released builds today do not send either, so this returns
+ * null and the device registry is skipped. When it returns a UUID, the factory
+ * upserts UserDevice on login and refresh.
+ */
+function deviceIdFromRequest(req) {
+  const fromBody = req.body && typeof req.body.deviceId === 'string' ? req.body.deviceId.trim() : '';
+  const fromHeader = typeof req.get === 'function' ? (req.get('x-device-id') || '').trim() : '';
+  const raw = fromBody || fromHeader || null;
+  if (!raw) return null;
+  return raw.slice(0, 64);
+}
+
+function ipFromRequest(req) {
+  const forwarded = req.headers && req.headers['x-forwarded-for'];
+  if (forwarded && typeof forwarded === 'string') return forwarded.split(',')[0].trim().slice(0, 45);
+  return (req.ip || (req.connection && req.connection.remoteAddress) || null);
+}
+
 // Instantiate the factory for pharmacy. All options are wired so the exported
 // functions behave exactly as they did before FND-06.
 const service = createSessionService({
@@ -71,12 +92,12 @@ const service = createSessionService({
 });
 
 // Preserve the pre-FND-06 return shape: refreshSession returns user/pharmacy DTOs.
-async function refreshSession(rawRefreshToken, deviceInfo, opts = {}) {
+async function refreshSession(rawRefreshToken, deviceInfo, opts = {}, meta = {}) {
   return service.refreshSession(rawRefreshToken, deviceInfo, {
     ...opts,
     userDto,
     pharmacyDto,
-  });
+  }, meta);
 }
 
 async function getMe(userId) {

@@ -11,7 +11,7 @@
 const z = require('zod');
 const express = require('express');
 const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.service');
-const { deviceInfoFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
+const { deviceInfoFromRequest, deviceIdFromRequest, ipFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
 const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
@@ -52,7 +52,7 @@ console.log('Auth routes loaded - using domain services with repository pattern'
 router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { pharmacy, user } = registerSchema.parse(req.body);
-    const { token, refreshToken, user: newUser, pharmacy: newPharmacy } = await pharmacyAuthService.registerPharmacyAndUser({ pharmacy, user, deviceInfo: deviceInfoFromRequest(req) });
+    const { token, refreshToken, user: newUser, pharmacy: newPharmacy } = await pharmacyAuthService.registerPharmacyAndUser({ pharmacy, user, deviceInfo: deviceInfoFromRequest(req), meta: { deviceId: deviceIdFromRequest(req), ip: ipFromRequest(req) } });
     res.status(201).json({
       message: 'Registration successful',
       token,
@@ -73,7 +73,7 @@ router.post('/register', registerLimiter, async (req, res) => {
 router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, pin } = loginSchema.parse(req.body);
-    const { token, refreshToken, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin, deviceInfo: deviceInfoFromRequest(req) });
+    const { token, refreshToken, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin, deviceInfo: deviceInfoFromRequest(req), meta: { deviceId: deviceIdFromRequest(req), ip: ipFromRequest(req) } });
     res.status(200).json({
       message: 'Login successful',
       token,

@@ -59,7 +59,7 @@ function createSessionService(config) {
     return new Date(Date.now() + refreshTtlDays * 24 * 60 * 60 * 1000);
   }
 
-  async function startSession(user, deviceInfo, opts = {}) {
+  async function startSession(user, deviceInfo, opts = {}, meta = {}) {
     const refreshToken = generateRefreshToken();
     const familyId = crypto.randomUUID();
     await repository.createRefreshToken({
@@ -69,6 +69,23 @@ function createSessionService(config) {
       expiresAt: refreshExpiry(),
       deviceInfo,
     });
+
+    // FND-09: best-effort device registry upsert. Skipped when the caller did
+    // not provide a deviceId (released mobile builds today) or when the
+    // repository has no upsertDevice (admin instance until Doc 3 provides one).
+    if (meta && meta.deviceId && typeof repository.upsertDevice === 'function') {
+      try {
+        await repository.upsertDevice({
+          actorType: 'pharmacy_user',
+          actorId: user.id,
+          deviceId: String(meta.deviceId).slice(0, 64),
+          label: deviceInfo,
+          lastIp: meta.ip || null,
+        });
+      } catch (err) {
+        console.error('Device upsert failed:', { message: err.message });
+      }
+    }
 
     // Housekeeping must never break a login.
     if (typeof repository.deleteStaleForUser === 'function') {
@@ -80,7 +97,7 @@ function createSessionService(config) {
     return { token: signAccess(user, familyId, opts), refreshToken };
   }
 
-  async function refreshSession(rawRefreshToken, deviceInfo, opts = {}) {
+  async function refreshSession(rawRefreshToken, deviceInfo, opts = {}, meta = {}) {
     const row = await repository.findRefreshTokenByHash(hashToken(rawRefreshToken));
     if (!row) throw sessionError(401, 'INVALID_REFRESH_TOKEN', 'Invalid refresh token');
 
@@ -104,6 +121,23 @@ function createSessionService(config) {
     if (!rotated) {
       await repository.revokeFamily(row.familyId);
       throw sessionError(401, 'REFRESH_TOKEN_REUSED', 'Refresh token was already used. Please sign in again.');
+    }
+
+    // FND-09: same best-effort device upsert on the refresh path. This is what
+    // updates lastSeenAt when a user actively uses the app - a login-only
+    // update would look stale after the first refresh.
+    if (meta && meta.deviceId && typeof repository.upsertDevice === 'function') {
+      try {
+        await repository.upsertDevice({
+          actorType: 'pharmacy_user',
+          actorId: user.id,
+          deviceId: String(meta.deviceId).slice(0, 64),
+          label: deviceInfo,
+          lastIp: meta.ip || null,
+        });
+      } catch (err) {
+        console.error('Device upsert failed:', { message: err.message });
+      }
     }
 
     return {
