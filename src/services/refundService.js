@@ -9,8 +9,7 @@
  * - Notifications
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 const axios = require('axios');
 const { reportError, ErrorCategory } = require('../utils/error-reporter');
 const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');

@@ -1,4 +1,8 @@
 const mockPrisma = {
+  $connect: jest.fn(() => Promise.resolve()),
+  $disconnect: jest.fn(() => Promise.resolve()),
+  $on: jest.fn(),
+  $extends: jest.fn(() => mockPrisma),
   transactionReference: { findFirst: jest.fn() },
   order: { findMany: jest.fn() },
   processedWebhook: { findUnique: jest.fn() },

@@ -8,8 +8,7 @@
  */
 
 const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 const refundService = require('../services/refundService');
 const { reportError, ErrorCategory } = require('../utils/error-reporter');
 

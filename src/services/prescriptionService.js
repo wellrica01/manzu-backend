@@ -1,10 +1,9 @@
-const { PrismaClient } = require('@prisma/client');
 const { normalizePhone } = require('../utils/validation');
 const { sendVerificationNotification } = require('../utils/notifications');
 const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, resolveManufacturer, computePackSizeQuantity, linkIngredients } = require('../utils/medicationUtils')
 const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
 
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 // Prescription expiry periods (in days)
 const EXPIRY_PERIODS = {

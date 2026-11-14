@@ -1,4 +1,3 @@
-const { PrismaClient } = require('@prisma/client');
 const { v4: uuidv4 } = require('uuid');
 const { recalculateOrderTotal } = require('../utils/cartUtils');
 const { capitalize, formatPerUnitType, formatPackSizeUnit, formatStrengthUnit, } = require('../utils/medicationUtils');
@@ -6,7 +5,7 @@ const { reportError, ErrorCategory } = require('../utils/error-reporter');
 
 
 const prescriptionService = require('./prescriptionService');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 async function addToCart({ medicationId, pharmacyId, quantity, userId }) {
   // Generate userId if not provided

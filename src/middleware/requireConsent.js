@@ -1,5 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 const CONSENT_TYPE = 'DATA_SHARING';
 const HEADER_GUEST_ID = 'x-guest-id';

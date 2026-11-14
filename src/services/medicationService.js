@@ -1,7 +1,7 @@
-const { PrismaClient, DosageForm } = require('@prisma/client');
+const { DosageForm } = require('@prisma/client');
 const { capitalize, formatPackSizeUnit, formatPerUnitType, formatStrengthUnit } = require('../utils/medicationUtils')
 
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 /**
  * Helper to map ingredients to a clean array of { activeSubstance, strengthValue, strengthUnit }

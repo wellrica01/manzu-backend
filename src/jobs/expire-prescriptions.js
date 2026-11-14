@@ -1,7 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
 const { sendPrescriptionExpiryNotification } = require('../utils/notifications');
 
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 const logger = {
   info: console.log,

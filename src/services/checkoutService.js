@@ -1,10 +1,9 @@
-const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { normalizePhone } = require('../utils/validation');
 const { calculateCommission } = require('../utils/commissionCalculator');
 const { createAuditLog, AUDIT_ACTIONS, ENTITY_TYPES } = require('../utils/audit-logger');
-const prisma = new PrismaClient();
+const prisma = require('../core/database/prisma');
 
 
 
