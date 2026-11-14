@@ -202,7 +202,10 @@ function createApp() {
   app.use('/api/med-track', medTrackRoutes);
   app.use('/api/pharmacy', pharmacyRoutes);
   app.use('/api/auth', sessionRoutes);
-  app.use('/api/auth', authLimiter, authRoutes);
+  // FND-07b3: authLimiter is now route-level inside routes/auth.js so a
+  // successful login does not consume the login throttle budget. Register
+  // has its own limiter.
+  app.use('/api/auth', authRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/consent', consentRoutes);
   app.use('/api/refunds', refundRoutes);

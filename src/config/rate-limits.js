@@ -45,6 +45,19 @@ const RATE_LIMITS = {
     lockoutMinutes: 60,
     countAll: true,
   },
+
+  // Register: a distinct class from 'login', so login attempts do not consume
+  // the registration budget and vice versa. That is the SEC-03 counting fix:
+  // the old authLimiter counted every /api/auth request against a single
+  // bucket. Higher max than login: legitimate users register once; bots do
+  // not. FND-07b3.
+  register: {
+    class: 'register',
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    lockoutMinutes: 60,
+    countAll: true,
+  },
 };
 
 // Class names referenced across the codebase. Listed here so a reader can see
@@ -74,4 +87,5 @@ module.exports = {
   AUTH_RATE_LIMIT: RATE_LIMITS.auth,
   SESSION_RATE_LIMIT: RATE_LIMITS.session,
   CHECKOUT_RATE_LIMIT: RATE_LIMITS.checkout,
+  REGISTER_RATE_LIMIT: RATE_LIMITS.register,
 };

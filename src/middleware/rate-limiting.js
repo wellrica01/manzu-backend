@@ -75,9 +75,14 @@ console.log(`  - Authentication: ${RATE_LIMITS.auth.max} attempts / ${RATE_LIMIT
 console.log(`  - Session: ${RATE_LIMITS.session.max} requests / ${RATE_LIMITS.session.windowMs / 60000} min`);
 console.log(`  - Checkout: ${RATE_LIMITS.checkout.max} attempts / ${RATE_LIMITS.checkout.windowMs / 60000 / 60} hour`);
 
+function registerLimiter(req, res, next) {
+  return applyLimit(req, res, next, RATE_LIMITS.register, clientKey);
+}
+
 module.exports = {
   apiLimiter,
   authLimiter,
   sessionLimiter,
   checkoutLimiter,
+  registerLimiter,
 };
