@@ -598,7 +598,7 @@ router.get('/medications', authenticatePharmacy, async (req, res) => {
 });
 
 // POST /pharmacy/medications - Simplified (now upserts)
-router.post('/medications', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.post('/medications', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('inventory.edit', { tier: 'T0', rate: 'write' }), async (req, res) => {
   try {
     const { medicationId, stock, price, receivedDate, expiryDate, batchNumber } = req.body;
 
@@ -637,7 +637,7 @@ router.post('/medications', authenticatePharmacy, authorizeRoles('MANAGER'), asy
 });
 
 // PATCH /pharmacy/medications/:medicationId - Now also uses upsert
-router.patch('/medications/:medicationId', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.patch('/medications/:medicationId', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('inventory.edit', { tier: 'T0', rate: 'write' }), async (req, res) => {
   try {
     const { medicationId } = req.params;
     const { stock, price, receivedDate, expiryDate, batchNumber } = req.body;
