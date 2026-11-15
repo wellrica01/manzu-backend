@@ -16,6 +16,7 @@ const { deviceInfoFromRequest, deviceIdFromRequest, ipFromRequest } = require('.
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
 const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
+const { requireCapability } = require('../core/authz/require-capability');
 const { authLimiter, registerLimiter } = require('../middleware/rate-limiting');
 const router = express.Router();
 
@@ -112,7 +113,7 @@ router.post('/admin/login', authLimiter, async (req, res) => {
 });
 
 // POST /auth/add-user - Add new pharmacy user (manager only)
-router.post('/add-user', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.post('/add-user', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.manage', { tier: 'T2', rate: 'team' }), async (req, res) => {
   try {
     const { name, email, pin, role } = addUserSchema.parse(req.body);
     const pharmacyId = req.user.pharmacyId;
@@ -131,7 +132,7 @@ router.post('/add-user', authenticatePharmacy, authorizeRoles('MANAGER'), async 
 });
 
 // PATCH /auth/users/:userId - Edit pharmacy user (manager only)
-router.patch('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.patch('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.manage', { tier: 'T2', rate: 'team' }), async (req, res) => {
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
@@ -155,7 +156,7 @@ router.patch('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), 
 });
 
 // DELETE /auth/users/:userId - Delete pharmacy user (manager only)
-router.delete('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.delete('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.manage', { tier: 'T2', rate: 'team' }), async (req, res) => {
   try {
     const { userId } = req.params;
     if (isNaN(parseInt(userId))) {
@@ -172,7 +173,7 @@ router.delete('/users/:userId', authenticatePharmacy, authorizeRoles('MANAGER'),
 });
 
 // PATCH /auth/change-password - Change pharmacy user PIN
-router.patch('/change-password', authenticatePharmacy, async (req, res) => {
+router.patch('/change-password', authenticatePharmacy, requireCapability('self.pin.change', { tier: 'T2', rate: 'pin_change' }), async (req, res) => {
   try {
     const { currentPin, newPin } = req.body;
 
