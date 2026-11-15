@@ -319,6 +319,7 @@ router.get('/earnings/analytics', authenticatePharmacy, authorizeRoles('MANAGER'
 router.post('/profile/logo', 
   authenticatePharmacy, 
   authorizeRoles('MANAGER'), 
+  requireCapability('profile.logo', { tier: 'T0', rate: 'upload' }),
   upload.single('logo'),
   async (req, res) => {
     try {
@@ -698,7 +699,7 @@ router.delete('/medications/:medicationId', authenticatePharmacy, authorizeRoles
 
 
 // GET /pharmacy/users - Fetch pharmacy users (manager only)
-router.get('/users', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/users', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     // Validate input (no query params to validate)
     const { error } = validateFetchUsers({});
@@ -719,7 +720,7 @@ router.get('/users', authenticatePharmacy, authorizeRoles('MANAGER'), async (req
 });
 
 // POST /pharmacy/notifications/register - Device registration for notifications (new schema)
-router.post('/notifications/register', authenticatePharmacy, async (req, res) => {
+router.post('/notifications/register', authenticatePharmacy, requireCapability('self.prefs', { tier: 'T0', rate: 'device' }), async (req, res) => {
   try {
     const { deviceToken } = req.body;
 
@@ -742,7 +743,7 @@ router.post('/notifications/register', authenticatePharmacy, async (req, res) =>
 });
 
 // POST /pharmacy/push-tokens - Register this device for push (one row per device)
-router.post('/push-tokens', authenticatePharmacy, async (req, res) => {
+router.post('/push-tokens', authenticatePharmacy, requireCapability('self.prefs', { tier: 'T0', rate: 'device' }), async (req, res) => {
   try {
     const { error, value } = validateRegisterPushToken(req.body);
     if (error) {
@@ -763,7 +764,7 @@ router.post('/push-tokens', authenticatePharmacy, async (req, res) => {
 });
 
 // DELETE /pharmacy/push-tokens/:token - Unregister this device (call on logout; the token must be URL-encoded)
-router.delete('/push-tokens/:token', authenticatePharmacy, async (req, res) => {
+router.delete('/push-tokens/:token', authenticatePharmacy, requireCapability('self.prefs', { tier: 'T0', rate: 'device' }), async (req, res) => {
   try {
     const { error, value } = validatePushTokenParam({ token: req.params.token });
     if (error) {
@@ -802,7 +803,7 @@ router.get('/profile', authenticatePharmacy, requireCapability('profile.view', {
 });
 
 // PATCH /pharmacy/profile - Edit pharmacy profile (manager only, new schema)
-router.patch('/profile', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.patch('/profile', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('profile.view', { tier: 'T2', rate: 'write' }), async (req, res) => {
   try {
     const { user, pharmacy } = require('../utils/adminValidation').editProfileSchema.parse(req.body);
     const { userId, pharmacyId } = req.user;
@@ -837,7 +838,7 @@ router.patch('/profile', authenticatePharmacy, authorizeRoles('MANAGER'), async 
 
 
 // GET /pharmacy/operating-hours - Get operating hours
-router.get('/operating-hours', authenticatePharmacy, async (req, res) => {
+router.get('/operating-hours', authenticatePharmacy, requireCapability('hours.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const operatingHours = await prisma.operatingHour.findMany({
       where: { pharmacyId: req.user.pharmacyId },
@@ -866,7 +867,7 @@ router.get('/operating-hours', authenticatePharmacy, async (req, res) => {
 });
 
 // POST /pharmacy/operating-hours - Set operating hours
-router.post('/operating-hours', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.post('/operating-hours', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('hours.edit', { tier: 'T2', rate: 'write' }), async (req, res) => {
   try {
     const { hours } = req.body;
     
@@ -935,7 +936,7 @@ router.get('/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), async 
 });
 
 // GET /pharmacy/dashboard - Dashboard summary for pharmacy
-router.get('/dashboard', authenticatePharmacy, async (req, res) => {
+router.get('/dashboard', authenticatePharmacy, requireCapability('dashboard.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const data = await pharmacyDashboardService.getDashboardData(req.user.pharmacyId);
 
