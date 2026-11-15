@@ -1,7 +1,7 @@
 # P-01 Status -- Capability Decoration Phase (Doc 2)
 
 **Branch:** `med-version`
-**Tests:** 213 passing / 29 suites / 1 pre-existing FAIL (`src/test.js` -- orphan, out of scope).
+**Tests:** 226 passing / 30 suites / 1 pre-existing FAIL (`src/test.js` -- orphan, out of scope). The route-module-load smoke test (`tests/route-module-load.test.js`, commit `f3100e4`) adds 13 file-load assertions that catch the class of bug that briefly took production down on 2026-11-15 (see section 7).
 **Route-policy snapshot:** 131 entries remaining (down from 160 at P-02 start; 29 routes decorated).
 **Production behavior:** unchanged. `SEC_ENFORCE=off`, all `requireCapability(...)` middleware short-circuits at the first line. The `log`/`enforce` flips are the deploy runbook's next step.
 **Purpose of this document:** record what P-01 shipped, what it did not ship, and which package owns each remaining grandfathered route. It is the handoff artifact from P-01 to P-03 through P-10 and to the deploy runbook.
@@ -165,5 +165,28 @@ Deploy-specific details (SQL first, boot log, 24h watch) are in `DEPLOY_PHASE_1.
 1. **`ROUTE_RE` end-of-line anchor under `/m`** (fix commit `6f8d33b`). The route-extraction regex used `$` as a lookahead alternative. With `/m`, `$` matched end-of-**line**, not end-of-string. For any route whose declaration spans multiple lines (`router.post('/profile/logo',` followed by middleware on subsequent lines), the non-greedy capture stopped at the end of line 1, leaving `rest` as `", "` and `chainNames` empty. `POST /profile/logo`'s decoration was invisible to the analyzer. Fix: `$` to `(?![\s\S])`, one-line change. Any future analyzer change should include a diagnostic against a known multi-line route in its verification.
 
 2. **Missing import in a decorated file** (fix commit `4da09a8`). `src/routes/auth.js` did not import `requireCapability` when Task 4's script decorated four auth routes; `pharmacy.js` already did. Loading `auth.js` threw `ReferenceError: requireCapability is not defined` at the first decorated line, which caused `auth-error-contract.test.js` and `admin-registration-security.test.js` to fail (7 tests, 206/213 total). The static route-policy test passed throughout -- it reads source text without executing the module. The fix was one import line. Pre-flight for any future route-decorating task: run `node -e "require('./src/routes/<file>')"` before starting Jest. It takes one second and catches this class before the full suite runs.
+   **Resolution (`f3100e4`):** `tests/route-module-load.test.js` now requires every file under `src/routes/*.js` in real Node before any push, with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY stubbed so the test answers "does the module graph load?" rather than "is this shell configured like production?". The route-policy test and this test check orthogonal properties (every route declared vs every file loads); neither substitutes for the other. Do not push a route file change until both are green.
 
 **A third, less serious:** git's diff algorithm represents an insert-after-identical-line as `-old / +new` rather than a pure `+` in some cases (the `sales.view` to `sales.view` + `sales.view.own` insertion in 2a was one example; the `};` newline normalization was another). The verification rule "stat lines and grep line numbers must match expectation" catches this -- if the diff stat is off by one insertion, read the actual diff before committing.
+
+---
+
+## 7. Production incident -- 2026-11-15
+
+At 10:53 UTC on 2026-11-15 the `med-version` deploy `9d1a032` failed at boot with:
+
+```
+ReferenceError: requireCapability is not defined
+    at /opt/render/project/src/src/routes/pharmacy.js:52:52
+==> Exited with status 1
+```
+
+**Root cause.** `src/routes/pharmacy.js` never imported `requireCapability`. Every decoration added to that file between P-01/2b and P-01/5a referenced a name that was not in scope at module load. The file had never been `require`d by any test: the route-policy test reads source text (no `require`), and no other Jest test loads `pharmacy.js`. The equivalent bug in `auth.js` (`4da09a8`) was caught because `auth.js` *does* have HTTP-level tests that load it. The asymmetry between the two files was the tell, and it was missed.
+
+**Fix.** `b40aa3a` adds one import line. Service restored at 10:59 UTC (about 7 minutes of downtime).
+
+**Why the earlier pre-flight missed it.** `P-01-status.md` section 6 lesson 2 recommended an ad-hoc `node -e require(...)` before Jest. That check would have caught the pharmacy.js bug if it had been run -- but it was a manual step, not a suite gate. Manual steps fail.
+
+**Durable fix.** `f3100e4` adds `tests/route-module-load.test.js`: a child-process-per-file smoke test that requires every `src/routes/*.js` in real Node, stubbing SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY so the test answers "does this file load?" rather than "is this shell configured like production?". 13 new assertions, all green.
+
+**The rule, for the next session:** any commit that touches a route file must hold both gates green before push -- `tests/route-policy.test.js` (every route declared) **and** `tests/route-module-load.test.js` (every file loads). Either gate alone is incomplete.
