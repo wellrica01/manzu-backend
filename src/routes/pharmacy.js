@@ -388,7 +388,7 @@ router.post('/profile/logo',
 
 
 // GET /pharmacy/orders - Fetch orders for pharmacy (new schema)
-router.get('/orders', authenticatePharmacy, async (req, res) => {
+router.get('/orders', authenticatePharmacy, requireCapability('orders.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { error, value } = validateFetchOrders(req.query);
     if (error) {
@@ -421,7 +421,7 @@ router.get('/orders', authenticatePharmacy, async (req, res) => {
 
 
 // PATCH /pharmacy/orders/bulk - Bulk update order statuses
-router.patch('/orders/bulk', authenticatePharmacy, async (req, res) => {
+router.patch('/orders/bulk', authenticatePharmacy, requireCapability('orders.bulk', { tier: 'T1', rate: 'bulk' }), async (req, res) => {
   try {
     const { orderIds, status, cancelReason } = req.body;
 
@@ -457,7 +457,7 @@ router.patch('/orders/bulk', authenticatePharmacy, async (req, res) => {
 
 
 
-router.get('/orders/:orderId', authenticatePharmacy, async (req, res) => {
+router.get('/orders/:orderId', authenticatePharmacy, requireCapability('orders.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { orderId } = req.params;
     
@@ -535,7 +535,7 @@ router.patch('/orders/:orderId', authenticatePharmacy, async (req, res) => {
 
 
 // GET /pharmacy/medications/catalog - NEW unified endpoint
-router.get('/medications/catalog', authenticatePharmacy, async (req, res) => {
+router.get('/medications/catalog', authenticatePharmacy, requireCapability('inventory.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { error, value } = validateFetchMedications(req.query);
     if (error) {
@@ -565,7 +565,7 @@ router.get('/medications/catalog', authenticatePharmacy, async (req, res) => {
 });
 
 // GET /pharmacy/medications - Keep for backward compatibility
-router.get('/medications', authenticatePharmacy, async (req, res) => {
+router.get('/medications', authenticatePharmacy, requireCapability('inventory.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { error, value } = validateFetchMedications(req.query);
     if (error) {
@@ -782,7 +782,7 @@ router.delete('/push-tokens/:token', authenticatePharmacy, async (req, res) => {
 });
 
 // GET /pharmacy/profile - Get pharmacy profile details (new schema)
-router.get('/profile', authenticatePharmacy, async (req, res) => {
+router.get('/profile', authenticatePharmacy, requireCapability('profile.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { userId, pharmacyId } = req.user;
     const { user, pharmacy } = await pharmacyProfileService.getProfile(userId, pharmacyId);
