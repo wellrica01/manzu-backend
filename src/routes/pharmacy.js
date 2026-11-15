@@ -16,6 +16,7 @@ const { validateFetchOrders, validateUpdateOrder,
   validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
+const { requireCapability } = require('../core/authz/require-capability');
 const { shape } = require('../core/authz/shapers/dashboard');
 const router = express.Router();
 const supabase = require('../utils/supabaseClient')
