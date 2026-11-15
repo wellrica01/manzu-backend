@@ -9,17 +9,23 @@
 //   { method, path, chainNames: string[], policy: null | {type, ...} }
 //
 // chainNames are the middleware identifiers between the path and the handler.
-// Today no route carries a .policy tag (no route is decorated with
-// requireCapability or publicRoute yet), so policy is always null. When a
-// route is decorated - for example:
 //
-//   router.get('/orders', authenticatePharmacy, requireCapability('orders.view'), handler)
-//
-// chainNames will contain 'requireCapability' and policy will be null
-// until the analyzer learns the tag from the JS AST. The FND-04e follow-up
-// upgrades this to a real parser; today's analyzer is intentionally
-// conservative and produces null policy for every route. The grandfather
-// snapshot is the state of the world until that follow-up.
+// Policy derivation (P-02 / FND-04e):
+//   - If the chain contains a call to requireCapability(...), the route has a
+//     capability policy:  policy = { type: 'capability', capability?, tier?, rate? }.
+//     The decorator's own returned middleware carries
+//     { type, capability, tier, rate, resource }; we reconstruct the parts we
+//     can read from the source text (a simple quoted string first argument),
+//     and mark unknown fields null. The CI test only requires policy != null
+//     for the route to count as declared.
+//   - If the chain contains a call to publicRoute(...), the route has a public
+//     policy:  policy = { type: 'public', reason? }.
+//   - If the chain contains ONLY requireStepUp(...), the route is still treated
+//     as undeclared for the route-policy test. require-stepup.js's own header
+//     says so: step-up alone does not satisfy "has requireCapability or
+//     publicRoute"; the route stays in the grandfathered snapshot until a
+//     capability is added.
+//   - Anything else stays policy: null.
 //
 // Regex chosen for the actual codebase style - every route is declared as
 // a single call to router.<verb>('<path>' with the middleware chain
@@ -49,6 +55,44 @@ function extractChain(rest) {
   return out;
 }
 
+// Pull the first string-literal argument of a named call from the chain source.
+// Returns the string, or undefined if the argument is not a simple quoted
+// literal (the analyzer is deliberately conservative: expression arguments
+// leave the field undefined rather than guessed).
+function firstStringArg(rest, fnName) {
+  const re = new RegExp('\\b' + fnName + '\\s*\\(\\s*([\'"])([^\'"]+)\\1');
+  const m = re.exec(rest);
+  return m ? m[2] : undefined;
+}
+
+// Derive the policy tag from a route's chain. See file header for the rules.
+function derivePolicy(chainNames, rest) {
+  const hasCapability = chainNames.includes('requireCapability');
+  const hasPublic = chainNames.includes('publicRoute');
+  // requireStepUp alone does not satisfy the route-policy test's predicate;
+  // see require-stepup.js header. Only requireCapability/publicRoute count.
+  if (!hasCapability && !hasPublic) return null;
+
+  if (hasPublic) {
+    return {
+      type: 'public',
+      reason: firstStringArg(rest, 'publicRoute') || null,
+    };
+  }
+
+  // hasCapability. We cannot reliably parse the options object from source
+  // text, so tier and rate are best-effort: if the source contains them as
+  // simple string-literal arguments we copy them; otherwise null. The route
+  // is declared either way; richer fields are enforced once P-01 decorates
+  // the routes and the shape can be tested directly.
+  return {
+    type: 'capability',
+    capability: firstStringArg(rest, 'requireCapability') || null,
+    tier: firstStringArg(rest, 'tier') || null,
+    rate: firstStringArg(rest, 'rate') || null,
+  };
+}
+
 function analyzeFile(filePath) {
   const src = fs.readFileSync(filePath, 'utf8');
   const rows = [];
@@ -58,11 +102,12 @@ function analyzeFile(filePath) {
     const method = m[1].toUpperCase();
     const routePath = m[3];
     const rest = m[4] || '';
+    const chainNames = extractChain(rest);
     rows.push({
       method,
       path: routePath,
-      chainNames: extractChain(rest),
-      policy: null,
+      chainNames,
+      policy: derivePolicy(chainNames, rest),
     });
   }
   return rows;
