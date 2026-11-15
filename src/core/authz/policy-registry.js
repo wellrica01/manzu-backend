@@ -33,7 +33,7 @@
 
 const fs = require('node:fs');
 
-const ROUTE_RE = /router\.(get|post|put|patch|delete|all)\s*\(\s*(['"])([^'"]+)\2([\s\S]*?)(?=router\.(?:get|post|put|patch|delete|all)\s*\(|^\}\s*|$)/gm;
+const ROUTE_RE = /router\.(get|post|put|patch|delete|all)\s*\(\s*(['"])([^'"]+)\2([\s\S]*?)(?=router\.(?:get|post|put|patch|delete|all)\s*\(|^\}\s*|(?![\s\S]))/gm;
 
 const MIDDLEWARE_RE = /\b([A-Za-z_$][\w$]*)\s*(?:\([^)]*\))?\s*,/g;
 
