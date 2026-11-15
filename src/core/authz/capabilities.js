@@ -63,9 +63,17 @@ const CAPABILITIES = Object.freeze([
   'team.view',
   'team.manage',
 
+  // Operating hours
+  'hours.view',
+  'hours.edit',
+
   // Profile
   'profile.view',
   'profile.logo',
+
+  // Self
+  'self.prefs',
+  'self.pin.change',
 ]);
 
 const ROLE_CAPABILITIES = Object.freeze({
@@ -78,6 +86,9 @@ const ROLE_CAPABILITIES = Object.freeze({
     'sales.export',
     'profile.view',
     'profile.logo',
+    'hours.view',
+    'self.prefs',
+    'self.pin.change',
   ])),
   [ROLES.TECHNICIAN]: Object.freeze(new Set([
     // STAFF
@@ -89,6 +100,9 @@ const ROLE_CAPABILITIES = Object.freeze({
     'sales.export',
     'profile.view',
     'profile.logo',
+    'hours.view',
+    'self.prefs',
+    'self.pin.change',
     // + receiving and counting stock (D-2 pending)
     'inventory.edit',
     'inventory.stock.adjust',
@@ -103,6 +117,9 @@ const ROLE_CAPABILITIES = Object.freeze({
     'sales.export',
     'profile.view',
     'profile.logo',
+    'hours.view',
+    'self.prefs',
+    'self.pin.change',
     'inventory.edit',
     'inventory.stock.adjust',
     // + clinical
@@ -142,6 +159,10 @@ const ROLE_CAPABILITIES = Object.freeze({
     'team.manage',
     'profile.view',
     'profile.logo',
+    'hours.view',
+    'self.prefs',
+    'self.pin.change',
+    'hours.edit',
   ])),
 });
 
