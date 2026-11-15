@@ -74,8 +74,6 @@
   "GET /api/medications",
   "GET /api/pharmacy/analytics",
   "GET /api/pharmacy/analytics/weekly",
-  "GET /api/pharmacy/banking/banks",
-  "GET /api/pharmacy/banking/status",
   "GET /api/pharmacy/dashboard",
   "GET /api/pharmacy/medications",
   "GET /api/pharmacy/medications/catalog",

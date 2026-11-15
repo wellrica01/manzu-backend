@@ -49,7 +49,7 @@ console.log('Loaded pharmacy.js version: 2025-06-19-v3 (deep linking support)');
 // ======================
 
 // GET /pharmacy/banking/banks - Get list of Nigerian banks
-router.get('/banking/banks', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/banking/banks', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const banks = await pharmacyBankingService.getNigerianBanks();
     res.status(200).json({ banks });
@@ -63,7 +63,7 @@ router.get('/banking/banks', authenticatePharmacy, authorizeRoles('MANAGER'), as
 });
 
 // GET /pharmacy/banking/status - Check banking setup status
-router.get('/banking/status', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/banking/status', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const status = await pharmacyBankingService.getBankingStatus(req.user.pharmacyId);
     res.status(200).json(status);
