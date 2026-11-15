@@ -174,7 +174,7 @@ router.post('/banking/verify', authenticatePharmacy, authorizeRoles('MANAGER'), 
 // ======================
 
 // GET /pharmacy/payouts/summary - Get payout summary
-router.get('/payouts/summary', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/payouts/summary', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('payouts.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const summary = await pharmacyPayoutsService.getPayoutSummary(req.user.pharmacyId);
     res.status(200).json({
@@ -191,7 +191,7 @@ router.get('/payouts/summary', authenticatePharmacy, authorizeRoles('MANAGER'), 
 });
 
 // GET /pharmacy/payouts/history - Get payout history
-router.get('/payouts/history', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/payouts/history', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('payouts.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
 
@@ -214,7 +214,7 @@ router.get('/payouts/history', authenticatePharmacy, authorizeRoles('MANAGER'), 
 });
 
 // GET /pharmacy/orders/pending-payout - Get orders awaiting payout
-router.get('/orders/pending-payout', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/orders/pending-payout', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('payouts.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const orders = await pharmacyPayoutsService.getOrdersPendingPayout(req.user.pharmacyId);
     
@@ -240,7 +240,7 @@ router.get('/orders/pending-payout', authenticatePharmacy, authorizeRoles('MANAG
 });
 
 // GET /pharmacy/earnings/analytics - Get earnings analytics
-router.get('/earnings/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/earnings/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('payouts.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { period = 'week' } = req.query; // week, month, year
 
