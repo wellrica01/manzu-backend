@@ -917,7 +917,7 @@ router.post('/operating-hours', authenticatePharmacy, authorizeRoles('MANAGER'),
 
 
 // GET /pharmacy/analytics - Aggregated analytics for the mobile Analytics screen (G8)
-router.get('/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/analytics', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('analytics.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const { from, to } = req.query;
     const data = await pharmacyAnalyticsService.getAnalytics(req.user.pharmacyId, { from, to });
@@ -951,7 +951,7 @@ router.get('/dashboard', authenticatePharmacy, requireCapability('dashboard.view
 });
 
 // GET /pharmacy/analytics/weekly - Weekly analytics
-router.get('/analytics/weekly', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+router.get('/analytics/weekly', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('analytics.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const data = await pharmacyDashboardService.getWeeklyAnalytics(req.user.pharmacyId);
     res.status(200).json({ message: 'Weekly analytics fetched', ...data });

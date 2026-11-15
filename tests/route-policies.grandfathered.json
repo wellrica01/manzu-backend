@@ -70,8 +70,6 @@
   "GET /api/med-track/",
   "GET /api/medication-suggestions",
   "GET /api/medications",
-  "GET /api/pharmacy/analytics",
-  "GET /api/pharmacy/analytics/weekly",
   "GET /api/pharmacy/sales",
   "GET /api/pharmacy/sales/export",
   "GET /api/prescription/:userIdentifier",
