@@ -324,6 +324,7 @@ model Pharmacy {
   OperatingHour          OperatingHour[]
   Order                  Order[]
   Payout                 Payout[]
+  PharmacySetting        PharmacySetting?
   PharmacyUser           PharmacyUser[]
   PushToken              PushToken[]
   Sale                   Sale[]
@@ -359,8 +360,18 @@ model PharmacyUser {
   phone                String?                @db.VarChar(20)
   invitedAt            DateTime?
   disabledAt           DateTime?
+  lastActiveAt         DateTime?                @db.Timestamp(3)
+  invitedById          Int?
+  suspendedAt          DateTime?                @db.Timestamp(3)
+  suspendedById        Int?
+  removedAt            DateTime?                @db.Timestamp(3)
+  removedLabel         String?                  @db.VarChar(200)
+  licenceNumber        String?                  @db.VarChar(50)
+  licenceVerifiedAt    DateTime?                @db.Timestamp(3)
+  PharmacyUserInvite   PharmacyUserInvite[]
 
   @@index([email])
+  @@index([pharmacyId, status])
 }
 
 model PharmacyRefreshToken {
@@ -701,6 +712,9 @@ model UserDevice {
   deviceId    String    @db.VarChar(64)
   label       String?   @db.VarChar(120)
   publicKey   String?
+  platform    String?   @db.VarChar(20)
+  approvedById Int?
+  approvedAt  DateTime? @db.Timestamp(3)
   trusted     Boolean   @default(false)
   firstSeenAt DateTime  @default(now()) @db.Timestamp(3)
   lastSeenAt  DateTime  @default(now()) @db.Timestamp(3)
@@ -709,6 +723,41 @@ model UserDevice {
 
   @@unique([actorType, actorId, deviceId], map: "UserDevice_actor_device_key")
   @@map("UserDevice")
+}
+
+model PharmacyUserInvite {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  codeHash    String    @unique @db.VarChar(64)
+  expiresAt   DateTime  @db.Timestamp(3)
+  usedAt      DateTime? @db.Timestamp(3)
+  attempts    Int       @default(0) @db.SmallInt
+  createdById Int?
+  createdAt   DateTime  @default(now()) @db.Timestamp(3)
+  PharmacyUser PharmacyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("PharmacyUserInvite")
+}
+
+model PharmacySetting {
+  pharmacyId             Int      @id
+  requireDeviceApproval  Boolean  @default(true)
+  staffOpeningHoursOnly  Boolean  @default(false)
+  lockAfterSeconds       Int      @default(60)
+  discountCapPct         Decimal  @default(0) @db.Decimal(5, 2)
+  voidWindowMinutes      Int      @default(10)
+  adjustThresholdUnits   Int      @default(20)
+  adjustApprovalUnits    Int      @default(100)
+  priceChangeCapPct      Int      @default(30)
+  refundLimitKobo        BigInt   @default(5000000)
+  bankHoldHours          Int      @default(48)
+  dailyDigest            Boolean  @default(true)
+  updatedAt              DateTime @default(now()) @db.Timestamp(3)
+  updatedById            Int?
+  Pharmacy               Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@map("PharmacySetting")
 }
 
 /// Admin rotating refresh tokens (Doc 3). Mirrors sec-01-identity-session.sql.
