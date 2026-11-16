@@ -68,6 +68,9 @@ const ACTIONS = {
   AUTH_TOKEN_REFRESHED: 'auth.token.refreshed',
   AUTH_SESSION_REVOKED: 'auth.session.revoked',
   AUTH_PIN_CHANGED: 'auth.pin.changed',
+  AUTH_ROLE_CHANGED: 'auth.role.changed',
+  AUTH_USER_SUSPENDED: 'auth.user.suspended',
+  AUTH_USER_REMOVED: 'auth.user.removed',
 
   // New: step-up (FND-08)
   STEP_UP_GRANTED: 'stepup.granted',
@@ -143,6 +146,9 @@ const REDACT = {
   AUTH_TOKEN_REFRESHED:  { after:  ['ip', 'deviceId'] },
   AUTH_SESSION_REVOKED:  { after:  ['reason'] },
   AUTH_PIN_CHANGED:      { after:  ['ip'] },
+  AUTH_ROLE_CHANGED:     { before: ['role'], after: ['role', 'changedById'] },
+  AUTH_USER_SUSPENDED:   { before: ['status'], after: ['status', 'suspendedById', 'reason'] },
+  AUTH_USER_REMOVED:     { before: ['status'], after: ['removedLabel'] },
 
   // Step-up.
   STEP_UP_GRANTED:  { after: ['scope', 'tier'] },
@@ -167,6 +173,7 @@ const FAIL_CLOSED = new Set([
   'PAYOUT_INITIATED', 'PAYOUT_COMPLETED', 'PAYOUT_FAILED', 'PAYOUT_RETRIED',
   'AUTH_LOGIN', 'AUTH_LOGIN_FAILED', 'AUTH_LOGOUT', 'AUTH_TOKEN_REFRESHED',
   'AUTH_SESSION_REVOKED', 'AUTH_PIN_CHANGED',
+  'AUTH_ROLE_CHANGED', 'AUTH_USER_SUSPENDED', 'AUTH_USER_REMOVED',
   'STEP_UP_GRANTED', 'STEP_UP_DENIED',
   'ADMIN_LOGIN', 'ADMIN_LOGOUT', 'ADMIN_ACTION',
   'PRESCRIPTION_VERIFIED', 'PRESCRIPTION_REJECTED',
