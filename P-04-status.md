@@ -118,6 +118,8 @@ Prisma side: schema.prisma already updated (1645098); prisma generate already ru
 
 After sec-04 runs and the owner confirms, update this file with the timestamp and who ran it.
 
+**Status: RUN** — 2026-11-16 on Supabase (eu-central-2). Verified: 8 `PharmacyUser` columns, `REMOVED` in the status CHECK, 3 `UserDevice` columns, `PharmacyUserInvite` (3 indexes), `PharmacySetting` (14 columns), composite index. Matches local `my_manzu_db`. P-06 is unblocked.
+
 ---
 
 ## 6. Lessons from this phase
