@@ -97,12 +97,43 @@ async function upsertDevice({ actorType, actorId, deviceId, label, lastIp }) {
   });
 }
 
+/**
+ * Doc 2 §5.1 (P-04): bump PharmacyUser.tokenVersion and revoke every
+ * refresh-token family for this user in one transaction.
+ *
+ * Why both: the access token carries `tv` (tokenVersion at issue time);
+ * the guard compares it to the DB value on every request. Bumping the
+ * column invalidates every live access token on the next request
+ * (SESSION_REVOKED). Revoking the refresh families means a role change,
+ * suspension or removal cannot be refreshed into a new lease either.
+ *
+ * Both writes are in one $transaction: if the revoke fails, the bump is
+ * rolled back too, so we never leave a bumped version with a live family.
+ *
+ * Returns { tokenVersion, revokedCount }.
+ */
+async function bumpTokenVersionAndRevoke(userId) {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.pharmacyUser.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+      select: { tokenVersion: true },
+    });
+    const revoked = await tx.pharmacyRefreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return { tokenVersion: updated.tokenVersion, revokedCount: revoked.count };
+  });
+}
+
 module.exports = {
   createRefreshToken,
   findRefreshTokenByHash,
   rotateRefreshToken,
   revokeFamily,
   revokeAllForUser,
+  bumpTokenVersionAndRevoke,
   deleteStaleForUser,
   findUserWithPharmacy,
   upsertDevice,

@@ -23,6 +23,7 @@ jest.mock('../src/domains/auth/pharmacy/pharmacy-auth.repository', () => mockRep
 const mockSession = {
   startSession: jest.fn(),
   revokeAllForUser: jest.fn(),
+  bumpTokenVersionAndRevoke: jest.fn(),
 };
 jest.mock('../src/domains/auth/pharmacy/pharmacy-session.service', () => mockSession);
 

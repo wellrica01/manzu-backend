@@ -244,8 +244,14 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
 
   const updatedUser = await pharmacyAuthRepository.updatePharmacyUser(userId, updateData);
 
-  // A new PIN signs the user out everywhere.
-  if (pin) await sessionService.revokeAllForUser(userId);
+  // P-04: a PIN set, role change or email change ends every live session.
+  // Previously this ran only when `pin` was set, so a pure demotion left
+  // the refresh family alive and the user could keep refreshing for 30 days.
+  const roleChanged = typeof role !== 'undefined' && role && role.toUpperCase() !== user.role;
+  const emailChanged = email && email !== user.email;
+  if (pin || roleChanged || emailChanged) {
+    await sessionService.bumpTokenVersionAndRevoke(userId);
+  }
 
   console.log('User updated:', { userId: updatedUser.id, pharmacyId });
   return updatedUser;
@@ -270,6 +276,12 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
     throw error;
   }
 
+  // P-04: end every live session before the row is removed. The refresh
+  // tokens cascade with the row, but the access token would otherwise
+  // stay valid for its TTL. Bumping tokenVersion closes that window; when
+  // P-06 replaces this with a soft delete, the row persists, so this bump
+  // is the only thing that ends the session.
+  await sessionService.bumpTokenVersionAndRevoke(userId);
   await pharmacyAuthRepository.deletePharmacyUser(userId);
   console.log('User deleted:', { userId, pharmacyId });
 }
@@ -297,11 +309,50 @@ async function changePharmacyUserPin(userId, currentPin, newPin) {
   return { success: true };
 }
 
+/**
+ * Suspend a pharmacy user (Doc 2 section 5.1, P-04).
+ *
+ * Sets status=SUSPENDED, records suspendedAt/suspendedById, then ends
+ * every live session (tokenVersion bump + refresh family revoke) via the
+ * session-service primitive. Route wiring (POST /auth/users/:userId/suspend)
+ * is P-06; this method is the primitive it will call.
+ *
+ * Self-suspend is refused, matching edit/delete.
+ */
+async function suspendPharmacyUser(userId, managerId, pharmacyId) {
+  if (userId === managerId) {
+    const error = new Error('Cannot suspend your own account');
+    error.status = HTTP_STATUS.FORBIDDEN;
+    error.code = ERROR_CODES.FORBIDDEN;
+    throw error;
+  }
+
+  const user = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = HTTP_STATUS.NOT_FOUND;
+    error.code = ERROR_CODES.NOT_FOUND;
+    throw error;
+  }
+
+  const updated = await pharmacyAuthRepository.updatePharmacyUser(userId, {
+    status: 'SUSPENDED',
+    suspendedAt: new Date(),
+    suspendedById: managerId,
+  });
+
+  await sessionService.bumpTokenVersionAndRevoke(userId);
+
+  console.log('User suspended:', { userId, pharmacyId, managerId });
+  return updated;
+}
+
 module.exports = {
   registerPharmacyAndUser,
   loginUser,
   addPharmacyUser,
   editPharmacyUser,
   deletePharmacyUser,
+  suspendPharmacyUser,
   changePharmacyUserPin,
 };

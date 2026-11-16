@@ -104,11 +104,24 @@ async function getMe(userId) {
   return service.getMe(userId, { userDto, pharmacyDto });
 }
 
+/**
+ * Doc 2 (P-04): bump tokenVersion + revoke every refresh family for this user.
+ * Thin wrapper over the repository primitive; the transaction lives there.
+ * Exposed here so pharmacy-auth.service call sites (role change, delete,
+ * suspend) do not reach into the repository directly.
+ *
+ * Returns { tokenVersion, revokedCount }.
+ */
+async function bumpTokenVersionAndRevoke(userId) {
+  return repository.bumpTokenVersionAndRevoke(userId);
+}
+
 module.exports = {
   startSession: service.startSession,
   refreshSession,
   logout: service.logout,
   revokeAllForUser: service.revokeAllForUser,
+  bumpTokenVersionAndRevoke,
   getMe,
   deviceInfoFromRequest,
   deviceIdFromRequest,
