@@ -261,6 +261,24 @@ const editUserSchema = z.object({
   role: z.enum(ASSIGNABLE_STAFF_ROLES, 'Role must be PHARMACIST, STAFF or TECHNICIAN').optional(),
 });
 
+
+// --- P-06: invite flow (Doc 2 section 5.2) ---
+
+const acceptInviteSchema = z.object({
+  email: z.string().email('Invalid email'),
+  code: z.string()
+    .length(8, 'Invite code must be exactly 8 characters')
+    .regex(/^[A-HJ-NP-Z2-9]+$/, 'Invite code must use only valid characters'),
+  pin: z.string()
+    .length(6, 'PIN must be exactly 6 digits')
+    .regex(/^\d{6}$/, 'PIN must contain only numbers'),
+  deviceId: z.string().max(64).optional(),
+  deviceInfo: z.string().max(200).optional(),
+});
+
+const inviteUserSchema = z.object({});
+
+const pinResetSchema = z.object({});
 const editProfileSchema = z.object({
   user: z.object({
     name: z.string().min(1, 'Name is required'),
@@ -402,6 +420,9 @@ module.exports = {
   loginSchema,
   addUserSchema,
   editUserSchema,
+  acceptInviteSchema,
+  inviteUserSchema,
+  pinResetSchema,
   adminRegisterSchema,
   adminLoginSchema,
 
