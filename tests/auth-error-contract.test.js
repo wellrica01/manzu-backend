@@ -36,6 +36,19 @@ jest.mock('../src/domains/auth/pharmacy/pharmacy-session.service', () => ({
   logout: jest.fn(),
 }));
 
+jest.mock('../src/domains/pharmacy/settings/settings.service', () => ({
+  getSettings: jest.fn(async () => ({
+    discountCapPct: 0,
+    voidWindowMinutes: 10,
+    adjustThresholdUnits: 20,
+    adjustApprovalUnits: 100,
+    priceChangeCapPct: 30,
+    refundLimitKobo: 5000000,
+    bankHoldHours: 48,
+  })),
+  updateSettings: jest.fn(),
+}));
+
 const memoryStore = require('../src/core/throttle/memory-store');
 const authRoutes = require('../src/routes/auth');
 
@@ -91,6 +104,24 @@ describe('login error contract (FND-07b3)', () => {
     expect(res.headers['retry-after']).toBe('30');
   });
 });
+
+  test('successful login returns capabilities, limits, capVersion', async () => {
+    mockLogin.mockResolvedValue({
+      token: 'jwt',
+      refreshToken: 'rt',
+      user: { id: 6, email: 'a@x.com', name: 'Ade', role: 'MANAGER' },
+      pharmacy: { id: 7, name: 'P', status: 'VERIFIED', isActive: true },
+    });
+    const res = await request(app).post('/api/auth/login').send({ email: 'a@x.com', pin: '123456' });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('capabilities');
+    expect(res.body).toHaveProperty('limits');
+    expect(res.body).toHaveProperty('capVersion');
+    expect(Array.isArray(res.body.capabilities)).toBe(true);
+    expect(res.body.capabilities).toContain('team.invite');
+    expect(res.body.limits).toHaveProperty('refundLimitKobo');
+    expect(res.body.capVersion).toMatch(/^[0-9a-f]{16}$/);
+  });
 
 describe('register has its own throttle (FND-07b3)', () => {
   test('register failures do not consume login throttle', async () => {

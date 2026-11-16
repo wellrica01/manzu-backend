@@ -17,6 +17,19 @@ const mockService = {
 };
 jest.mock('../src/domains/auth/pharmacy/pharmacy-session.service', () => mockService);
 
+jest.mock('../src/domains/pharmacy/settings/settings.service', () => ({
+  getSettings: jest.fn(async () => ({
+    discountCapPct: 0,
+    voidWindowMinutes: 10,
+    adjustThresholdUnits: 20,
+    adjustApprovalUnits: 100,
+    priceChangeCapPct: 30,
+    refundLimitKobo: 5000000,
+    bankHoldHours: 48,
+  })),
+  updateSettings: jest.fn(),
+}));
+
 const express = require('express');
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -120,6 +133,18 @@ describe('GET /api/auth/me', () => {
     expect(res.status).toBe(200);
     expect(res.body.pharmacy.status).toBe('VERIFIED');
     expect(mockService.getMe).toHaveBeenCalledWith(6);
+  });
+
+  test('200 includes capabilities, limits, capVersion', async () => {
+    mockService.getMe.mockResolvedValue({ user: { id: 6 }, pharmacy: { id: 7, status: 'VERIFIED' } });
+    const res = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${pharmacyJwt()}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('capabilities');
+    expect(res.body).toHaveProperty('limits');
+    expect(res.body).toHaveProperty('capVersion');
+    expect(Array.isArray(res.body.capabilities)).toBe(true);
+    expect(res.body.limits).toHaveProperty('refundLimitKobo');
+    expect(res.body.capVersion).toMatch(/^[0-9a-f]{16}$/);
   });
 
   test('401 USER_NOT_FOUND when the account was deleted', async () => {

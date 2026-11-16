@@ -11,6 +11,7 @@
 const z = require('zod');
 const express = require('express');
 const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.service');
+const { buildActorPayload } = require('../domains/auth/pharmacy/actor-payload');
 const stepupService = require('../domains/auth/pharmacy/stepup.service');
 const { deviceInfoFromRequest, deviceIdFromRequest, ipFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
@@ -78,6 +79,7 @@ router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, pin } = loginSchema.parse(req.body);
     const { token, refreshToken, user, pharmacy } = await pharmacyAuthService.loginUser({ email, pin, deviceInfo: deviceInfoFromRequest(req), meta: { deviceId: deviceIdFromRequest(req), ip: ipFromRequest(req) } });
+    const payload = await buildActorPayload(user, pharmacy);
     res.status(200).json({
       message: 'Login successful',
       token,
@@ -85,6 +87,7 @@ router.post('/login', authLimiter, async (req, res) => {
       user: { id: user.id, email: user.email, name: user.name, role: user.role && user.role.toUpperCase() },
       // G11: status and isActive are returned (not blocked), so the app can show a banner (PLAN D4).
       pharmacy: { id: pharmacy.id, name: pharmacy.name, status: pharmacy.status, isActive: pharmacy.isActive },
+      ...payload,
     });
   } catch (error) {
     console.error('Login error:', { message: error.message });
