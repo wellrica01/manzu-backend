@@ -190,7 +190,7 @@ async function loginUser({ email, pin, deviceInfo, meta }) {
     try {
       const upgraded = await hashPin(pin);
       const update = { password: upgraded, pinHashVersion: 2 };
-      if (isWeakPin(pin).blocked) update.mustChangePin = true;
+      if (isWeakPin(pin, { phoneDigits: user.phone ? user.phone.slice(-6) : undefined }).blocked) update.mustChangePin = true;
       await pharmacyAuthRepository.updatePharmacyUser(user.id, update);
     } catch (upgradeErr) {
       console.error('PIN hash upgrade failed (login still succeeds):', { message: upgradeErr.message });
@@ -291,7 +291,7 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
   }
   const updateData = { name, email };
   if (pin) {
-    const weak = isWeakPin(pin);
+    const weak = isWeakPin(pin, { phoneDigits: user.phone ? user.phone.slice(-6) : undefined });
     if (weak.blocked) {
       const error = new Error('PIN is too common or too predictable');
       error.status = HTTP_STATUS.BAD_REQUEST;
@@ -394,7 +394,7 @@ async function changePharmacyUserPin(userId, currentPin, newPin) {
     return { success: false, message: 'Current PIN is incorrect' };
   }
 
-  const weak = isWeakPin(newPin);
+  const weak = isWeakPin(newPin, { phoneDigits: user.phone ? user.phone.slice(-6) : undefined });
   if (weak.blocked) {
     return { success: false, message: 'PIN is too common or too predictable' };
   }
@@ -575,7 +575,7 @@ async function acceptInvite({ email, code, pin, deviceInfo, meta }) {
     throw invalidInviteError();
   }
 
-  const weak = isWeakPin(pin);
+  const weak = isWeakPin(pin, { phoneDigits: invite.PharmacyUser.phone ? invite.PharmacyUser.phone.slice(-6) : undefined });
   if (weak.blocked) {
     const error = new Error('PIN is too common or too predictable');
     error.status = HTTP_STATUS.BAD_REQUEST;
