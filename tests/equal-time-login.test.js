@@ -4,6 +4,7 @@
 
 process.env.THROTTLE_STORE = 'memory';
 process.env.JWT_SECRET = 'test-secret-0123456789abcdef0123456789abcdef-OK';
+process.env.PIN_PEPPER = 'test-pepper-0123456789abcdef0123456789abcdef';
 
 const bcrypt = require('bcrypt');
 
@@ -44,6 +45,7 @@ function userRow(overrides = {}) {
     password: REAL_HASH,
     pharmacyId: 7,
     failedAttempts: 0,
+    pinHashVersion: 1,
     lockedUntil: null,
     Pharmacy: { id: 7, status: 'VERIFIED', isActive: true },
     ...overrides,

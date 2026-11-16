@@ -13,6 +13,7 @@
 
 process.env.THROTTLE_STORE = 'memory';
 process.env.JWT_SECRET = 'test-secret-0123456789abcdef0123456789abcdef-OK';
+process.env.PIN_PEPPER = 'test-pepper-0123456789abcdef0123456789abcdef';
 
 const mockRepo = {
   findPharmacyUserByEmail: jest.fn(),
@@ -84,7 +85,7 @@ describe('editPharmacyUser ends the session on role / PIN / email change', () =>
 
   test('PIN set bumps tokenVersion and revokes families', async () => {
     await authService.editPharmacyUser(TARGET_ID, {
-      name: 'Ade', email: 'ade@x.com', pin: '654321', role: 'STAFF',
+      name: 'Ade', email: 'ade@x.com', pin: '706251', role: 'STAFF',
     }, MANAGER_ID, PHARMACY_ID);
 
     expect(mockSession.bumpTokenVersionAndRevoke).toHaveBeenCalledTimes(1);

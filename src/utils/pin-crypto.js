@@ -21,6 +21,11 @@ const bcrypt = require('bcrypt');
 
 const V1_COST = 10;
 const V2_COST = 12;
+
+// Module-load dummy hashes. Computing these once avoids a per-request cost
+// and gives verifyPin a fixed target to pad against.
+const DUMMY_HASH = bcrypt.hashSync('dummy-pin-never-used', V1_COST);
+const DUMMY_HASH_V2 = bcrypt.hashSync('dummy-v2-never-used', V2_COST);
 const CURRENT_VERSION = 2;
 
 function getPepper() {
@@ -52,19 +57,28 @@ async function hashPin(pin, version = CURRENT_VERSION) {
 
 // Dispatches on the *stored* version, so version-1 rows still log in.
 async function verifyPin(pin, hash, version) {
-  if (version === 1) return bcrypt.compare(String(pin), hash);
   if (version === 2) {
     const peppered = hmacSha256Base64(getPepper(), pin);
     return bcrypt.compare(peppered, hash);
   }
+  if (version === 1) {
+    const real = await bcrypt.compare(String(pin), hash);
+    // Pad v1 to v2 cost. The v1 branch is the only path that would
+    // otherwise be fast, which would leak "this is a v1 user".
+    await bcrypt.compare(String(pin), DUMMY_HASH_V2);
+    return real;
+  }
+  // Unknown version: full v2 dummy compare, matching unknown-email cost.
+  await bcrypt.compare(hmacSha256Base64(getPepper(), pin), DUMMY_HASH_V2);
   return false;
 }
-
 function needsUpgrade(version) {
   return Number(version) < CURRENT_VERSION;
 }
 
 module.exports = {
+  DUMMY_HASH,
+  DUMMY_HASH_V2,
   CURRENT_VERSION,
   V1_COST,
   V2_COST,

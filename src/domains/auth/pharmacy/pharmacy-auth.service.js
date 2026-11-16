@@ -15,6 +15,8 @@ const { HTTP_STATUS, ERROR_CODES } = require('../../../config/constants');
 const throttle = require('../../../core/throttle');
 const { computeLockout, isLocked } = require('../../../core/auth/lockout');
 const { createAuditLog } = require('../../../utils/audit-logger');
+const { hashPin, verifyPin, needsUpgrade, DUMMY_HASH_V2 } = require('../../../utils/pin-crypto');
+const { isWeakPin } = require('../../../utils/pin-blocklist');
 
 // A real bcrypt hash with the same cost factor as production PINs.
 // The dummy compare makes an unknown email take the same time as a known
@@ -47,8 +49,14 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo, meta }) {
     throw error;
   }
 
-  const salt = await bcrypt.genSalt(10);
-  const hashedPin = await bcrypt.hash(user.pin, salt);
+  const weak = isWeakPin(user.pin);
+  if (weak.blocked) {
+    const error = new Error('PIN is too common or too predictable');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'WEAK_PIN';
+    throw error;
+  }
+  const hashedPin = await hashPin(user.pin);
 
   const result = await pharmacyAuthRepository.executeTransaction(async (tx) => {
     const newPharmacy = await pharmacyAuthRepository.createPharmacyWithGPS(pharmacy, tx);
@@ -107,9 +115,15 @@ async function loginUser({ email, pin, deviceInfo, meta }) {
     throw error;
   }
 
-  // Step 3: equal-time compare.
-  const hash = user ? user.password : DUMMY_HASH;
-  const isPinValid = await bcrypt.compare(pin, hash);
+  // Step 3: equal-time compare, version-aware.
+  let isPinValid = false;
+  if (user) {
+    isPinValid = await verifyPin(pin, user.password, user.pinHashVersion || 1);
+  } else {
+    // Unknown email: v2 dummy compare at the same cost as a real v2 verify.
+    await verifyPin(pin, DUMMY_HASH_V2, 2);
+    isPinValid = false;
+  }
 
   if (!user || !isPinValid) {
     // Step 4: failure.
@@ -168,6 +182,18 @@ async function loginUser({ email, pin, deviceInfo, meta }) {
     }
   }
 
+  // P-07: v1 -> v2 upgrade on first successful login.
+  if (isPinValid && needsUpgrade(user.pinHashVersion)) {
+    try {
+      const upgraded = await hashPin(pin);
+      await pharmacyAuthRepository.updatePharmacyUser(user.id, {
+        password: upgraded,
+        pinHashVersion: 2,
+      });
+    } catch (upgradeErr) {
+      console.error('PIN hash upgrade failed (login still succeeds):', { message: upgradeErr.message });
+    }
+  }
   console.log('User authenticated with PIN:', { userId: user.id, pharmacyId: user.pharmacyId });
 
   const { token, refreshToken } = await sessionService.startSession(user, deviceInfo, {}, meta || {});
@@ -187,8 +213,14 @@ async function addPharmacyUser({ name, email, pin, role, pharmacyId }) {
     throw error;
   }
 
-  const salt = await bcrypt.genSalt(10);
-  const hashedPin = await bcrypt.hash(pin, salt);
+  const weak = isWeakPin(pin);
+  if (weak.blocked) {
+    const error = new Error('PIN is too common or too predictable');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'WEAK_PIN';
+    throw error;
+  }
+  const hashedPin = await hashPin(pin);
 
   const newUser = await pharmacyAuthRepository.createPharmacyUser({
     name,
@@ -257,8 +289,15 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
   }
   const updateData = { name, email };
   if (pin) {
-    const salt = await bcrypt.genSalt(10);
-    updateData.password = await bcrypt.hash(pin, salt);
+    const weak = isWeakPin(pin);
+    if (weak.blocked) {
+      const error = new Error('PIN is too common or too predictable');
+      error.status = HTTP_STATUS.BAD_REQUEST;
+      error.code = 'WEAK_PIN';
+      throw error;
+    }
+    updateData.password = await hashPin(pin);
+    updateData.pinHashVersion = 2;
   }
   if (typeof role !== 'undefined') {
     updateData.role = role.toUpperCase();
@@ -348,16 +387,18 @@ async function changePharmacyUserPin(userId, currentPin, newPin) {
     return { success: false, message: 'User not found' };
   }
 
-  const isPinValid = await bcrypt.compare(currentPin, user.password);
+  const isPinValid = await verifyPin(currentPin, user.password, user.pinHashVersion || 1);
   if (!isPinValid) {
     return { success: false, message: 'Current PIN is incorrect' };
   }
 
-  const salt = await bcrypt.genSalt(10);
-  const hashedPin = await bcrypt.hash(newPin, salt);
+  const weak = isWeakPin(newPin);
+  if (weak.blocked) {
+    return { success: false, message: 'PIN is too common or too predictable' };
+  }
+  const hashedPin = await hashPin(newPin);
 
-  await pharmacyAuthRepository.updatePharmacyUser(userId, { password: hashedPin });
-  await sessionService.revokeAllForUser(userId);
+  await pharmacyAuthRepository.updatePharmacyUser(userId, { password: hashedPin, pinHashVersion: 2 });
 
   return { success: true };
 }
@@ -532,8 +573,14 @@ async function acceptInvite({ email, code, pin, deviceInfo, meta }) {
     throw invalidInviteError();
   }
 
-  const salt = await bcrypt.genSalt(10);
-  const hashedPin = await bcrypt.hash(pin, salt);
+  const weak = isWeakPin(pin);
+  if (weak.blocked) {
+    const error = new Error('PIN is too common or too predictable');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'WEAK_PIN';
+    throw error;
+  }
+  const hashedPin = await hashPin(pin);
 
   await pharmacyAuthRepository.executeTransaction(async (tx) => {
     await tx.pharmacyUser.update({
@@ -541,6 +588,7 @@ async function acceptInvite({ email, code, pin, deviceInfo, meta }) {
       data: {
         status: 'ACTIVE',
         password: hashedPin,
+        pinHashVersion: 2,
         pinChangedAt: new Date(),
         mustChangePin: false,
       },

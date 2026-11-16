@@ -102,6 +102,7 @@ async function createPharmacyUser(userData, tx = null) {
       name: userData.name,
       role: userData.role || 'MANAGER',
       pharmacyId: userData.pharmacyId,
+      pinHashVersion: userData.pinHashVersion ?? 1,
     },
   });
 }
