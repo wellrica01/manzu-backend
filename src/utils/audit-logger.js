@@ -104,6 +104,7 @@ async function createAuditLog({
   action,
   entityType,
   entityId,
+  before = null,
   userId = null,
   details = {},
   ipAddress = null,
@@ -128,6 +129,7 @@ async function createAuditLog({
       entityType,
       entityId,
       after: hasDetails ? details : undefined,
+      before: before || undefined,
       ip: ipAddress || undefined,
       userAgent: userAgent || undefined,
     };
