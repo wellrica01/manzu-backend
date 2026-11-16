@@ -383,6 +383,14 @@ async function updateOrderStatus(orderId, status, pharmacyId, cancelReason) {
 
   const updatedOrder = await repository.updateOrderStatus(orderId, updateData);
 
+  await createAuditLog({
+    action: status === 'COMPLETED' ? 'PHARMACY_ORDER_FULFILLED' : 'ORDER_UPDATED',
+    entityType: ENTITY_TYPES.ORDER,
+    entityId: orderId,
+    before: { status: order.status },
+    after: { status: updatedOrder.status },
+  }).catch(err => console.warn('Failed to create audit log:', err));
+
   console.log('Order status updated:', { orderId, status: updatedOrder.status, filledAt: updatedOrder.filledAt, pharmacyId });
 
   return updatedOrder;
