@@ -182,14 +182,16 @@ async function loginUser({ email, pin, deviceInfo, meta }) {
     }
   }
 
-  // P-07: v1 -> v2 upgrade on first successful login.
+  // P-07: v1 -> v2 upgrade on first successful login. A v1 hash means the
+  // user's PIN predates the blocklist; if the typed PIN is weak, set
+  // mustChangePin in the same write so the user is forced to choose a new
+  // one (Doc 2 section 5.3 first-sign-in sweep).
   if (isPinValid && needsUpgrade(user.pinHashVersion)) {
     try {
       const upgraded = await hashPin(pin);
-      await pharmacyAuthRepository.updatePharmacyUser(user.id, {
-        password: upgraded,
-        pinHashVersion: 2,
-      });
+      const update = { password: upgraded, pinHashVersion: 2 };
+      if (isWeakPin(pin).blocked) update.mustChangePin = true;
+      await pharmacyAuthRepository.updatePharmacyUser(user.id, update);
     } catch (upgradeErr) {
       console.error('PIN hash upgrade failed (login still succeeds):', { message: upgradeErr.message });
     }
