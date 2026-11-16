@@ -320,7 +320,8 @@ async function updateOrderStatus(orderId, status, pharmacyId, cancelReason) {
         action: 'PHARMACY_ORDER_REJECTED',
         entityType: ENTITY_TYPES.ORDER,
         entityId: orderId,
-        userId: null,
+        // actor is sourced from currentActor() via runWithContext in authenticate
+        // (see tests/create-audit-log-context.test.js)
         details: {
           pharmacyId,
           pharmacyName: order.Pharmacy?.name,
@@ -363,7 +364,8 @@ async function updateOrderStatus(orderId, status, pharmacyId, cancelReason) {
         action: 'PHARMACY_ORDER_CANCELLED',
         entityType: ENTITY_TYPES.ORDER,
         entityId: orderId,
-        userId: null,
+        // actor is sourced from currentActor() via runWithContext in authenticate
+        // (see tests/create-audit-log-context.test.js)
         details: { pharmacyId, pharmacyName: order.Pharmacy?.name, reason, stockRestored: true },
         tx
       }).catch(err => console.warn('Failed to create audit log:', err));
@@ -479,7 +481,8 @@ async function bulkUpdateOrderStatus(orderIds, status, pharmacyId, cancelReason)
             action: 'PHARMACY_ORDER_REJECTED',
             entityType: ENTITY_TYPES.ORDER,
             entityId: orderId,
-            userId: null,
+            // actor is sourced from currentActor() via runWithContext in authenticate
+            // (see tests/create-audit-log-context.test.js)
             details: {
               pharmacyId,
               pharmacyName: order.Pharmacy?.name,

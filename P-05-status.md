@@ -138,3 +138,21 @@ Actor attribution comes from `currentActor()` (middleware seeds it via `runWithC
 **4. `createAuditLog`'s `before` parameter was silently dropped before P-05.** The `AuditEvent` schema and `record.js` supported `before`, and the catalogue's `REDACT` entries for `ORDER_UPDATED`/`PHARMACY_ORDER_ACCEPTED`/etc. declared `before: ['status']`, but the shim's destructure didn't list `before` and didn't pass it to `record()`. Any caller that passed `before` was silently ignored. **P-05 5b.1 fixed it.** `tests/audit-logger-shim.test.js` proves the round-trip. Future callers can pass `before` and it will be recorded.
 
 **5. Full-suite pass count reconciled: 260 = 255 (pre-P-05) + 3 (audit-logger-shim) + 2 (auth-session-revocation) + 1 (pharmacy-orders) - 1 (`src/test.js` orphan excluded from the count).** No regressions, no skips, no silent test failures. The `src/test.js` orphan continues to fail as expected (pre-existing, out of scope).
+
+---
+
+## 7. FND-05 verification (post-ship)
+
+**When:** recorded after P-05 shipped, during a review of Doc 2 §2.4's claim that "the `userId: null` in order events" was a data gap.
+
+**Finding:** FND-05 was wired in `authenticate` at `src/middleware/auth.js:357`. It calls `runWithContext({ requestId, actor: { type, id, pharmacyId, role, sessionId, deviceId, ip, userAgent } }, () => next())`, which populates the AsyncLocalStorage context for every authenticated pharmacy request. `createAuditLog` at `src/utils/audit-logger.js:121` then checks `Boolean(currentActor())` and — when the context is populated — does **not** pass an actor override, so `record()` reads the actor from the context. **The three `userId: null` call sites in `pharmacy-orders.service.js` (lines 323, 366, 482 pre-cleanup) were cosmetic, not a data gap.** They were shadowed by the context and the audit rows already carried the real actor, role, session, IP, user agent, and request ID.
+
+**Change made:**
+- The three `userId: null,` lines were removed (replaced with a two-line comment pointing at this test) — no behavior change, just removing misleading code.
+- New test `tests/create-audit-log-context.test.js` (3 tests) proves the mechanism: `userId: null` + populated context attributes via `currentActor()`; `userId: null` + no context falls to `'system'` (jobs / scripts, see `runAsSystem`); `userId: <id>` + no context uses the explicit override (legacy callers, if any remain).
+
+**Remaining gap (documented, not a regression):** any service call to `createAuditLog({ userId: null })` that runs **outside** a request context — a cron job, an admin CLI, an internal script — writes `actorType: 'system'`, not a user. That is correct for those cases; jobs that need attribution must wrap their work in `runAsSystem(jobName, fn)` (see `src/core/context/actor-context.js`) or pass an explicit `userId`. Nothing in this codebase does that today, but a future background worker that calls `updateOrderStatus` or `bulkUpdateOrderStatus` directly would need to.
+
+**P-05 done-when status:** Doc 2 §9.1 "Every state-changing pharmacy route writes one actor-attributed event; no event contains a PIN, token or full account number" — **met and verified**, with the caveat that jobs running outside a request context write `'system'` (which is the correct type for those, per Doc 1 §3.1).
+
+**Documentation lesson:** the original status header said "closes automatically once FND-05 wires the request context" but did not record whether FND-05 *had* wired it. It had. The verification test and this section close that ambiguity. This is the first package where a stale line in the codebase was found to be harmless only after writing a test that proved it — a pattern worth applying to the remaining packages in waves 2B through 2E.
