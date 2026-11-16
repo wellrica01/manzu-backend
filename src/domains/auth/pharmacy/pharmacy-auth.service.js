@@ -79,7 +79,7 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo, meta }) {
  * Login pharmacy user (FND-07b2).
  *
  * Flow:
- *   1. throttle.hit('login', key=sha256(email)). If rate-limited, throw 429
+ *   1. (removed in P-04.2b2) the throttle gate; see the new comment at step 1.
  *      before any database or bcrypt work.
  *   2. Look up the user. If the account is currently locked out (lockedUntil
  *      in the future), throw 403 ACCOUNT_LOCKED with retryAfterMs.
@@ -87,27 +87,13 @@ async function registerPharmacyAndUser({ pharmacy, user, deviceInfo, meta }) {
  *      same compare against DUMMY_HASH so the two paths take the same time.
  *   4. On failure: increment failedAttempts, apply the lockout schedule, write
  *      both with updatePharmacyUser. Throw 401.
- *   5. On success: reset failedAttempts and lockedUntil, reset the throttle,
- *      start the session.
+ *   5. On success: reset failedAttempts and lockedUntil; start the session.
  */
 async function loginUser({ email, pin, deviceInfo, meta }) {
-  const key = accountKey(email);
 
-  // Step 1: throttle before any work.
-  const gate = await throttle.hit({
-    class: 'login',
-    key,
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    lockoutMinutes: 15,
-  });
-  if (!gate.allowed) {
-    const error = new Error('Too many login attempts. Please try again later.');
-    error.status = 429;
-    error.code = 'RATE_LIMITED';
-    error.retryAfterMs = gate.retryAfterMs;
-    throw error;
-  }
+  // Step 1 (P-04.2b2): the account throttle used to gate here.
+  // The IP bucket is now class `auth_ip` in middleware/rate-limiting.js.
+  // The per-account lockout is the `lockedUntil` column below.
 
   // Step 2: look up.
   const user = await pharmacyAuthRepository.findPharmacyUserByEmail(email);
@@ -137,19 +123,31 @@ async function loginUser({ email, pin, deviceInfo, meta }) {
       } catch (writeErr) {
         console.error('Failed to record failed login:', { message: writeErr.message });
       }
-      if (lockout.shouldAlert) {
-        try {
-          require('../../../core/audit/security-event').notify({
+      // P-04.2b2: route on severity (see lockout.js).
+      //   'lockout'  - routine (5-7); no extra event, just the DB write above.
+      //   'notify'   - 8-11; write an AuditEvent for P-11's activity feed.
+      //   'critical' - 12+; also fire security.notify (Sentry).
+      try {
+        const security = require('../../../core/audit/security-event');
+        const prismaDb = require('../../../core/database/prisma');
+        if (lockout.severity === 'notify') {
+          security.record(prismaDb, {
+            action: 'auth.account.lockout.warning',
+            severity: 'warning',
+            entityType: 'PharmacyUser',
+            entityId: user.id,
+            after: { failedAttempts: nextFailures, minutes: lockout.minutes },
+          }).catch(() => {});
+        } else if (lockout.severity === 'critical') {
+          security.notify({
             action: 'auth.account.locked',
             severity: 'critical',
             entityType: 'PharmacyUser',
             entityId: user.id,
             after: { failedAttempts: nextFailures, minutes: lockout.minutes },
           });
-        } catch (_) {
-          // never break the login rejection on the alert path
         }
-      }
+      } catch (_) { /* never break the login rejection on the event path */ }
     }
     const error = new Error('Invalid email or PIN');
     error.status = HTTP_STATUS.UNAUTHORIZED;
@@ -168,7 +166,6 @@ async function loginUser({ email, pin, deviceInfo, meta }) {
       console.error('Failed to reset lockout state:', { message: writeErr.message });
     }
   }
-  await throttle.reset({ class: 'login', key }).catch(() => {});
 
   console.log('User authenticated with PIN:', { userId: user.id, pharmacyId: user.pharmacyId });
 

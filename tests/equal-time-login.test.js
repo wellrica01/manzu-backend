@@ -20,6 +20,11 @@ const mockRepo = {
 };
 jest.mock('../src/domains/auth/pharmacy/pharmacy-auth.repository', () => mockRepo);
 
+jest.mock('../src/core/audit/security-event', () => ({
+  record: jest.fn(() => Promise.resolve()),
+  notify: jest.fn(),
+}));
+
 const mockSession = {
   startSession: jest.fn(),
   revokeAllForUser: jest.fn(),
@@ -124,15 +129,63 @@ describe('equal-time login (SEC-04)', () => {
     expect(mockRepo.updatePharmacyUser).toHaveBeenCalledWith(1, { failedAttempts: 0, lockedUntil: null });
   });
 
-  test('sixth attempt hits the throttle, before any DB work', async () => {
-    mockRepo.findPharmacyUserByEmail.mockResolvedValue(null);
+  test('sixth attempt refused by account lockout after 5 failures', async () => {
+    // 5 wrong PINs on a known account: each increments failedAttempts and the
+    // 5th sets lockedUntil. The 6th attempt hits the DB and is refused by
+    // isLocked(), not by a pre-DB throttle.
+    const userRow = { id: 1, email: 'x@y.com', password: 'hash', pharmacyId: 7, failedAttempts: 0, lockedUntil: null };
+    mockRepo.findPharmacyUserByEmail.mockResolvedValue(userRow);
+    mockRepo.updatePharmacyUser.mockResolvedValue({});
     for (let i = 0; i < 5; i++) {
-      await authService.loginUser({ email: 'x@y.com', pin: '123456' }).catch(() => {});
+      await authService.loginUser({ email: 'x@y.com', pin: '000000' }).catch(() => {});
     }
-    mockRepo.findPharmacyUserByEmail.mockClear();
-    const err = await authService.loginUser({ email: 'x@y.com', pin: '123456' }).catch((e) => e);
-    expect(err.status).toBe(429);
-    expect(err.code).toBe('RATE_LIMITED');
-    expect(mockRepo.findPharmacyUserByEmail).not.toHaveBeenCalled();
+    // After the 5th, the DB row would have lockedUntil; simulate by returning it.
+    const lockedUntil = new Date(Date.now() + 60_000);
+    mockRepo.findPharmacyUserByEmail.mockResolvedValue({ ...userRow, failedAttempts: 5, lockedUntil });
+    const err = await authService.loginUser({ email: 'x@y.com', pin: '000000' }).catch((e) => e);
+    expect(err.status).toBe(403);
+    expect(err.code).toBe('ACCOUNT_LOCKED');
+    expect(err.retryAfterMs).toBeGreaterThan(0);
+  });
+
+  test('5th failure writes lockedUntil ~1min from now (severity lockout)', async () => {
+    const userRow = { id: 1, email: 'x@y.com', password: 'hash', pharmacyId: 7, failedAttempts: 4, lockedUntil: null };
+    mockRepo.findPharmacyUserByEmail.mockResolvedValue(userRow);
+    mockRepo.updatePharmacyUser.mockResolvedValue({});
+    const before = Date.now();
+    await authService.loginUser({ email: 'x@y.com', pin: '000000' }).catch(() => {});
+    const call = mockRepo.updatePharmacyUser.mock.calls[0];
+    expect(call[0]).toBe(1);
+    expect(call[1].failedAttempts).toBe(5);
+    expect(call[1].lockedUntil).toBeInstanceOf(Date);
+    const delta = call[1].lockedUntil.getTime() - before;
+    expect(delta).toBeGreaterThan(55_000);
+    expect(delta).toBeLessThan(65_000);
+  });
+
+  test('8th failure emits security.record at warning (severity notify)', async () => {
+    const security = require('../src/core/audit/security-event');
+    security.record.mockClear();
+    const userRow = { id: 1, email: 'x@y.com', password: 'hash', pharmacyId: 7, failedAttempts: 7, lockedUntil: null };
+    mockRepo.findPharmacyUserByEmail.mockResolvedValue(userRow);
+    mockRepo.updatePharmacyUser.mockResolvedValue({});
+    await authService.loginUser({ email: 'x@y.com', pin: '000000' }).catch(() => {});
+    expect(security.record).toHaveBeenCalledTimes(1);
+    const evt = security.record.mock.calls[0][1];
+    expect(evt.action).toBe('auth.account.lockout.warning');
+    expect(evt.severity).toBe('warning');
+  });
+
+  test('12th failure emits security.notify at critical (severity critical)', async () => {
+    const security = require('../src/core/audit/security-event');
+    security.notify.mockClear();
+    const userRow = { id: 1, email: 'x@y.com', password: 'hash', pharmacyId: 7, failedAttempts: 11, lockedUntil: null };
+    mockRepo.findPharmacyUserByEmail.mockResolvedValue(userRow);
+    mockRepo.updatePharmacyUser.mockResolvedValue({});
+    await authService.loginUser({ email: 'x@y.com', pin: '000000' }).catch(() => {});
+    expect(security.notify).toHaveBeenCalledTimes(1);
+    const evt = security.notify.mock.calls[0][0];
+    expect(evt.action).toBe('auth.account.locked');
+    expect(evt.severity).toBe('critical');
   });
 });
