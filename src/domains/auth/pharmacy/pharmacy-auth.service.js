@@ -14,6 +14,7 @@ const sessionService = require('./pharmacy-session.service');
 const { HTTP_STATUS, ERROR_CODES } = require('../../../config/constants');
 const throttle = require('../../../core/throttle');
 const { computeLockout, isLocked } = require('../../../core/auth/lockout');
+const { createAuditLog } = require('../../../utils/audit-logger');
 
 // A real bcrypt hash with the same cost factor as production PINs.
 // The dummy compare makes an unknown email take the same time as a known
@@ -250,6 +251,24 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
     await sessionService.bumpTokenVersionAndRevoke(userId);
   }
 
+  // P-05.5c: actor-attributed audit for role and PIN changes.
+  if (roleChanged) {
+    await createAuditLog({
+      action: 'AUTH_ROLE_CHANGED',
+      entityType: 'PharmacyUser',
+      entityId: userId,
+      before: { role: user.role },
+      after: { role: role.toUpperCase(), changedById: managerId },
+    });
+  }
+  if (pin) {
+    await createAuditLog({
+      action: 'AUTH_PIN_CHANGED',
+      entityType: 'PharmacyUser',
+      entityId: userId,
+    });
+  }
+
   console.log('User updated:', { userId: updatedUser.id, pharmacyId });
   return updatedUser;
 }
@@ -279,6 +298,13 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
   // P-06 replaces this with a soft delete, the row persists, so this bump
   // is the only thing that ends the session.
   await sessionService.bumpTokenVersionAndRevoke(userId);
+  await createAuditLog({
+    action: 'AUTH_USER_REMOVED',
+    entityType: 'PharmacyUser',
+    entityId: userId,
+    before: { status: user.status },
+    after: { removedLabel: user.name },
+  });
   await pharmacyAuthRepository.deletePharmacyUser(userId);
   console.log('User deleted:', { userId, pharmacyId });
 }
@@ -339,6 +365,13 @@ async function suspendPharmacyUser(userId, managerId, pharmacyId) {
   });
 
   await sessionService.bumpTokenVersionAndRevoke(userId);
+  await createAuditLog({
+    action: 'AUTH_USER_SUSPENDED',
+    entityType: 'PharmacyUser',
+    entityId: userId,
+    before: { status: user.status },
+    after: { status: 'SUSPENDED', suspendedById: managerId },
+  });
 
   console.log('User suspended:', { userId, pharmacyId, managerId });
   return updated;

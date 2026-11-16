@@ -34,6 +34,12 @@ const mockSession = {
 };
 jest.mock('../src/domains/auth/pharmacy/pharmacy-session.service', () => mockSession);
 
+jest.mock('../src/utils/audit-logger', () => ({
+  createAuditLog: jest.fn(() => Promise.resolve()),
+}));
+
+const { createAuditLog } = require('../src/utils/audit-logger');
+
 const authService = require('../src/domains/auth/pharmacy/pharmacy-auth.service');
 
 const MANAGER_ID = 1;
@@ -92,6 +98,18 @@ describe('editPharmacyUser ends the session on role / PIN / email change', () =>
     expect(mockSession.bumpTokenVersionAndRevoke).toHaveBeenCalledTimes(1);
   });
 
+
+  test('role change emits AUTH_ROLE_CHANGED audit event', async () => {
+    createAuditLog.mockClear();
+    mockRepo.findPharmacyUserByIdAndPharmacy.mockResolvedValue(targetUser({ role: 'STAFF' }));
+    await authService.editPharmacyUser(TARGET_ID, {
+      name: 'Ade', email: 'ade@x.com', role: 'PHARMACIST',
+    }, MANAGER_ID, PHARMACY_ID);
+    const call = createAuditLog.mock.calls.find((c) => c[0].action === 'AUTH_ROLE_CHANGED');
+    expect(call).toBeTruthy();
+    expect(call[0].before).toEqual({ role: 'STAFF' });
+    expect(call[0].after).toEqual({ role: 'PHARMACIST', changedById: MANAGER_ID });
+  });
   test('name-only change does NOT bump', async () => {
     await authService.editPharmacyUser(TARGET_ID, {
       name: 'Adebayo', email: 'ade@x.com', role: 'STAFF',
@@ -151,6 +169,16 @@ describe('suspendPharmacyUser sets status and ends the session', () => {
     expect(upOrder).toBeLessThan(bumpOrder);
   });
 
+
+  test('suspend emits AUTH_USER_SUSPENDED audit event', async () => {
+    createAuditLog.mockClear();
+    mockRepo.findPharmacyUserByIdAndPharmacy.mockResolvedValue(targetUser({ status: 'ACTIVE' }));
+    await authService.suspendPharmacyUser(TARGET_ID, MANAGER_ID, PHARMACY_ID);
+    const call = createAuditLog.mock.calls.find((c) => c[0].action === 'AUTH_USER_SUSPENDED');
+    expect(call).toBeTruthy();
+    expect(call[0].before).toEqual({ status: 'ACTIVE' });
+    expect(call[0].after).toEqual({ status: 'SUSPENDED', suspendedById: MANAGER_ID });
+  });
   test('self-suspend refused; no update, no bump', async () => {
     const err = await authService.suspendPharmacyUser(MANAGER_ID, MANAGER_ID, PHARMACY_ID).catch((e) => e);
     expect(err.status).toBe(403);
