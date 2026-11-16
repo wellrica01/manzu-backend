@@ -279,6 +279,22 @@ const acceptInviteSchema = z.object({
 const inviteUserSchema = z.object({});
 
 const pinResetSchema = z.object({});
+
+// --- P-06: PharmacySetting patch ---
+
+const settingsPatchSchema = z.object({
+  requireDeviceApproval: z.boolean().optional(),
+  staffOpeningHoursOnly: z.boolean().optional(),
+  lockAfterSeconds: z.number().int().min(0).max(300).optional(),
+  discountCapPct: z.number().min(0).max(100).optional(),
+  voidWindowMinutes: z.number().int().min(0).max(60).optional(),
+  adjustThresholdUnits: z.number().int().min(0).max(1000000).optional(),
+  adjustApprovalUnits: z.number().int().min(0).max(1000000).optional(),
+  priceChangeCapPct: z.number().int().min(5).max(100).optional(),
+  refundLimitKobo: z.number().int().min(0).optional(),
+  bankHoldHours: z.number().int().min(0).max(168).optional(),
+  dailyDigest: z.boolean().optional(),
+});
 const editProfileSchema = z.object({
   user: z.object({
     name: z.string().min(1, 'Name is required'),
@@ -465,4 +481,5 @@ module.exports = {
   ChemicalClassUpdateSchema,
   ChemicalSubstanceSchema,
   ChemicalSubstanceUpdateSchema,
+  settingsPatchSchema,
 };

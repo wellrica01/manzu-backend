@@ -11,10 +11,12 @@ const pharmacySalesService = require('../domains/pharmacy/sales/pharmacy-sales.s
 const pharmacyBankingService = require('../domains/pharmacy/banking/pharmacy-banking.service');
 const pharmacyPayoutsService = require('../domains/pharmacy/payouts/pharmacy-payouts.service');
 const pharmacyPushService = require('../domains/pharmacy/push/push.service');
+const pharmacySettingsService = require('../domains/pharmacy/settings/settings.service');
 const { validateRegisterPushToken, validatePushTokenParam } = require('../domains/pharmacy/push/push.validation');
 const { validateFetchOrders, validateUpdateOrder, 
   validateFetchMedications, validateAddMedication, validateBulkUpdateOrders, validateUpdateMedication, 
   validateDeleteMedication, validateFetchUsers, validateRegisterDevice, validateOrderId } = require('../utils/validation');
+const { settingsPatchSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
 const { requireCapability } = require('../core/authz/require-capability');
 const { shape } = require('../core/authz/shapers/dashboard');
@@ -1136,5 +1138,32 @@ router.post('/change-password', authenticatePharmacy, (req, res) => {
 });
 
 
+
+// GET /pharmacy/settings - current settings (MANAGER). Returns defaults if no row yet.
+router.get('/settings', authenticatePharmacy, requireCapability('team.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
+  try {
+    const settings = await pharmacySettingsService.getSettings(req.user.pharmacyId);
+    res.status(200).json({ settings });
+  } catch (error) {
+    console.error('Get settings error:', { message: error.message });
+    res.status(500).json({ message: 'Internal server error', requestId: req.requestId });
+  }
+});
+
+// PATCH /pharmacy/settings - update settings (MANAGER, T2). Emits SETTINGS_UPDATED.
+router.patch('/settings', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('settings.edit', { tier: 'T2', rate: 'team' }), async (req, res) => {
+  try {
+    const parsed = settingsPatchSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Validation error', errors: parsed.error.errors });
+    }
+    const settings = await pharmacySettingsService.updateSettings(req.user.pharmacyId, parsed.data, req.user.userId);
+    res.status(200).json({ message: 'Settings updated', settings });
+  } catch (error) {
+    console.error('Update settings error:', { message: error.message });
+    const status = error.status && Number.isInteger(error.status) ? error.status : 500;
+    res.status(status).json({ error: error.code || 'SERVER_ERROR', message: status >= 500 ? 'Internal server error' : error.message, requestId: req.requestId });
+  }
+});
 
 module.exports = router;
