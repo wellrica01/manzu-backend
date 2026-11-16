@@ -181,6 +181,15 @@ async function consumeInvite(inviteId) {
   });
 }
 
+
+/**
+ * P-06: count ACTIVE managers in a pharmacy. Used by the LAST_MANAGER guard.
+ */
+async function countActiveManagers(pharmacyId) {
+  return prisma.pharmacyUser.count({
+    where: { pharmacyId, role: 'MANAGER', status: 'ACTIVE' },
+  });
+}
 module.exports = {
   findPharmacyByLicense,
   findPharmacyUserByEmail,
@@ -195,4 +204,5 @@ module.exports = {
   findInviteByHash,
   incrementInviteAttempts,
   consumeInvite,
+  countActiveManagers,
 };

@@ -23,6 +23,7 @@ const mockRepo = {
   createPharmacyWithGPS: jest.fn(),
   findPharmacyByLicense: jest.fn(),
   deletePharmacyUser: jest.fn(),
+  countActiveManagers: jest.fn().mockResolvedValue(2),
   executeTransaction: jest.fn(),
 };
 jest.mock('../src/domains/auth/pharmacy/pharmacy-auth.repository', () => mockRepo);
@@ -129,17 +130,25 @@ describe('editPharmacyUser ends the session on role / PIN / email change', () =>
 });
 
 describe('deletePharmacyUser revokes before delete', () => {
-  test('bump is called before the repository delete', async () => {
+  test('bump is called before the soft-delete update', async () => {
     await authService.deletePharmacyUser(TARGET_ID, MANAGER_ID, PHARMACY_ID);
 
     expect(mockSession.bumpTokenVersionAndRevoke).toHaveBeenCalledTimes(1);
     expect(mockSession.bumpTokenVersionAndRevoke).toHaveBeenCalledWith(TARGET_ID);
-    expect(mockRepo.deletePharmacyUser).toHaveBeenCalledWith(TARGET_ID);
 
-    // Order: bump's invocation order must be lower (earlier) than delete's.
+    // P-06.6c: soft delete. The row is updated (status REMOVED), not deleted.
+    expect(mockRepo.deletePharmacyUser).not.toHaveBeenCalled();
+    expect(mockRepo.updatePharmacyUser).toHaveBeenCalledWith(TARGET_ID, expect.objectContaining({
+      status: 'REMOVED',
+      removedLabel: 'Ade',
+    }));
+    const updateCall = mockRepo.updatePharmacyUser.mock.calls[0];
+    expect(updateCall[1].removedAt).toBeInstanceOf(Date);
+
+    // Order: bump must come before the soft-delete update.
     const bumpOrder = mockSession.bumpTokenVersionAndRevoke.mock.invocationCallOrder[0];
-    const delOrder  = mockRepo.deletePharmacyUser.mock.invocationCallOrder[0];
-    expect(bumpOrder).toBeLessThan(delOrder);
+    const updateOrder = mockRepo.updatePharmacyUser.mock.invocationCallOrder[0];
+    expect(bumpOrder).toBeLessThan(updateOrder);
   });
 
   test('self-delete still refused; neither bump nor delete runs', async () => {

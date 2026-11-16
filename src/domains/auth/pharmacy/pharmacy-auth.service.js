@@ -202,6 +202,26 @@ async function addPharmacyUser({ name, email, pin, role, pharmacyId }) {
   return newUser;
 }
 
+// ============================================================================
+// P-06: last-manager guard (Doc 2 section 5.1)
+// ============================================================================
+
+/**
+ * Refuse to suspend / remove / demote the last ACTIVE manager in a pharmacy.
+ * Non-managers always pass (they can never be "last manager").
+ */
+async function assertNotLastManager(userId, pharmacyId, action) {
+  const target = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
+  if (!target || target.role !== 'MANAGER') return;
+  const managerCount = await pharmacyAuthRepository.countActiveManagers(pharmacyId);
+  if (managerCount <= 1) {
+    const error = new Error('Cannot ' + action + ' the last active manager');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'LAST_MANAGER';
+    throw error;
+  }
+}
+
 /**
  * Edit pharmacy user
  */
@@ -231,6 +251,10 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
     }
   }
 
+  const roleChanged = typeof role !== 'undefined' && role && role.toUpperCase() !== user.role;
+  if (roleChanged && user.role === 'MANAGER') {
+    await assertNotLastManager(userId, pharmacyId, 'demote');
+  }
   const updateData = { name, email };
   if (pin) {
     const salt = await bcrypt.genSalt(10);
@@ -245,7 +269,6 @@ async function editPharmacyUser(userId, { name, email, pin, role }, managerId, p
   // P-04: a PIN set, role change or email change ends every live session.
   // Previously this ran only when `pin` was set, so a pure demotion left
   // the refresh family alive and the user could keep refreshing for 30 days.
-  const roleChanged = typeof role !== 'undefined' && role && role.toUpperCase() !== user.role;
   const emailChanged = email && email !== user.email;
   if (pin || roleChanged || emailChanged) {
     await sessionService.bumpTokenVersionAndRevoke(userId);
@@ -297,6 +320,7 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
   // stay valid for its TTL. Bumping tokenVersion closes that window; when
   // P-06 replaces this with a soft delete, the row persists, so this bump
   // is the only thing that ends the session.
+  await assertNotLastManager(userId, pharmacyId, 'remove');
   await sessionService.bumpTokenVersionAndRevoke(userId);
   await createAuditLog({
     action: 'AUTH_USER_REMOVED',
@@ -305,8 +329,14 @@ async function deletePharmacyUser(userId, managerId, pharmacyId) {
     before: { status: user.status },
     after: { removedLabel: user.name },
   });
-  await pharmacyAuthRepository.deletePharmacyUser(userId);
-  console.log('User deleted:', { userId, pharmacyId });
+  // P-06.6c: soft delete. Row stays for history; email is NOT rewritten here
+  // (a follow-up will rewrite to removed+<id>@invalid for reuse).
+  await pharmacyAuthRepository.updatePharmacyUser(userId, {
+    status: 'REMOVED',
+    removedAt: new Date(),
+    removedLabel: user.name,
+  });
+  console.log('User removed:', { userId, pharmacyId });
 }
 
 /**
@@ -357,6 +387,8 @@ async function suspendPharmacyUser(userId, managerId, pharmacyId) {
     error.code = ERROR_CODES.NOT_FOUND;
     throw error;
   }
+
+  await assertNotLastManager(userId, pharmacyId, 'suspend');
 
   const updated = await pharmacyAuthRepository.updatePharmacyUser(userId, {
     status: 'SUSPENDED',
@@ -666,6 +698,73 @@ async function resetPharmacyUserPin(userId, managerId, pharmacyId) {
   console.log('PIN reset initiated:', { userId, pharmacyId, managerId });
   return { code, expiresAt };
 }
+
+/**
+ * Transfer the MANAGER role from one user to another. Both users are signed
+ * out; both are audited. The transaction never leaves the pharmacy without a
+ * manager, so the LAST_MANAGER guard does not apply here.
+ */
+async function transferManager(fromUserId, toUserId, actorUserId, pharmacyId) {
+  if (fromUserId === toUserId) {
+    const error = new Error('Cannot transfer the manager role to yourself');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'INVALID_STATE';
+    throw error;
+  }
+
+  const from = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(fromUserId, pharmacyId);
+  const to = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(toUserId, pharmacyId);
+  if (!from || !to) {
+    const error = new Error('User not found');
+    error.status = HTTP_STATUS.NOT_FOUND;
+    error.code = ERROR_CODES.NOT_FOUND;
+    throw error;
+  }
+  if (from.role !== 'MANAGER') {
+    const error = new Error('Source user is not a MANAGER');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'INVALID_STATE';
+    throw error;
+  }
+  if (to.status !== 'ACTIVE') {
+    const error = new Error('Target user must be ACTIVE');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'INVALID_STATE';
+    throw error;
+  }
+  if (to.role === 'MANAGER') {
+    const error = new Error('Target user is already a MANAGER');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'INVALID_STATE';
+    throw error;
+  }
+
+  await pharmacyAuthRepository.executeTransaction(async (tx) => {
+    await tx.pharmacyUser.update({ where: { id: toUserId }, data: { role: 'MANAGER' } });
+    await tx.pharmacyUser.update({ where: { id: fromUserId }, data: { role: 'PHARMACIST' } });
+  });
+
+  await sessionService.bumpTokenVersionAndRevoke(toUserId);
+  await sessionService.bumpTokenVersionAndRevoke(fromUserId);
+
+  await createAuditLog({
+    action: 'AUTH_ROLE_CHANGED',
+    entityType: 'PharmacyUser',
+    entityId: toUserId,
+    before: { role: to.role },
+    after: { role: 'MANAGER', changedById: actorUserId },
+  });
+  await createAuditLog({
+    action: 'AUTH_ROLE_CHANGED',
+    entityType: 'PharmacyUser',
+    entityId: fromUserId,
+    before: { role: from.role },
+    after: { role: 'PHARMACIST', changedById: actorUserId },
+  });
+
+  console.log('Manager transferred:', { fromUserId, toUserId, pharmacyId, actorUserId });
+  return { user: { id: to.id, name: to.name, email: to.email, role: 'MANAGER' } };
+}
 module.exports = {
   registerPharmacyAndUser,
   loginUser,
@@ -679,4 +778,5 @@ module.exports = {
   revokeInvite,
   reactivatePharmacyUser,
   resetPharmacyUserPin,
+  transferManager,
 };
