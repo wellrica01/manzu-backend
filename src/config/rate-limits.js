@@ -17,14 +17,17 @@ const RATE_LIMITS = {
     countAll: true,
   },
 
-  // Login and register: the strict one. The throttle counts attempts;
-  // successful logins reset the counter (see pharmacy-auth.service.js in FND-07b2).
-  auth: {
-    class: 'login',
+  // Login IP bucket: 30 attempts per 15 min, keyed on the client IP.
+  // Doc 2 section 5.4: successful logins do NOT reset this counter (an
+  // attacker interleaving a real login must not reset it). The per-account
+  // ladder (5 / 8 / 12 failures, notify at 8, alert at 12) lives on the
+  // PharmacyUser row in pharmacy-auth.service.js.
+  auth_ip: {
+    class: 'auth_ip',
     windowMs: 15 * 60 * 1000,
-    max: 5,
+    max: 30,
     lockoutMinutes: 15,
-    countAll: false,
+    countAll: true,
   },
 
   // Session endpoints (refresh / logout). Separate from auth: a stale token
@@ -64,6 +67,7 @@ const RATE_LIMITS = {
 // the whole set; Doc 2 sets the per-class numbers when it lands.
 const CLASSES = Object.freeze([
   'login',
+  'auth_ip',
   'stepup',
   'pin_change',
   'team',
@@ -84,7 +88,7 @@ module.exports = {
   // Backwards-compatible named exports. app.js does not import these directly,
   // but keeping them avoids a search-and-replace in the future.
   API_RATE_LIMIT: RATE_LIMITS.api,
-  AUTH_RATE_LIMIT: RATE_LIMITS.auth,
+  AUTH_RATE_LIMIT: RATE_LIMITS.auth_ip,
   SESSION_RATE_LIMIT: RATE_LIMITS.session,
   CHECKOUT_RATE_LIMIT: RATE_LIMITS.checkout,
   REGISTER_RATE_LIMIT: RATE_LIMITS.register,

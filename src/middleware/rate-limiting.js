@@ -74,7 +74,7 @@ function apiLimiter(req, res, next) {
 }
 
 function authLimiter(req, res, next) {
-  return applyLimit(req, res, next, RATE_LIMITS.auth, clientKey);
+  return applyLimit(req, res, next, RATE_LIMITS.auth_ip, clientKey);
 }
 
 function sessionLimiter(req, res, next) {
@@ -87,7 +87,7 @@ function checkoutLimiter(req, res, next) {
 
 console.log('Rate limiting configured:');
 console.log(`  - General API: ${RATE_LIMITS.api.max} requests / ${RATE_LIMITS.api.windowMs / 60000} min`);
-console.log(`  - Authentication: ${RATE_LIMITS.auth.max} attempts / ${RATE_LIMITS.auth.windowMs / 60000} min`);
+console.log(`  - Auth IP bucket: ${RATE_LIMITS.auth_ip.max} attempts / ${RATE_LIMITS.auth_ip.windowMs / 60000} min`);
 console.log(`  - Session: ${RATE_LIMITS.session.max} requests / ${RATE_LIMITS.session.windowMs / 60000} min`);
 console.log(`  - Checkout: ${RATE_LIMITS.checkout.max} attempts / ${RATE_LIMITS.checkout.windowMs / 60000 / 60} hour`);
 
