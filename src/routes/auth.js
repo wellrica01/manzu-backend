@@ -18,6 +18,7 @@ const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSc
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
 const { requireCapability } = require('../core/authz/require-capability');
 const { publicRoute } = require('../core/authz/public-route');
+const { requireStepUp } = require('../core/authz/require-stepup');
 const { authLimiter, registerLimiter } = require('../middleware/rate-limiting');
 const router = express.Router();
 
@@ -329,6 +330,22 @@ router.post('/users/:userId/pin-reset', authenticatePharmacy, authorizeRoles('MA
     }
     const result = await pharmacyAuthService.resetPharmacyUserPin(Number(userId), req.user.userId, req.user.pharmacyId);
     res.status(200).json({ message: 'PIN reset initiated', code: result.code, expiresAt: result.expiresAt.toISOString() });
+  } catch (error) {
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
+
+// POST /auth/manager/transfer - Manager promotes a user to MANAGER and demotes
+// themselves (or another MANAGER). T3 capability + step-up (enforced when
+// SEC_STEPUP_ENFORCE=enforce; today it is off). Both users are signed out.
+router.post('/manager/transfer', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.role.change', { tier: 'T3', rate: 'team' }), requireStepUp('manager.transfer'), async (req, res) => {
+  try {
+    const { fromUserId, toUserId } = req.body || {};
+    if (!Number.isInteger(fromUserId) || !Number.isInteger(toUserId)) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'fromUserId and toUserId must be integers' });
+    }
+    const result = await pharmacyAuthService.transferManager(fromUserId, toUserId, req.user.userId, req.user.pharmacyId);
+    res.status(200).json({ message: 'Manager transferred', user: result.user });
   } catch (error) {
     return sendAuthError(res, error, req.requestId, 500);
   }
