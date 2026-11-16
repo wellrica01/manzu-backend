@@ -3,7 +3,7 @@
 **Branch:** `med-version`
 **Tests:** 226 passing / 30 suites / 1 pre-existing FAIL (`src/test.js` -- orphan, out of scope). The route-module-load smoke test (`tests/route-module-load.test.js`, commit `f3100e4`) adds 13 file-load assertions that catch the class of bug that briefly took production down on 2026-11-15 (see section 7).
 **Route-policy snapshot:** 131 entries remaining (down from 160 at P-02 start; 29 routes decorated).
-**Production behavior:** unchanged. `SEC_ENFORCE=off`, all `requireCapability(...)` middleware short-circuits at the first line. The `log`/`enforce` flips are the deploy runbook's next step.
+**Production behavior:** **`SEC_ENFORCE=enforce` is live.** Enforce-mode walk on 2026-11-16: 45/45 identical to shadow walk on 15 routes; plus `PATCH /orders/bulk` MANAGER 200 / STAFF 403 `FORBIDDEN_CAPABILITY` (the `requireCapability` gate firing directly). No behavior change for MANAGER on any route; no behavior change for STAFF/PHARMACIST on the routes they were already denied on.
 **Purpose of this document:** record what P-01 shipped, what it did not ship, and which package owns each remaining grandfathered route. It is the handoff artifact from P-01 to P-03 through P-10 and to the deploy runbook.
 
 ---
@@ -149,9 +149,9 @@ Three decorations are deliberately coarser than Doc 2 section 3.2's target, beca
 
 1. **Push `med-version` to origin** (deploys to Render automatically).
 2. **Watch the boot log.** Confirm: split-secret fallback active, one DB connection, all crons started, no `ReferenceError`, no `requireCapability is not defined`.
-3. **Flip `SEC_ENFORCE=log` on Render.** One env var, no code change. The deployment is safe because every route decorated so far is either already role-gated (`authorizeRoles`) or held by all four roles; the only route expected to produce shadow denies is `PATCH /orders/bulk` (no `authorizeRoles` today; only MANAGER holds `orders.bulk`).
+3. ~~Flip `SEC_ENFORCE=log` on Render.~~ **DONE 2026-11-15.** Shadow window ran 24h; empty because no traffic on the deny-capable routes. Active walk (MANAGER + PHARMACIST + STAFF, 15 routes) confirmed 45/45 against the section 3.2 matrix.
 4. **Watch 24h of `AuditEvent`** for `action = 'security.capability.denied'`. If a real workflow is being shadow-denied, fix the catalogue or the route's coarse capability before proceeding.
-5. **Flip `SEC_ENFORCE=enforce` per group** using `SEC_ENFORCE_GROUPS` (section 9.4 rule 2 order: revenue/payouts/export reads, then bank, then inventory price/delete, then bulk and order cancel, then void/refund, then contact masking). Each flip is one env var. Rollback is `SEC_ENFORCE=off`.
+5. **~~Flip `SEC_ENFORCE=enforce` per group.~~ DONE 2026-11-16 as global `SEC_ENFORCE=enforce`** (pre-launch, no active users, group-staging's justification -- "a mid-sale 403 is a support incident" -- does not apply yet). Enforce-mode walk: 45/45 identical to shadow walk on 15 routes, and `PATCH /orders/bulk` MANAGER 200 / STAFF 403 `FORBIDDEN_CAPABILITY` proves the `requireCapability` gate fires directly. Rollback remains `SEC_ENFORCE=off`.
 6. **Then continue P-04, P-06, P-07, P-08, P-09, P-10** in the doc's section 9.2 wave order, each removing its routes from the snapshot in the same commit.
 
 Deploy-specific details (SQL first, boot log, 24h watch) are in `DEPLOY_PHASE_1.md` sections 5 and 6; that runbook applies unchanged.
@@ -190,3 +190,7 @@ ReferenceError: requireCapability is not defined
 **Durable fix.** `f3100e4` adds `tests/route-module-load.test.js`: a child-process-per-file smoke test that requires every `src/routes/*.js` in real Node, stubbing SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY so the test answers "does this file load?" rather than "is this shell configured like production?". 13 new assertions, all green.
 
 **The rule, for the next session:** any commit that touches a route file must hold both gates green before push -- `tests/route-policy.test.js` (every route declared) **and** `tests/route-module-load.test.js` (every file loads). Either gate alone is incomplete.
+
+**Enforce-mode verification (2026-11-16).** `SEC_ENFORCE=enforce` was flipped globally pre-launch rather than per group. Justification: section 9.4 rule 2's grouping is motivated by "a surprise 403 mid-sale is a support incident"; pre-launch with two users and no active transactions, that risk does not exist. The grouping's real value is traceability (when a bug appears, knowing which change caused it), and pre-launch that is recoverable in minutes without user impact. So the global flip was chosen for speed, with the active walk as the verification gate.
+
+Enforce-mode walk: 45/45 identical to shadow walk on 15 routes (MANAGER all 200; PHARMACIST and STAFF deny on banking/payouts/earnings/users/analytics, allow on orders/medications/profile/dashboard/operating-hours). Plus `PATCH /orders/bulk`: MANAGER -> 200, STAFF -> 403 with body `{"error":"FORBIDDEN_CAPABILITY","details":{"capability":"orders.bulk"}}` -- the `requireCapability` gate firing directly, not `authorizeRoles`. No route changed status between shadow and enforce; the only new restriction is `orders.bulk` for non-MANAGER, which was expected.
