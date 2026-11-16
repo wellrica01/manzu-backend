@@ -13,9 +13,9 @@
 // shouldAlert, reason }); the caller decides how to notify.
 
 const SCHEDULE = [
-  { at: 5,  minutes: 1 },
-  { at: 8,  minutes: 15 },
-  { at: 12, minutes: 60, alert: true },
+  { at: 5,  minutes: 1,  severity: 'lockout'  },
+  { at: 8,  minutes: 15, severity: 'notify'   },
+  { at: 12, minutes: 60, severity: 'critical', alert: true },
 ];
 
 /**
@@ -31,11 +31,12 @@ function computeLockout(failureCount, now = new Date()) {
       return {
         lockedUntil: new Date(now.getTime() + step.minutes * 60 * 1000),
         shouldAlert: Boolean(step.alert),
+        severity: step.severity,
         minutes: step.minutes,
       };
     }
   }
-  return { lockedUntil: null, shouldAlert: false, minutes: 0 };
+  return { lockedUntil: null, shouldAlert: false, minutes: 0, severity: null };
 }
 
 function isLocked(lockedUntil, now = new Date()) {

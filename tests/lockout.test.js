@@ -51,3 +51,41 @@ describe('lockout schedule', () => {
     expect(SCHEDULE.map((s) => s.at)).toEqual([5, 8, 12]);
   });
 });
+
+describe('lockout severity (P-04 follow-on, Doc 2 section 5.4)', () => {
+  test('below 5: severity is null', () => {
+    expect(computeLockout(4).severity).toBeNull();
+    expect(computeLockout(0).severity).toBeNull();
+  });
+
+  test('5-7 failures: severity lockout, no manager alert', () => {
+    const r5 = computeLockout(5);
+    expect(r5.severity).toBe('lockout');
+    expect(r5.shouldAlert).toBe(false);
+    const r7 = computeLockout(7);
+    expect(r7.severity).toBe('lockout');
+  });
+
+  test('8-11 failures: severity notify (manager warning), no critical alert', () => {
+    const r8 = computeLockout(8);
+    expect(r8.severity).toBe('notify');
+    expect(r8.shouldAlert).toBe(false);
+    const r11 = computeLockout(11);
+    expect(r11.severity).toBe('notify');
+  });
+
+  test('12+ failures: severity critical, shouldAlert true', () => {
+    const r12 = computeLockout(12);
+    expect(r12.severity).toBe('critical');
+    expect(r12.shouldAlert).toBe(true);
+    const r30 = computeLockout(30);
+    expect(r30.severity).toBe('critical');
+    expect(r30.shouldAlert).toBe(true);
+  });
+
+  test('SCHEDULE entries each carry a severity', () => {
+    for (const s of SCHEDULE) {
+      expect(['lockout', 'notify', 'critical']).toContain(s.severity);
+    }
+  });
+});
