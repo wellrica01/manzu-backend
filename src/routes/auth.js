@@ -14,9 +14,10 @@ const pharmacyAuthService = require('../domains/auth/pharmacy/pharmacy-auth.serv
 const stepupService = require('../domains/auth/pharmacy/stepup.service');
 const { deviceInfoFromRequest, deviceIdFromRequest, ipFromRequest } = require('../domains/auth/pharmacy/pharmacy-session.service');
 const adminAuthService = require('../domains/auth/admin/admin-auth.service');
-const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSchema } = require('../utils/adminValidation');
+const { registerSchema, loginSchema, addUserSchema, editUserSchema, adminLoginSchema, acceptInviteSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
 const { requireCapability } = require('../core/authz/require-capability');
+const { publicRoute } = require('../core/authz/public-route');
 const { authLimiter, registerLimiter } = require('../middleware/rate-limiting');
 const router = express.Router();
 
@@ -242,6 +243,93 @@ router.post('/step-up', authenticatePharmacy, async (req, res) => {
     });
   } catch (error) {
     console.error('Step-up error:', { message: error.message });
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
+
+
+// ============================================================================
+// P-06: invite, suspend, reactivate, pin-reset (Doc 2 section 5.2)
+// ============================================================================
+
+// POST /auth/invite/accept - Public: invitee sets their PIN and becomes ACTIVE.
+router.post('/invite/accept', authLimiter, publicRoute('invitee has no account yet; the invite code is their credential'), async (req, res) => {
+  try {
+    const parsed = acceptInviteSchema.parse(req.body);
+    const result = await pharmacyAuthService.acceptInvite({
+      email: parsed.email,
+      code: parsed.code,
+      pin: parsed.pin,
+      deviceInfo: parsed.deviceInfo || deviceInfoFromRequest(req),
+      meta: { deviceId: parsed.deviceId || deviceIdFromRequest(req), ip: ipFromRequest(req) },
+    });
+    res.status(200).json({
+      message: 'Invite accepted',
+      token: result.token,
+      refreshToken: result.refreshToken,
+      user: { id: result.user.id, email: result.user.email, name: result.user.name, role: result.user.role && result.user.role.toUpperCase() },
+      pharmacy: { id: result.pharmacy.id, name: result.pharmacy.name, status: result.pharmacy.status, isActive: result.pharmacy.isActive },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Validation error', errors: error.errors });
+    }
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
+
+// POST /auth/users/:userId/invite - Manager issues (or re-issues) an invite code.
+router.post('/users/:userId/invite', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.invite', { tier: 'T2', rate: 'team' }), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (isNaN(parseInt(userId))) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid user ID' });
+    }
+    const result = await pharmacyAuthService.createInvite(Number(userId), req.user.userId, req.user.pharmacyId);
+    res.status(200).json({ message: 'Invite created', code: result.code, expiresAt: result.expiresAt.toISOString() });
+  } catch (error) {
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
+
+// POST /auth/users/:userId/suspend - Manager suspends an ACTIVE user.
+router.post('/users/:userId/suspend', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.suspend', { tier: 'T2', rate: 'team' }), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (isNaN(parseInt(userId))) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid user ID' });
+    }
+    await pharmacyAuthService.suspendPharmacyUser(Number(userId), req.user.userId, req.user.pharmacyId);
+    res.status(200).json({ message: 'User suspended' });
+  } catch (error) {
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
+
+// POST /auth/users/:userId/reactivate - Manager reactivates a SUSPENDED user.
+router.post('/users/:userId/reactivate', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.suspend', { tier: 'T2', rate: 'team' }), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (isNaN(parseInt(userId))) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid user ID' });
+    }
+    const result = await pharmacyAuthService.reactivatePharmacyUser(Number(userId), req.user.userId, req.user.pharmacyId);
+    res.status(200).json({ message: 'User reactivation pending accept', code: result.code, expiresAt: result.expiresAt.toISOString() });
+  } catch (error) {
+    return sendAuthError(res, error, req.requestId, 500);
+  }
+});
+
+// POST /auth/users/:userId/pin-reset - Manager resets a user's PIN.
+router.post('/users/:userId/pin-reset', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('team.pin.reset', { tier: 'T2', rate: 'team' }), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (isNaN(parseInt(userId))) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid user ID' });
+    }
+    const result = await pharmacyAuthService.resetPharmacyUserPin(Number(userId), req.user.userId, req.user.pharmacyId);
+    res.status(200).json({ message: 'PIN reset initiated', code: result.code, expiresAt: result.expiresAt.toISOString() });
+  } catch (error) {
     return sendAuthError(res, error, req.requestId, 500);
   }
 });
