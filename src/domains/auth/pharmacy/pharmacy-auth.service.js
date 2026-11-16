@@ -510,6 +510,7 @@ async function acceptInvite({ email, code, pin, deviceInfo, meta }) {
         status: 'ACTIVE',
         password: hashedPin,
         pinChangedAt: new Date(),
+        mustChangePin: false,
       },
     });
     await tx.pharmacyUserInvite.update({
@@ -548,6 +549,123 @@ async function revokeInvite(userId, pharmacyId) {
   return { revoked: true };
 }
 
+
+// ============================================================================
+// P-06: reactivate and PIN reset
+// ============================================================================
+
+/**
+ * Reactivate a SUSPENDED user. The manager issues a fresh invite code that
+ * the user redeems to set a new PIN; the user becomes ACTIVE when they
+ * accept. This is not the same as setting status=ACTIVE here - the account
+ * stays SUSPENDED until the invite is redeemed, so the manager cannot
+ * accidentally re-open a session without the user setting a new credential.
+ */
+async function reactivatePharmacyUser(userId, managerId, pharmacyId) {
+  if (userId === managerId) {
+    const error = new Error('Cannot reactivate your own account');
+    error.status = HTTP_STATUS.FORBIDDEN;
+    error.code = ERROR_CODES.FORBIDDEN;
+    throw error;
+  }
+
+  const user = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = HTTP_STATUS.NOT_FOUND;
+    error.code = ERROR_CODES.NOT_FOUND;
+    throw error;
+  }
+  if (user.status !== 'SUSPENDED') {
+    const error = new Error('User is not in SUSPENDED state');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'INVALID_STATE';
+    throw error;
+  }
+
+  // Clear suspension metadata; status stays SUSPENDED until invite accept.
+  await pharmacyAuthRepository.updatePharmacyUser(userId, {
+    suspendedAt: null,
+    suspendedById: null,
+    mustChangePin: true,
+  });
+
+  await sessionService.bumpTokenVersionAndRevoke(userId);
+
+  await createAuditLog({
+    action: 'AUTH_USER_REACTIVATED',
+    entityType: 'PharmacyUser',
+    entityId: userId,
+    before: { status: user.status },
+    after: { status: 'SUSPENDED_PENDING_ACCEPT' },
+  });
+
+  // Issue an invite code (the user redeems it to set a new PIN, which flips
+  // status to ACTIVE via acceptInvite).
+  const code = generateInviteCode();
+  const codeHash = hashInviteCode(code);
+  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+  await pharmacyAuthRepository.createPharmacyUserInvite({
+    userId,
+    codeHash,
+    expiresAt,
+    createdById: managerId,
+  });
+
+  console.log('User reactivation pending accept:', { userId, pharmacyId, managerId });
+  return { code, expiresAt };
+}
+
+/**
+ * Reset a user's PIN. Manager-triggered; the user redeems a one-time code
+ * to set a new PIN (same mechanism as invite accept). Revokes every live
+ * session on the target immediately.
+ */
+async function resetPharmacyUserPin(userId, managerId, pharmacyId) {
+  if (userId === managerId) {
+    const error = new Error('Cannot reset your own PIN');
+    error.status = HTTP_STATUS.FORBIDDEN;
+    error.code = ERROR_CODES.FORBIDDEN;
+    throw error;
+  }
+
+  const user = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = HTTP_STATUS.NOT_FOUND;
+    error.code = ERROR_CODES.NOT_FOUND;
+    throw error;
+  }
+  if (user.status !== 'ACTIVE') {
+    const error = new Error('Can only reset the PIN of an ACTIVE user');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'INVALID_STATE';
+    throw error;
+  }
+
+  await pharmacyAuthRepository.updatePharmacyUser(userId, { mustChangePin: true });
+  await sessionService.bumpTokenVersionAndRevoke(userId);
+
+  await createAuditLog({
+    action: 'AUTH_PIN_RESET',
+    entityType: 'PharmacyUser',
+    entityId: userId,
+    after: { pinChangedById: managerId },
+  });
+
+  const code = generateInviteCode();
+  const codeHash = hashInviteCode(code);
+  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+  await pharmacyAuthRepository.createPharmacyUserInvite({
+    userId,
+    codeHash,
+    expiresAt,
+    createdById: managerId,
+  });
+
+  console.log('PIN reset initiated:', { userId, pharmacyId, managerId });
+  return { code, expiresAt };
+}
 module.exports = {
   registerPharmacyAndUser,
   loginUser,
@@ -559,4 +677,6 @@ module.exports = {
   createInvite,
   acceptInvite,
   revokeInvite,
+  reactivatePharmacyUser,
+  resetPharmacyUserPin,
 };
