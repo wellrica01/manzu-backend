@@ -98,6 +98,19 @@ describe('assertValidTransition (via updateOrderStatus)', () => {
     expect(mockRepo.updateOrderStatus).toHaveBeenCalledWith(1, { status: 'PROCESSING' });
   });
 
+
+  test('progress update emits ORDER_UPDATED audit event', async () => {
+    const { createAuditLog } = require('../src/utils/audit-logger');
+    createAuditLog.mockClear();
+    mockRepo.findOrderForUpdate.mockResolvedValue(order({ status: 'CONFIRMED', deliveryMethod: 'COURIER' }));
+    mockRepo.updateOrderStatus.mockResolvedValue({ ...order(), status: 'PROCESSING' });
+    await service.updateOrderStatus(1, 'PROCESSING', 7);
+    const call = createAuditLog.mock.calls.find((c) => c[0].action === 'ORDER_UPDATED');
+    expect(call).toBeTruthy();
+    expect(call[0].entityId).toBe(1);
+    expect(call[0].before).toEqual({ status: 'CONFIRMED' });
+    expect(call[0].after).toEqual({ status: 'PROCESSING' });
+  });
   test('allows PROCESSING -> READY_FOR_PICKUP (PICKUP)', async () => {
     mockRepo.findOrderForUpdate.mockResolvedValue(order({ status: 'PROCESSING', deliveryMethod: 'PICKUP' }));
     mockRepo.updateOrderStatus.mockResolvedValue({ ...order(), status: 'READY_FOR_PICKUP' });
