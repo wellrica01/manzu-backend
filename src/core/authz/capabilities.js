@@ -62,6 +62,10 @@ const CAPABILITIES = Object.freeze([
   // Team
   'team.view',
   'team.manage',
+  'team.invite',
+  'team.role.change',
+  'team.suspend',
+  'team.pin.reset',
 
   // Operating hours
   'hours.view',
@@ -157,6 +161,10 @@ const ROLE_CAPABILITIES = Object.freeze({
     'prescription.verify',
     'team.view',
     'team.manage',
+    'team.invite',
+    'team.role.change',
+    'team.suspend',
+    'team.pin.reset',
     'profile.view',
     'profile.logo',
     'hours.view',

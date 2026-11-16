@@ -71,6 +71,11 @@ const ACTIONS = {
   AUTH_ROLE_CHANGED: 'auth.role.changed',
   AUTH_USER_SUSPENDED: 'auth.user.suspended',
   AUTH_USER_REMOVED: 'auth.user.removed',
+  AUTH_INVITE_SENT: 'auth.invite.sent',
+  AUTH_INVITE_ACCEPTED: 'auth.invite.accepted',
+  AUTH_USER_REACTIVATED: 'auth.user.reactivated',
+  AUTH_PIN_RESET: 'auth.pin.reset',
+  SETTINGS_UPDATED: 'settings.updated',
 
   // New: step-up (FND-08)
   STEP_UP_GRANTED: 'stepup.granted',
@@ -149,6 +154,11 @@ const REDACT = {
   AUTH_ROLE_CHANGED:     { before: ['role'], after: ['role', 'changedById'] },
   AUTH_USER_SUSPENDED:   { before: ['status'], after: ['status', 'suspendedById', 'reason'] },
   AUTH_USER_REMOVED:     { before: ['status'], after: ['removedLabel'] },
+  AUTH_INVITE_SENT:      { after:  ['role', 'invitedById'] },
+  AUTH_INVITE_ACCEPTED:  { after:  ['ip', 'deviceId'] },
+  AUTH_USER_REACTIVATED: { before: ['status'], after: ['status'] },
+  AUTH_PIN_RESET:        { after:  ['pinChangedById'] },
+  SETTINGS_UPDATED:      { before: ['value'], after: ['value'] },
 
   // Step-up.
   STEP_UP_GRANTED:  { after: ['scope', 'tier'] },
@@ -174,6 +184,7 @@ const FAIL_CLOSED = new Set([
   'AUTH_LOGIN', 'AUTH_LOGIN_FAILED', 'AUTH_LOGOUT', 'AUTH_TOKEN_REFRESHED',
   'AUTH_SESSION_REVOKED', 'AUTH_PIN_CHANGED',
   'AUTH_ROLE_CHANGED', 'AUTH_USER_SUSPENDED', 'AUTH_USER_REMOVED',
+  'AUTH_INVITE_SENT', 'AUTH_INVITE_ACCEPTED', 'AUTH_USER_REACTIVATED', 'AUTH_PIN_RESET', 'SETTINGS_UPDATED',
   'STEP_UP_GRANTED', 'STEP_UP_DENIED',
   'ADMIN_LOGIN', 'ADMIN_LOGOUT', 'ADMIN_ACTION',
   'PRESCRIPTION_VERIFIED', 'PRESCRIPTION_REJECTED',
