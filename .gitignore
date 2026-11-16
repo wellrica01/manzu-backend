@@ -111,3 +111,8 @@ bcrypt.js
 # Hand-written, idempotent SQL migrations for the owner to run pre-merge (Doc 1 section 6).
 # The blanket *.sql rule above is for local scratch files; these belong in the repo.
 !prisma/sql/*.sql
+
+# ====== SESSION SCRATCH DUMPS ======
+# Ad-hoc before/after diff dumps from debugging sessions; not part of the product.
+after-fnd*.txt
+before-fnd*.txt
