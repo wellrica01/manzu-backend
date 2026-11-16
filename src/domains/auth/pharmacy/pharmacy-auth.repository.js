@@ -132,6 +132,55 @@ async function executeTransaction(callback) {
   return await prisma.$transaction(callback);
 }
 
+
+/**
+ * P-06: create a pharmacy user invite row.
+ * The caller hashes the plaintext code with HMAC-SHA256 using INVITE_PEPPER
+ * before calling this - the plaintext never reaches the database.
+ */
+async function createPharmacyUserInvite({ userId, codeHash, expiresAt, createdById }) {
+  return prisma.pharmacyUserInvite.create({
+    data: {
+      userId,
+      codeHash,
+      expiresAt,
+      createdById: createdById || null,
+    },
+  });
+}
+
+/**
+ * P-06: find an invite by its HMAC hash. Includes the user row so the
+ * service can decide whether to burn, activate, or refuse.
+ */
+async function findInviteByHash(codeHash) {
+  return prisma.pharmacyUserInvite.findUnique({
+    where: { codeHash },
+    include: { PharmacyUser: true },
+  });
+}
+
+/**
+ * P-06: increment the attempts counter on an invite. The service burns the
+ * invite at 5 wrong attempts.
+ */
+async function incrementInviteAttempts(inviteId) {
+  return prisma.pharmacyUserInvite.update({
+    where: { id: inviteId },
+    data: { attempts: { increment: 1 } },
+  });
+}
+
+/**
+ * P-06: mark an invite used (accepted or burned).
+ */
+async function consumeInvite(inviteId) {
+  return prisma.pharmacyUserInvite.update({
+    where: { id: inviteId },
+    data: { usedAt: new Date() },
+  });
+}
+
 module.exports = {
   findPharmacyByLicense,
   findPharmacyUserByEmail,
@@ -142,4 +191,8 @@ module.exports = {
   updatePharmacyUser,
   deletePharmacyUser,
   executeTransaction,
+  createPharmacyUserInvite,
+  findInviteByHash,
+  incrementInviteAttempts,
+  consumeInvite,
 };

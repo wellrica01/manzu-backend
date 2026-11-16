@@ -377,6 +377,177 @@ async function suspendPharmacyUser(userId, managerId, pharmacyId) {
   return updated;
 }
 
+// ============================================================================
+// P-06: invite flow (Doc 2 section 5.2)
+//
+// Managers create an invite for an INVITED user. The server returns the
+// plaintext code ONCE (this is the only time it leaves the server) and
+// stores only an HMAC-SHA256 hash. The invitee accepts via the public route
+// POST /auth/invite/accept, sets their own PIN, and the user becomes ACTIVE.
+//
+// Enumeration resistance: every refusal path in acceptInvite returns the
+// same INVALID_INVITE error - unknown email, wrong code, expired, already
+// used, too many attempts, or email mismatch. Do not distinguish between
+// them in the response.
+//
+// PIN format is enforced here (6 digits). The PIN blocklist (Doc 2 section
+// 5.3) is P-07 and will be added in the same place.
+// ============================================================================
+
+const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const INVITE_CODE_LENGTH = 8;
+const INVITE_TTL_HOURS = 48;
+const INVITE_MAX_ATTEMPTS = 5;
+
+function invitePepper() {
+  const pepper = process.env.INVITE_PEPPER;
+  if (!pepper || pepper.length < 32) {
+    const err = new Error('Server configuration error');
+    err.status = 500;
+    err.code = 'SERVER_ERROR';
+    throw err;
+  }
+  return pepper;
+}
+
+function generateInviteCode() {
+  const bytes = crypto.randomBytes(INVITE_CODE_LENGTH);
+  let out = '';
+  for (let i = 0; i < INVITE_CODE_LENGTH; i++) {
+    out += INVITE_ALPHABET[bytes[i] % INVITE_ALPHABET.length];
+  }
+  return out;
+}
+
+function hashInviteCode(code) {
+  return crypto.createHmac('sha256', invitePepper()).update(String(code)).digest('hex');
+}
+
+function invalidInviteError() {
+  const error = new Error('Invalid invite');
+  error.status = HTTP_STATUS.BAD_REQUEST;
+  error.code = 'INVALID_INVITE';
+  return error;
+}
+
+/**
+ * Create (or re-issue) an invite for an INVITED user.
+ *
+ * Returns { code, expiresAt } - code is the plaintext, shown once to the
+ * caller. The DB row holds only the HMAC hash.
+ */
+async function createInvite(userId, createdById, pharmacyId) {
+  const user = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = HTTP_STATUS.NOT_FOUND;
+    error.code = ERROR_CODES.NOT_FOUND;
+    throw error;
+  }
+  if (user.status !== 'INVITED') {
+    const error = new Error('User is not in INVITED state');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'INVALID_STATE';
+    throw error;
+  }
+
+  const code = generateInviteCode();
+  const codeHash = hashInviteCode(code);
+  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+
+  await pharmacyAuthRepository.createPharmacyUserInvite({
+    userId,
+    codeHash,
+    expiresAt,
+    createdById,
+  });
+
+  await createAuditLog({
+    action: 'AUTH_INVITE_SENT',
+    entityType: 'PharmacyUser',
+    entityId: userId,
+    after: { role: user.role, invitedById: createdById },
+  });
+
+  console.log('Invite created:', { userId, pharmacyId, createdById });
+  return { code, expiresAt };
+}
+
+/**
+ * Accept an invite. Public route - the caller has no session.
+ *
+ * On success: user status becomes ACTIVE, PIN is set, invite is consumed,
+ * and a session starts. On any failure: INVALID_INVITE, same shape and
+ * status regardless of the cause (enumeration resistance).
+ */
+async function acceptInvite({ email, code, pin, deviceInfo, meta }) {
+  if (typeof pin !== 'string' || !/^\d{6}$/.test(pin)) {
+    const error = new Error('PIN must be exactly 6 digits');
+    error.status = HTTP_STATUS.BAD_REQUEST;
+    error.code = 'VALIDATION_ERROR';
+    throw error;
+  }
+
+  const codeHash = hashInviteCode(code);
+  const invite = await pharmacyAuthRepository.findInviteByHash(codeHash);
+
+  if (!invite) throw invalidInviteError();
+  if (invite.usedAt) throw invalidInviteError();
+  if (invite.attempts >= INVITE_MAX_ATTEMPTS) throw invalidInviteError();
+  if (new Date(invite.expiresAt) <= new Date()) throw invalidInviteError();
+  if (!invite.PharmacyUser || invite.PharmacyUser.email !== email) {
+    await pharmacyAuthRepository.incrementInviteAttempts(invite.id);
+    throw invalidInviteError();
+  }
+
+  const salt = await bcrypt.genSalt(10);
+  const hashedPin = await bcrypt.hash(pin, salt);
+
+  await pharmacyAuthRepository.executeTransaction(async (tx) => {
+    await tx.pharmacyUser.update({
+      where: { id: invite.userId },
+      data: {
+        status: 'ACTIVE',
+        password: hashedPin,
+        pinChangedAt: new Date(),
+      },
+    });
+    await tx.pharmacyUserInvite.update({
+      where: { id: invite.id },
+      data: { usedAt: new Date() },
+    });
+  });
+
+  await createAuditLog({
+    action: 'AUTH_INVITE_ACCEPTED',
+    entityType: 'PharmacyUser',
+    entityId: invite.userId,
+    after: {},
+  });
+
+  const updatedUser = await pharmacyAuthRepository.findPharmacyUserById(invite.userId);
+  const { token, refreshToken } = await sessionService.startSession(updatedUser, deviceInfo, {}, meta || {});
+
+  console.log('Invite accepted:', { userId: invite.userId });
+  return { token, refreshToken, user: updatedUser, pharmacy: updatedUser.Pharmacy };
+}
+
+/**
+ * Revoke a pending invite. Re-inviting the same user issues a new code,
+ * so this is only needed if the manager wants to cancel without reissuing.
+ * No audit event - the fresh AUTH_INVITE_SENT on re-invite supersedes it.
+ */
+async function revokeInvite(userId, pharmacyId) {
+  const user = await pharmacyAuthRepository.findPharmacyUserByIdAndPharmacy(userId, pharmacyId);
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = HTTP_STATUS.NOT_FOUND;
+    error.code = ERROR_CODES.NOT_FOUND;
+    throw error;
+  }
+  return { revoked: true };
+}
+
 module.exports = {
   registerPharmacyAndUser,
   loginUser,
@@ -385,4 +556,7 @@ module.exports = {
   deletePharmacyUser,
   suspendPharmacyUser,
   changePharmacyUserPin,
+  createInvite,
+  acceptInvite,
+  revokeInvite,
 };

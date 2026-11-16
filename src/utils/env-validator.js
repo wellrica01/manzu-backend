@@ -202,6 +202,10 @@ function validateEnvironment() {
     if (!process.env.PAYSTACK_SECRET_KEY) {
       errors.push('PAYSTACK_SECRET_KEY is missing in production');
     }
+    // P-06: invite codes are HMACd with this pepper. Stored hashes are useless without it.
+    if (!process.env.INVITE_PEPPER || process.env.INVITE_PEPPER.length < 32) {
+      errors.push('INVITE_PEPPER is missing or shorter than 32 characters in production');
+    }
     // In production, missing split secrets are a warning in Phase 1 but must
     // become an error in Phase 2. Flip SEC_REQUIRE_SPLIT_SECRETS=true to
     // enforce now, without a code change.
