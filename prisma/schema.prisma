@@ -742,7 +742,7 @@ model PharmacyUserInvite {
 
 model PharmacySetting {
   pharmacyId             Int      @id
-  requireDeviceApproval  Boolean  @default(true)
+  requireDeviceApproval  Boolean  @default(false)
   staffOpeningHoursOnly  Boolean  @default(false)
   lockAfterSeconds       Int      @default(60)
   discountCapPct         Decimal  @default(0) @db.Decimal(5, 2)

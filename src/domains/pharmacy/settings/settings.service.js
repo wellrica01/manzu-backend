@@ -16,7 +16,7 @@ const { HTTP_STATUS } = require('../../../config/constants');
 
 // Defaults mirror sec-04-pharmacy-team.sql. Keep in sync with the schema.
 const DEFAULTS = Object.freeze({
-  requireDeviceApproval: true,
+  requireDeviceApproval: false,
   staffOpeningHoursOnly: false,
   lockAfterSeconds: 60,
   discountCapPct: 0,
