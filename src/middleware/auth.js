@@ -127,7 +127,7 @@ function checkAudience(decoded, expectedAudience) {
 //   - user status, tokenVersion, mustChangePin, role, pharmacyId
 //   - pharmacy status, isActive
 //   - whether the family named by sid is still alive (null sid -> skip)
-async function loadPharmacyActor(userId, sid) {
+async function loadPharmacyActor(userId, sid, deviceId) {
   const rows = await prisma.$queryRaw`
     SELECT
       u.id                         AS user_id,
@@ -146,6 +146,26 @@ async function loadPharmacyActor(userId, sid) {
           WHERE "familyId" = ${sid} AND "userId" = u.id AND "revokedAt" IS NULL
         )
       END                          AS family_alive
+      , COALESCE((SELECT "requireDeviceApproval" FROM "PharmacySetting" WHERE "pharmacyId" = u."pharmacyId"), false)
+          AS device_approval_required
+      , ( ${deviceId}::text IS NULL
+          OR EXISTS (
+            SELECT 1 FROM "UserDevice" d
+            WHERE d."actorType" = 'pharmacy_user'
+              AND d."actorId" = u.id
+              AND d."deviceId" = ${deviceId}::text
+              AND d."revokedAt" IS NULL
+              AND (
+                d."trusted" = true
+                OR d.id = (
+                  SELECT d2.id FROM "UserDevice" d2
+                  WHERE d2."actorType" = 'pharmacy_user' AND d2."actorId" = u.id
+                  ORDER BY d2."firstSeenAt" ASC, d2.id ASC
+                  LIMIT 1
+                )
+              )
+          )
+        ) AS device_ok
     FROM "PharmacyUser" u
     JOIN "Pharmacy" p ON p.id = u."pharmacyId"
     WHERE u.id = ${userId}::int
@@ -205,6 +225,8 @@ function httpStatusFor(code) {
     case 'ACCOUNT_SUSPENDED':
     case 'PHARMACY_SUSPENDED':
     case 'PIN_CHANGE_REQUIRED':
+    case 'DEVICE_APPROVAL_REQUIRED':
+    case 'DEVICE_DENIED':
       return 403;
     case 'SESSION_REVOKED':
     case 'TOKEN_EXPIRED':
@@ -264,7 +286,7 @@ async function authenticate(req, res, next) {
   let row;
   try {
     row = isPharmacyClaim
-      ? await loadPharmacyActor(decoded.userId, decoded.sid || null)
+      ? await loadPharmacyActor(decoded.userId, decoded.sid || null, req.client?.deviceId || null)
       : await loadAdminActor(decoded.adminId, decoded.sid || null);
   } catch (err) {
     // Database unavailable. Do NOT fail open. In log mode we still let the
@@ -323,6 +345,15 @@ async function authenticate(req, res, next) {
     if (!exempt.has(req.path)) {
       return deny(req, res, 'PIN_CHANGE_REQUIRED', 'PIN change required') || next();
     }
+  }
+
+  // P-13b: device-approval gate. Runs after PIN-change (PIN change is the
+  // actionable item; a user who must change their PIN should see that first).
+  // device_approval_required is false for a pharmacy with no settings row;
+  // device_ok is true when the client sent no header (released builds) or
+  // when the device is trusted, unrevoked, and either approved or first-seen.
+  if (isPharmacyClaim && row.device_approval_required && !row.device_ok) {
+    return deny(req, res, 'DEVICE_APPROVAL_REQUIRED', 'This device is waiting for manager approval') || next();
   }
 
   // Build the actor. req.user keeps the legacy shape plus the alias plus the

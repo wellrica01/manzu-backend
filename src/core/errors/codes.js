@@ -17,6 +17,9 @@ const CODES = {
   FORBIDDEN_CAPABILITY: { status: 403, message: 'You do not have permission to do this.' },
   STEP_UP_REQUIRED:     { status: 403, message: 'Please confirm your PIN to continue.' },
   STEP_UP_INVALID:      { status: 403, message: 'The confirmation is no longer valid.' },
+  // Device approval (P-13b, Doc 2 section 5.5)
+  DEVICE_APPROVAL_REQUIRED: { status: 403, message: 'This device is waiting for manager approval.' },
+  DEVICE_DENIED:            { status: 403, message: 'This device was denied access.' },
 
   // Rate limiting (FND-07)
   RATE_LIMITED:         { status: 429, message: 'Too many requests. Please try again shortly.' },

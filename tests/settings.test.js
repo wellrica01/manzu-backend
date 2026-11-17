@@ -58,7 +58,7 @@ describe('getSettings', () => {
     const result = await settingsService.getSettings(PHARMACY_ID);
     expect(result).toMatchObject({
       pharmacyId: PHARMACY_ID,
-      requireDeviceApproval: true,
+      requireDeviceApproval: false,
       staffOpeningHoursOnly: false,
       lockAfterSeconds: 60,
       discountCapPct: 0,

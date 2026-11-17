@@ -77,7 +77,7 @@ async function findUserWithPharmacy(userId) {
  * On first sight: insert with firstSeenAt=now, lastSeenAt=now.
  * On repeat: update label, lastSeenAt, lastIp. The row is a stable identity.
  */
-async function upsertDevice({ actorType, actorId, deviceId, label, lastIp }) {
+async function upsertDevice({ actorType, actorId, deviceId, label, platform, lastIp }) {
   return prisma.userDevice.upsert({
     where: { UserDevice_actor_device_key: { actorType, actorId, deviceId } },
     create: {
@@ -85,15 +85,73 @@ async function upsertDevice({ actorType, actorId, deviceId, label, lastIp }) {
       actorId,
       deviceId,
       label: label || null,
+      platform: platform || null,
       lastIp: lastIp || null,
       firstSeenAt: new Date(),
       lastSeenAt: new Date(),
     },
     update: {
       label: label || null,
+      platform: platform || null,
       lastIp: lastIp || null,
       lastSeenAt: new Date(),
     },
+  });
+}
+
+/**
+ * P-13b: the device-approval gate and its management surface.
+ *
+ * The gate itself (P-13b step 5) reads trusted/revokedAt through
+ * loadPharmacyActor; these methods are the write side used by the
+ * approve/deny routes (P-13c). findDevice is also used by the gate
+ * when it needs the row for a reason other than the aggregate column.
+ *
+ * State mapping (matches UserDevice columns):
+ *   pending   = trusted false, revokedAt null, approvedAt null
+ *   approved  = trusted true,  revokedAt null, approvedAt set, approvedById set
+ *   denied    = revokedAt set (deny and revoke are the same write)
+ */
+async function findDevice({ actorType, actorId, deviceId }) {
+  return prisma.userDevice.findUnique({
+    where: { UserDevice_actor_device_key: { actorType, actorId, deviceId } },
+  });
+}
+
+/** All devices registered for one user, most-recently-seen first. */
+async function listDevicesForUser({ actorType, actorId }) {
+  return prisma.userDevice.findMany({
+    where: { actorType, actorId },
+    orderBy: { lastSeenAt: 'desc' },
+  });
+}
+
+/** Approve a pending device. Idempotent: a second approve is a no-op update. */
+async function approveDevice({ id, approvedById }) {
+  return prisma.userDevice.update({
+    where: { id },
+    data: {
+      trusted: true,
+      approvedAt: new Date(),
+      approvedById: approvedById || null,
+      revokedAt: null,
+    },
+  });
+}
+
+/** Deny a pending device. Same DB write as revoke; the audit event differs. */
+async function denyDevice({ id }) {
+  return prisma.userDevice.update({
+    where: { id },
+    data: { revokedAt: new Date() },
+  });
+}
+
+/** Revoke an already-approved device ("sign out this device"). Same write as deny. */
+async function revokeDevice({ id }) {
+  return prisma.userDevice.update({
+    where: { id },
+    data: { revokedAt: new Date() },
   });
 }
 
@@ -137,4 +195,9 @@ module.exports = {
   deleteStaleForUser,
   findUserWithPharmacy,
   upsertDevice,
+  findDevice,
+  listDevicesForUser,
+  approveDevice,
+  denyDevice,
+  revokeDevice,
 };

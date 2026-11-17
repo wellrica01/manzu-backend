@@ -9,6 +9,8 @@ const request = require('supertest');
 const { errorHandler } = require('../src/middleware/error-handler');
 const { sendError } = require('../src/core/errors/send-error');
 const { CODES, isKnownCode } = require('../src/core/errors/codes');
+const fs = require('fs');
+const path = require('path');
 
 function buildApp(route) {
   const app = express();
@@ -85,6 +87,33 @@ describe('error contract', () => {
       expect(typeof info.message).toBe('string');
       expect(info.message.length).toBeGreaterThan(0);
     }
+  });
+
+  it('every code literal passed to deny() or sendError() is registered', () => {
+    // Guards against the class of bug where a new code is emitted by a caller
+    // but never added to CODES, so sendError silently collapses it to the
+    // status default (e.g. every 403 becomes FORBIDDEN_CAPABILITY).
+    // Scope: files that emit code literals. Grows in the PR that adds an emission.
+    const files = [
+      'src/middleware/auth.js',
+    ];
+    const regexes = [
+      /deny\([^,]+,\s*[^,]+,\s*'([A-Z][A-Z0-9_]+)'/g,
+      /sendError\([^,]+,\s*[^,]+,\s*'([A-Z][A-Z0-9_]+)'/g,
+    ];
+    let checked = 0;
+    for (const rel of files) {
+      const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+      for (const re of regexes) {
+        re.lastIndex = 0;
+        let m;
+        while ((m = re.exec(src)) !== null) {
+          checked++;
+          expect({ file: rel, code: m[1], known: isKnownCode(m[1]) }).toEqual({ file: rel, code: m[1], known: true });
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('legacy codes are preserved for the current mobile build', () => {
