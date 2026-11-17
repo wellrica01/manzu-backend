@@ -1,4 +1,4 @@
-// src/app.js
+﻿// src/app.js
 // Exports createApp() only. No env load, no Sentry init, no cron, no listen.
 // Those live in src/server.js. Tests can now `require('./src/app')` safely.
 
@@ -23,6 +23,7 @@ const sessionRoutes = require('./routes/session');
 const adminRoutes = require('./routes/admin');
 const consentRoutes = require('./routes/consent');
 const refundRoutes = require('./routes/refunds');
+const deviceRoute = require('./routes/devices');
 
 const prisma = require('./core/database/prisma');
 
@@ -164,7 +165,7 @@ function createApp() {
   app.use(express.json());
   app.use(sanitizeInputs);
 
-  // 7. Second CSP block kept for behavioural parity (Doc 1 §5.5 removes it later)
+  // 7. Second CSP block kept for behavioural parity (Doc 1 Â§5.5 removes it later)
   app.use((req, res, next) => {
     res.setHeader(
       'Content-Security-Policy',
@@ -233,6 +234,7 @@ function createApp() {
   app.use('/api/admin', adminRoutes);
   app.use('/api/consent', consentRoutes);
   app.use('/api/refunds', refundRoutes);
+  app.use('/api', deviceRoute);
 
   // 10. Errors
   const Sentry = require('@sentry/node');

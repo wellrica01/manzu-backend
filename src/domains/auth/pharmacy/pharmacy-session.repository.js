@@ -112,8 +112,8 @@ async function upsertDevice({ actorType, actorId, deviceId, label, platform, las
  *   approved  = trusted true,  revokedAt null, approvedAt set, approvedById set
  *   denied    = revokedAt set (deny and revoke are the same write)
  */
-async function findDevice({ actorType, actorId, deviceId }) {
-  return prisma.userDevice.findUnique({
+async function findDevice({ actorType, actorId, deviceId, tx }) {
+  return (tx || prisma).userDevice.findUnique({
     where: { UserDevice_actor_device_key: { actorType, actorId, deviceId } },
   });
 }
@@ -127,8 +127,8 @@ async function listDevicesForUser({ actorType, actorId }) {
 }
 
 /** Approve a pending device. Idempotent: a second approve is a no-op update. */
-async function approveDevice({ id, approvedById }) {
-  return prisma.userDevice.update({
+async function approveDevice({ id, approvedById, tx }) {
+  return (tx || prisma).userDevice.update({
     where: { id },
     data: {
       trusted: true,
@@ -140,16 +140,16 @@ async function approveDevice({ id, approvedById }) {
 }
 
 /** Deny a pending device. Same DB write as revoke; the audit event differs. */
-async function denyDevice({ id }) {
-  return prisma.userDevice.update({
+async function denyDevice({ id, tx }) {
+  return (tx || prisma).userDevice.update({
     where: { id },
     data: { revokedAt: new Date() },
   });
 }
 
 /** Revoke an already-approved device ("sign out this device"). Same write as deny. */
-async function revokeDevice({ id }) {
-  return prisma.userDevice.update({
+async function revokeDevice({ id, tx }) {
+  return (tx || prisma).userDevice.update({
     where: { id },
     data: { revokedAt: new Date() },
   });

@@ -1,4 +1,4 @@
-// src/core/authz/policy-registry.js
+﻿// src/core/authz/policy-registry.js
 // The CI test needs every route declared in src/routes/*.js, with its
 // middleware chain and policy tag. Loading the routers under Jest fails
 // because their handlers pull in ESM-only packages (file-type, expo-server-sdk,
@@ -138,6 +138,7 @@ const MOUNTS = [
   { prefix: '/api/auth',           file: 'auth.js' },
   { prefix: '/api/admin',          file: 'admin.js' },
   { prefix: '/api/consent',        file: 'consent.js' },
+  { prefix: '/api',                file: 'devices.js' },
   { prefix: '/api/refunds',        file: 'refunds.js' },
 ];
 

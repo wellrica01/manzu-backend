@@ -77,6 +77,11 @@ const ACTIONS = {
   AUTH_PIN_RESET: 'auth.pin.reset',
   SETTINGS_UPDATED: 'settings.updated',
 
+  // New: devices (P-13c)
+  DEVICE_APPROVED: 'device.approved',
+  DEVICE_DENIED: 'device.denied',
+  DEVICE_REVOKED: 'device.revoked',
+
   // New: step-up (FND-08)
   STEP_UP_GRANTED: 'stepup.granted',
   STEP_UP_DENIED: 'security.stepup.denied',
@@ -160,6 +165,11 @@ const REDACT = {
   AUTH_PIN_RESET:        { after:  ['pinChangedById'] },
   SETTINGS_UPDATED:      { before: ['value'], after: ['value'] },
 
+  // Devices: the device id, owning user, and actor. Never publicKey.
+  DEVICE_APPROVED: { after: ['deviceId', 'userId', 'approvedById'] },
+  DEVICE_DENIED:   { after: ['deviceId', 'userId', 'deniedById'] },
+  DEVICE_REVOKED:  { after: ['deviceId', 'revokedById', 'self'] },
+
   // Step-up.
   STEP_UP_GRANTED:  { after: ['scope', 'tier'] },
   STEP_UP_DENIED:   { after: ['scope', 'tier', 'reason'] },
@@ -189,6 +199,7 @@ const FAIL_CLOSED = new Set([
   'ADMIN_LOGIN', 'ADMIN_LOGOUT', 'ADMIN_ACTION',
   'PRESCRIPTION_VERIFIED', 'PRESCRIPTION_REJECTED',
   'CAPABILITY_DENIED', 'FLAG_CHANGED',
+  'DEVICE_APPROVED', 'DEVICE_DENIED', 'DEVICE_REVOKED',
 ]);
 
 function isFailClosed(action) {
