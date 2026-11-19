@@ -19,6 +19,7 @@ const { validateFetchOrders, validateUpdateOrder,
 const { settingsPatchSchema } = require('../utils/adminValidation');
 const { authenticatePharmacy, authorizeRoles } = require('../middleware/auth');
 const { requireCapability } = require('../core/authz/require-capability');
+const { requireStepUp } = require('../core/authz/require-stepup');
 const { shape } = require('../core/authz/shapers/dashboard');
 const router = express.Router();
 const supabase = require('../utils/supabaseClient')
@@ -44,133 +45,150 @@ console.log('Loaded pharmacy.js version: 2025-06-19-v3 (deep linking support)');
 
 
 
-
-
-
 // ======================
-// BANKING ROUTES
+// BANKING ROUTES (P-08, Doc 2 S6.1)
 // ======================
+//
+// All routes here are MANAGER only, and carry requireCapability so the
+// route-policy test passes. setup/update and cancel-change require T3
+// (step-up) because they change the money destination; verify is T2 because
+// it is a read-only lookup against Paystack.
+//
+// Every response carries only bankAccountLast4, never the full number.
+// Every audit row carries only last4 - the service enforces this and the
+// redaction test pins it.
 
-// GET /pharmacy/banking/banks - Get list of Nigerian banks
+// GET /pharmacy/banking/banks - list of Nigerian banks (cached 1h in service)
 router.get('/banking/banks', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const banks = await pharmacyBankingService.getNigerianBanks();
     res.status(200).json({ banks });
   } catch (error) {
     console.error('Fetch banks error:', error);
-    res.status(500).json({
-      message: 'Internal server error',
-      requestId: req.requestId,
-    });
+    res.status(500).json({ message: 'Internal server error', requestId: req.requestId });
   }
 });
 
-// GET /pharmacy/banking/status - Check banking setup status
+// GET /pharmacy/banking/status - masked active + open pending change
 router.get('/banking/status', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.view', { tier: 'T0', rate: 'read' }), async (req, res) => {
   try {
     const status = await pharmacyBankingService.getBankingStatus(req.user.pharmacyId);
     res.status(200).json(status);
   } catch (error) {
     console.error('Banking status error:', error);
-    res.status(500).json({
-      message: 'Internal server error',
-      requestId: req.requestId,
-    });
+    res.status(500).json({ message: 'Internal server error', requestId: req.requestId });
   }
 });
 
-// POST /pharmacy/banking/setup - Setup bank account
-router.post('/banking/setup', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+// POST /pharmacy/banking/setup - first-time destination (P-D2: activates
+// immediately if name match is MATCH or PARTIAL, otherwise REVIEW)
+router.post('/banking/setup', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.update', { tier: 'T3', rate: 'bank_update' }), requireStepUp('banking.update'), async (req, res) => {
   try {
-    const { accountNumber, bankCode, bankName } = req.body;
-
+    const { accountNumber, bankCode, bankName } = req.body || {};
     if (!accountNumber || !bankCode || !bankName) {
-      return res.status(400).json({ 
-        message: 'Account number, bank code, and bank name are required' 
-      });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Account number, bank code, and bank name are required' });
     }
-
-    const result = await pharmacyBankingService.setupBankAccount(
+    const result = await pharmacyBankingService.requestBankChange(
       req.user.pharmacyId,
-      { accountNumber, bankCode, bankName }
+      { id: req.user.userId, pharmacyId: req.user.pharmacyId, role: req.user.role },
+      { accountNumber, bankCode, bankName, kind: 'SETUP' }
     );
-
-    res.status(200).json(result);
+    res.status(200).json({ message: 'Banking setup requested', ...result });
   } catch (error) {
-    console.error('Banking setup error:', error);
-    
-    if (error.message.includes('already configured')) {
-      return res.status(400).json({ message: error.message });
-    }
-    
-    res.status(500).json({
-      message: 'Internal server error',
-      requestId: req.requestId,
-    });
+    return sendBankError(res, error, req.requestId);
   }
 });
 
-// PUT /pharmacy/banking/update - Update bank account
-router.put('/banking/update', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+// PUT /pharmacy/banking/update - change destination (holds for bankHoldHours
+// before activating; payouts keep going to the old active destination)
+router.put('/banking/update', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.update', { tier: 'T3', rate: 'bank_update' }), requireStepUp('banking.update'), async (req, res) => {
   try {
-    const { accountNumber, bankCode, bankName } = req.body;
-
+    const { accountNumber, bankCode, bankName } = req.body || {};
     if (!accountNumber || !bankCode || !bankName) {
-      return res.status(400).json({ 
-        message: 'Account number, bank code, and bank name are required' 
-      });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Account number, bank code, and bank name are required' });
     }
-
-    const result = await pharmacyBankingService.updateBankAccount(
+    const result = await pharmacyBankingService.requestBankChange(
       req.user.pharmacyId,
-      { accountNumber, bankCode, bankName }
+      { id: req.user.userId, pharmacyId: req.user.pharmacyId, role: req.user.role },
+      { accountNumber, bankCode, bankName, kind: 'UPDATE' }
     );
-
-    res.status(200).json(result);
+    res.status(200).json({ message: 'Bank change requested', ...result });
   } catch (error) {
-    console.error('Banking update error:', error);
-    res.status(500).json({
-      message: 'Internal server error',
-      requestId: req.requestId,
-    });
+    return sendBankError(res, error, req.requestId);
   }
 });
 
-// POST /pharmacy/banking/verify - Verify bank account (before saving)
-router.post('/banking/verify', authenticatePharmacy, authorizeRoles('MANAGER'), async (req, res) => {
+// POST /pharmacy/banking/verify - pre-save account lookup (T2, throttled 5/day)
+router.post('/banking/verify', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.update', { tier: 'T2', rate: 'bank_verify' }), requireStepUp('banking.verify'), async (req, res) => {
   try {
-    const { accountNumber, bankCode } = req.body;
-
+    const { accountNumber, bankCode } = req.body || {};
     if (!accountNumber || !bankCode) {
-      return res.status(400).json({ 
-        message: 'Account number and bank code are required' 
-      });
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Account number and bank code are required' });
     }
-
-    const verification = await pharmacyBankingService.verifyBankAccount(
-      accountNumber,
-      bankCode
-    );
-
-    if (verification.success) {
-      res.status(200).json({
-        message: 'Account verified successfully',
-        accountName: verification.accountName,
-        accountNumber: verification.accountNumber,
-      });
-    } else {
-      res.status(400).json({
-        message: verification.error || 'Account verification failed',
-      });
+    const verification = await pharmacyBankingService.verifyBankAccount(accountNumber, bankCode);
+    if (!verification.success) {
+      return res.status(400).json({ error: 'BANK_INVALID_ACCOUNT', message: verification.error || 'Account verification failed' });
     }
-  } catch (error) {
-    console.error('Bank verification error:', error);
-    res.status(500).json({
-      message: 'Internal server error',
-      requestId: req.requestId,
+    return res.status(200).json({
+      message: 'Account verified successfully',
+      accountName: verification.accountName,
+      bankAccountLast4: String(verification.accountNumber).slice(-4),
     });
+  } catch (error) {
+    return sendBankError(res, error, req.requestId);
   }
 });
+
+// POST /pharmacy/banking/cancel-change - cancel the open pending change (T2)
+router.post('/banking/cancel-change', authenticatePharmacy, authorizeRoles('MANAGER'), requireCapability('banking.update', { tier: 'T2', rate: 'bank_update' }), requireStepUp('banking.update'), async (req, res) => {
+  try {
+    const { changeId } = req.body || {};
+    if (!Number.isInteger(changeId)) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'changeId must be an integer' });
+    }
+    const cancelled = await pharmacyBankingService.cancelBankChange(
+      req.user.pharmacyId,
+      { id: req.user.userId, pharmacyId: req.user.pharmacyId, role: req.user.role },
+      changeId
+    );
+    res.status(200).json({ message: 'Bank change cancelled', change: shapeBankChange(cancelled) });
+  } catch (error) {
+    return sendBankError(res, error, req.requestId);
+  }
+});
+
+// ---- Helpers for the banking routes ----
+
+function shapeBankChange(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    kind: row.kind,
+    status: row.status,
+    bankName: row.newBankName,
+    bankAccountLast4: row.newAccountLast4,
+    accountName: row.newAccountName,
+    nameMatch: row.nameMatch,
+    holdUntil: row.holdUntil,
+  };
+}
+
+function sendBankError(res, error, requestId) {
+  const status = Number.isInteger(error && error.status) ? error.status : 500;
+  const isServer = status >= 500;
+  if (error && typeof error.retryAfterMs === 'number' && error.retryAfterMs > 0) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))));
+  }
+  const body = {
+    error: (error && error.code) || (isServer ? 'SERVER_ERROR' : 'REQUEST_ERROR'),
+    message: isServer ? 'Internal server error' : (error && error.message) || 'Request failed',
+  };
+  if (isServer && requestId) body.requestId = requestId;
+  if (error && typeof error.retryAfterMs === 'number' && error.retryAfterMs > 0) {
+    body.retryAfterSeconds = Math.max(1, Math.ceil(error.retryAfterMs / 1000));
+  }
+  return res.status(status).json(body);
+}
 
 // ======================
 // PAYOUT ROUTES

@@ -90,6 +90,13 @@ const ACTIONS = {
   CAPABILITY_DENIED: 'security.capability.denied',
   FLAG_CHANGED: 'flag.changed',
 
+  // New: bank destination lifecycle (P-08, Doc 2 S6.1)
+  BANK_CHANGE_REQUESTED: 'BANK_CHANGE_REQUESTED',
+  BANK_CHANGE_CANCELLED: 'BANK_CHANGE_CANCELLED',
+  BANK_CHANGE_ACTIVATED: 'BANK_CHANGE_ACTIVATED',
+  BANK_CHANGE_AUTO_PROMOTED_SETUP: 'BANK_CHANGE_AUTO_PROMOTED_SETUP',
+  PAYOUT_HELD: 'PAYOUT_HELD',
+
   // New: security events (kind = 'security')
   RATE_LIMITED: 'security.rate_limited',
   SUSPICIOUS_TOKEN_REUSE: 'security.refresh_token.reused',
@@ -149,6 +156,26 @@ const REDACT = {
   BANKING_VERIFIED:            { before: ['accountNumberLast4'], after: ['accountNumberLast4', 'verified'] },
   BANKING_VERIFICATION_FAILED: { after:  ['accountNumberLast4', 'errorCode'] },
 
+  // Bank-change lifecycle (P-08). last4 only, never the full number.
+  BANK_CHANGE_REQUESTED: {
+    after: ['changeId', 'kind', 'status', 'newAccountLast4', 'newBankName', 'nameMatch', 'holdUntil'],
+  },
+  BANK_CHANGE_CANCELLED: {
+    after: ['changeId', 'reason'],
+  },
+  BANK_CHANGE_ACTIVATED: {
+    after: ['changeId', 'newAccountLast4', 'newBankName', 'clearedById', 'reason'],
+  },
+  BANK_CHANGE_AUTO_PROMOTED_SETUP: {
+    after: ['changeId', 'reason'],
+  },
+  // PAYOUT_HELD is best-effort and never fail-closed (see below); its payload
+  // is intentionally limited so a stuck payout is visible without naming the
+  // customer or the amount in a feed row.
+  PAYOUT_HELD: {
+    after: ['pharmacyId', 'reason'],
+  },
+
   // Auth and session.
   AUTH_LOGIN:            { after:  ['ip', 'userAgent', 'deviceId'] },
   AUTH_LOGIN_FAILED:     { after:  ['ip', 'userAgent', 'reason'] },
@@ -200,6 +227,7 @@ const FAIL_CLOSED = new Set([
   'PRESCRIPTION_VERIFIED', 'PRESCRIPTION_REJECTED',
   'CAPABILITY_DENIED', 'FLAG_CHANGED',
   'DEVICE_APPROVED', 'DEVICE_DENIED', 'DEVICE_REVOKED',
+  'BANK_CHANGE_REQUESTED', 'BANK_CHANGE_CANCELLED', 'BANK_CHANGE_ACTIVATED', 'BANK_CHANGE_AUTO_PROMOTED_SETUP',
 ]);
 
 function isFailClosed(action) {

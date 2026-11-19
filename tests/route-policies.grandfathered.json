@@ -118,8 +118,6 @@
   "POST /api/consent/",
   "POST /api/med-checkout/",
   "POST /api/med-confirmation/webhook",
-  "POST /api/pharmacy/banking/setup",
-  "POST /api/pharmacy/banking/verify",
   "POST /api/pharmacy/change-password",
   "POST /api/pharmacy/sales",
   "POST /api/prescription/:id/medications",
@@ -128,6 +126,5 @@
   "POST /api/refunds/",
   "POST /api/refunds/admin/:id/approve",
   "POST /api/refunds/admin/:id/retry",
-  "PUT /api/cart/update",
-  "PUT /api/pharmacy/banking/update"
+  "PUT /api/cart/update"
 ]
