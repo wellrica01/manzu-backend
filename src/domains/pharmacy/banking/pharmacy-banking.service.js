@@ -361,6 +361,18 @@ async function requestBankChange(pharmacyId, actor, { accountNumber, bankCode, b
       tx
     );
 
+
+    // P-08b: a REVIEW change must set the pharmacy flag, because getEffectiveRecipient
+    // reads Pharmacy.bankReviewRequired to decide held=true. Without this, a first-time
+    // setup that mismatched returns held=false with recipientCode=null - the payout
+    // caller sees "no recipient" but the manager's feed cannot tell it is a review hold.
+    if (initialStatus === 'REVIEW') {
+      await tx.pharmacy.update({
+        where: { id: pharmacyId },
+        data: { bankReviewRequired: true },
+      });
+    }
+
     // Legacy audit row (BANKING_SETUP / BANKING_UPDATED) - keeps the existing
     // redaction test green and gives the old mobile builds a familiar trail.
     await createAuditLog({
@@ -475,6 +487,17 @@ async function cancelBankChange(pharmacyId, actor, changeId) {
   const cancelled = await prisma.$transaction(async (tx) => {
     const row = await repository.cancelBankChange(changeId, actor && actor.id != null ? Number(actor.id) : null, tx);
     if (!row) return null;
+    // P-08b: a cancelled REVIEW change must clear Pharmacy.bankReviewRequired,
+    // otherwise the pharmacy stays in "review required" forever with no cause row.
+    // Safe to clear unconditionally when the cancelled row was REVIEW: the partial
+    // unique index (BankChange_one_open_per_pharmacy) guarantees this was the only
+    // open change, so no other REVIEW exists to justify the flag.
+    if (change.status === 'REVIEW') {
+      await tx.pharmacy.update({
+        where: { id: pharmacyId },
+        data: { bankReviewRequired: false },
+      });
+    }
     await createAuditLog({
       action: AUDIT_ACTIONS.BANK_CHANGE_CANCELLED,
       entityType: ENTITY_TYPES.BANK_CHANGE,
@@ -660,6 +683,11 @@ async function markReview(changeId, adminActor, reason) {
     await tx.bankChange.update({
       where: { id: changeId },
       data: { status: 'REVIEW' },
+    });
+    // P-08b: mirror the REVIEW state onto Pharmacy so getEffectiveRecipient sees it.
+    await tx.pharmacy.update({
+      where: { id: change.pharmacyId },
+      data: { bankReviewRequired: true },
     });
     await createAuditLog({
       action: AUDIT_ACTIONS.BANK_CHANGE_REQUESTED, // reuse the "change event" action; details carry the transition
