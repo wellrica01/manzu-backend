@@ -106,6 +106,7 @@ async function createAuditLog({
   entityId,
   before = null,
   userId = null,
+  pharmacyId = null,
   details = {},
   ipAddress = null,
   userAgent = null,
@@ -128,6 +129,7 @@ async function createAuditLog({
       action,
       entityType,
       entityId,
+      pharmacyId,                       // NEW (P-08): explicit event-level pharmacyId
       after: hasDetails ? details : undefined,
       before: before || undefined,
       ip: ipAddress || undefined,

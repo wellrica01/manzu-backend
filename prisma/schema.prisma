@@ -320,6 +320,8 @@ model Pharmacy {
   bankName               String?                  @db.VarChar(100)
   accountName            String?                  @db.VarChar(255)
   recipientCode          String?                  @unique(map: "Pharmacy_recipientCode_unique") @db.VarChar(255)
+  bankAccountLast4       String?                  @db.VarChar(4)
+  bankReviewRequired     Boolean                  @default(false)
   MedicationAvailability MedicationAvailability[]
   OperatingHour          OperatingHour[]
   Order                  Order[]
@@ -328,6 +330,7 @@ model Pharmacy {
   PharmacyUser           PharmacyUser[]
   PushToken              PushToken[]
   Sale                   Sale[]
+  BankChange             BankChange[]
 
   @@index([licenseNumber])
   @@index([name, state])
@@ -360,14 +363,14 @@ model PharmacyUser {
   phone                String?                @db.VarChar(20)
   invitedAt            DateTime?
   disabledAt           DateTime?
-  lastActiveAt         DateTime?                @db.Timestamp(3)
+  lastActiveAt         DateTime?              @db.Timestamp(3)
   invitedById          Int?
-  suspendedAt          DateTime?                @db.Timestamp(3)
+  suspendedAt          DateTime?              @db.Timestamp(3)
   suspendedById        Int?
-  removedAt            DateTime?                @db.Timestamp(3)
-  removedLabel         String?                  @db.VarChar(200)
-  licenceNumber        String?                  @db.VarChar(50)
-  licenceVerifiedAt    DateTime?                @db.Timestamp(3)
+  removedAt            DateTime?              @db.Timestamp(3)
+  removedLabel         String?                @db.VarChar(200)
+  licenceNumber        String?                @db.VarChar(50)
+  licenceVerifiedAt    DateTime?              @db.Timestamp(3)
   PharmacyUserInvite   PharmacyUserInvite[]
 
   @@index([email])
@@ -706,34 +709,34 @@ model ApprovalRequest {
 
 /// Device registry (FND-09, Doc 2). Mirrors sec-01-identity-session.sql.
 model UserDevice {
-  id          BigInt    @id @default(autoincrement())
-  actorType   String    @db.VarChar(16)
-  actorId     Int
-  deviceId    String    @db.VarChar(64)
-  label       String?   @db.VarChar(120)
-  publicKey   String?
-  platform    String?   @db.VarChar(20)
+  id           BigInt    @id @default(autoincrement())
+  actorType    String    @db.VarChar(16)
+  actorId      Int
+  deviceId     String    @db.VarChar(64)
+  label        String?   @db.VarChar(120)
+  publicKey    String?
+  platform     String?   @db.VarChar(20)
   approvedById Int?
-  approvedAt  DateTime? @db.Timestamp(3)
-  trusted     Boolean   @default(false)
-  firstSeenAt DateTime  @default(now()) @db.Timestamp(3)
-  lastSeenAt  DateTime  @default(now()) @db.Timestamp(3)
-  lastIp      String?   @db.VarChar(45)
-  revokedAt   DateTime? @db.Timestamp(3)
+  approvedAt   DateTime? @db.Timestamp(3)
+  trusted      Boolean   @default(false)
+  firstSeenAt  DateTime  @default(now()) @db.Timestamp(3)
+  lastSeenAt   DateTime  @default(now()) @db.Timestamp(3)
+  lastIp       String?   @db.VarChar(45)
+  revokedAt    DateTime? @db.Timestamp(3)
 
   @@unique([actorType, actorId, deviceId], map: "UserDevice_actor_device_key")
   @@map("UserDevice")
 }
 
 model PharmacyUserInvite {
-  id          Int       @id @default(autoincrement())
-  userId      Int
-  codeHash    String    @unique @db.VarChar(64)
-  expiresAt   DateTime  @db.Timestamp(3)
-  usedAt      DateTime? @db.Timestamp(3)
-  attempts    Int       @default(0) @db.SmallInt
-  createdById Int?
-  createdAt   DateTime  @default(now()) @db.Timestamp(3)
+  id           Int          @id @default(autoincrement())
+  userId       Int
+  codeHash     String       @unique @db.VarChar(64)
+  expiresAt    DateTime     @db.Timestamp(3)
+  usedAt       DateTime?    @db.Timestamp(3)
+  attempts     Int          @default(0) @db.SmallInt
+  createdById  Int?
+  createdAt    DateTime     @default(now()) @db.Timestamp(3)
   PharmacyUser PharmacyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -741,23 +744,51 @@ model PharmacyUserInvite {
 }
 
 model PharmacySetting {
-  pharmacyId             Int      @id
-  requireDeviceApproval  Boolean  @default(false)
-  staffOpeningHoursOnly  Boolean  @default(false)
-  lockAfterSeconds       Int      @default(60)
-  discountCapPct         Decimal  @default(0) @db.Decimal(5, 2)
-  voidWindowMinutes      Int      @default(10)
-  adjustThresholdUnits   Int      @default(20)
-  adjustApprovalUnits    Int      @default(100)
-  priceChangeCapPct      Int      @default(30)
-  refundLimitKobo        BigInt   @default(5000000)
-  bankHoldHours          Int      @default(48)
-  dailyDigest            Boolean  @default(true)
-  updatedAt              DateTime @default(now()) @db.Timestamp(3)
-  updatedById            Int?
-  Pharmacy               Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  pharmacyId            Int      @id
+  requireDeviceApproval Boolean  @default(false)
+  staffOpeningHoursOnly Boolean  @default(false)
+  lockAfterSeconds      Int      @default(60)
+  discountCapPct        Decimal  @default(0) @db.Decimal(5, 2)
+  voidWindowMinutes     Int      @default(10)
+  adjustThresholdUnits  Int      @default(20)
+  adjustApprovalUnits   Int      @default(100)
+  priceChangeCapPct     Int      @default(30)
+  refundLimitKobo       BigInt   @default(5000000)
+  bankHoldHours         Int      @default(48)
+  dailyDigest           Boolean  @default(true)
+  updatedAt             DateTime @default(now()) @db.Timestamp(3)
+  updatedById           Int?
+  Pharmacy              Pharmacy @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
 
   @@map("PharmacySetting")
+}
+
+/// Pending bank destination with a cooling-off window (Doc 2 section 6.1, P-08).
+/// The pharmacy's active destination stays on Pharmacy.{recipientCode,accountName,...}
+/// until holdUntil passes and this row is promoted to ACTIVE.
+/// Mirrors prisma/sql/sec-03a-pharmacy-bank.sql - change BOTH together.
+model BankChange {
+  id               Int       @id @default(autoincrement())
+  pharmacyId       Int
+  requestedById    Int
+  kind             String    @db.VarChar(10) // SETUP | UPDATE
+  status           String    @db.VarChar(12) // PENDING | REVIEW | ACTIVE | CANCELLED | REJECTED
+  newBankName      String    @db.VarChar(100)
+  newBankCode      String    @db.VarChar(10)
+  newAccountLast4  String    @db.VarChar(4)
+  newAccountName   String    @db.VarChar(255)
+  newRecipientCode String    @db.VarChar(255)
+  nameMatch        String    @db.VarChar(10) // MATCH | PARTIAL | MISMATCH
+  holdUntil        DateTime  @db.Timestamp(3)
+  activatedAt      DateTime? @db.Timestamp(3)
+  cancelledAt      DateTime? @db.Timestamp(3)
+  cancelledById    Int?
+  clearedById      Int?
+  createdAt        DateTime  @default(now()) @db.Timestamp(3)
+  Pharmacy         Pharmacy  @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@index([status, holdUntil], map: "BankChange_status_holdUntil_idx")
+  @@map("BankChange")
 }
 
 /// Admin rotating refresh tokens (Doc 3). Mirrors sec-01-identity-session.sql.

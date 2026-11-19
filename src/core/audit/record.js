@@ -30,6 +30,7 @@ function buildRow(event, actorOverride) {
     visibility = 'both',
     kind = 'audit',
     clientAt = null,
+    pharmacyId: eventPharmacyId = null,
   } = event || {};
 
   if (!action || typeof action !== 'string') {
@@ -53,6 +54,18 @@ function buildRow(event, actorOverride) {
   const actor = actorOverride || currentActor();
   const actorType = actor && ACTOR_TYPE_VALUES.has(actor.type) ? actor.type : 'system';
 
+  // Explicit event-level pharmacyId wins over the actor's (Doc 2 P-08).
+  // The nightly payout cron runs as actorType 'system' with no pharmacyId,
+  // but its BANK_CHANGE_ACTIVATED rows belong to a specific pharmacy and must
+  // be visible to that manager's feed (P-11). Callers that do not pass
+  // eventPharmacyId get today's behaviour (actor.pharmacyId, else null).
+  const resolvedPharmacyId =
+    eventPharmacyId != null
+      ? eventPharmacyId
+      : actor && actor.pharmacyId != null
+        ? actor.pharmacyId
+        : null;
+
   const redacted = redactFor(action, before, after);
 
   return {
@@ -65,7 +78,7 @@ function buildRow(event, actorOverride) {
     actorId: actor && actor.id != null ? String(actor.id) : null,
     actorRole: actor && actor.role ? String(actor.role).slice(0, 24) : null,
     actorLabel: actor && actor.label ? String(actor.label).slice(0, 120) : null,
-    pharmacyId: actor && actor.pharmacyId != null ? actor.pharmacyId : null,
+    pharmacyId: resolvedPharmacyId,
     entityType,
     entityId: entityId != null ? String(entityId).slice(0, 64) : null,
     before: redacted.before,
