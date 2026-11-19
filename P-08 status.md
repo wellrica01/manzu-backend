@@ -87,6 +87,24 @@
 
 ---
 
+## P-08b (post-ship gap closure)
+
+**Commit:** `fix(P-08b): set/clear Pharmacy.bankReviewRequired on REVIEW transitions`
+
+**Gap:** P-08 shipped with `getEffectiveRecipient` reading `Pharmacy.bankReviewRequired` to decide `held=true`, but the two REVIEW transitions (`requestBankChange` on MISMATCH, `markBankChangeReview`) did not set the flag, and `cancelBankChange` of a REVIEW row did not clear it. Net effect: a first-time setup that mismatched returned `{ recipientCode: null, held: false }`, so the payout caller would have emitted `PAYOUT_FAILED` instead of `PAYOUT_HELD` and the manager feed (P-11) would not have distinguished a review hold from an unconfigured pharmacy.
+
+**Fix:** three one-line writes inside existing transactions:
+- `requestBankChange` (`initialStatus === 'REVIEW'`) → `tx.pharmacy.update({ data: { bankReviewRequired: true } })`
+- `markBankChangeReview` → same
+- `cancelBankChange` (when the cancelled row was REVIEW) → `tx.pharmacy.update({ data: { bankReviewRequired: false } })`
+
+`promoteBankChange` already cleared the flag; no change. `cancelBankChange` of a PENDING row does not touch the flag; no change.
+
+**Known benign race:** `cancelBankChange` reads the change before opening the transaction; if a concurrent process flips PENDING→REVIEW between read and update, the flag would not be cleared. `promoteBankChange` clears it anyway on the eventual path; admin action (Doc 3) is serialised in practice. Not worth `SELECT ... FOR UPDATE`.
+
+**Tests:** `tests/pharmacy-banking-review-flag.test.js` — 5 tests (4 positive transitions + 1 negative case). Full suite: **370/370, 51/51 suites**.
+
+
 ## Open items (for P-08 follow-up, not this PR)
 
 - **`sec-03b`** — drop `Pharmacy.bankAccountNumber` and `Pharmacy.bankCode` from the DB once P-14 confirms no client reads them. The columns are still populated from `BankChange` activations today (`promoteBankChange` writes `bankCode`). Do this after P-14 ships a build that only reads `bankAccountLast4` and `bankName`.
